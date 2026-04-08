@@ -1,13 +1,47 @@
+// {
+//   "name": "Django app",
+//   "dockerComposeFile": "../docker-compose.yml",
+//   "service": "backend",
+//   "workspaceFolder": "/app",
+//   "settings": {
+//     "python.defaultInterpreterPath": "/usr/local/bin/python"
+//   },
+//   "extensions": [
+//     "ms-python.python",
+//     "ms-azuretools.vscode-docker"
+//   ]
+// }
+
+
+// {
+//   "name": "Django app",
+//   "dockerComposeFile": "../docker-compose.yml",
+//   "service": "backend",
+//   "workspaceFolder": "/app",
+//   "settings": {
+//     "python.defaultInterpreterPath": "/usr/local/bin/python"
+//   },
+//   "extensions": [
+//     "ms-python.python",
+//     "ms-azuretools.vscode-docker"
+//   ],
+//   "postCreateCommand": "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+// }
+
+
+// {
+//   "name": "Django app",
+//   "dockerComposeFile": "../docker-compose.yml",
+//   "service": "backend",
+//   "workspaceFolder": "/app",
+//   "postCreateCommand": "python manage.py runserver 0.0.0.0:8000"
+// }
+
+
 {
   "name": "Django app",
   "dockerComposeFile": "../docker-compose.yml",
   "service": "backend",
   "workspaceFolder": "/app",
-  "settings": {
-    "python.defaultInterpreterPath": "/usr/local/bin/python"
-  },
-  "extensions": [
-    "ms-python.python",
-    "ms-azuretools.vscode-docker"
-  ]
+  "postCreateCommand": "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
 }
