@@ -1,0 +1,14 @@
+{% extends "api/base.html" %}
+
+{% block title %}{{ title }} | Station de recharge{% endblock %}
+
+{% block content %}
+<main class="page-shell">
+    <section class="content-card">
+        <p class="eyebrow">Station de recharge</p>
+        <h1>{{ title }}</h1>
+        <p class="lead">{{ description }}</p>
+        <a class="btn btn-secondary" href="{% url 'home' %}">Retour a l'accueil</a>
+    </section>
+</main>
+{% endblock %}

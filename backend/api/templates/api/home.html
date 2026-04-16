@@ -1,0 +1,54 @@
+{% extends "api/base.html" %}
+
+{% block title %}Accueil | Station de recharge{% endblock %}
+
+{% block content %}
+<main class="page-shell">
+    <section class="hero-card">
+        <p class="eyebrow">Mobilite douce et energie intelligente</p>
+        <h1>Rechargez votre velo electrique facilement, rapidement et en toute confiance.</h1>
+        <p class="lead">
+            Notre application accompagne les utilisateurs d'une station de recharge de velo
+            electrique en centralisant l'acces aux bornes, le suivi des sessions de charge
+            et les informations utiles pour rouler sereinement au quotidien.
+        </p>
+
+        <div class="cta-row">
+            <a class="btn btn-primary" href="{% url 'signup' %}">S'inscrire</a>
+            <a class="btn btn-secondary" href="{% url 'login' %}">Se connecter</a>
+        </div>
+
+        <div class="feature-grid">
+            <article class="feature-item">
+                <h2>Une recharge simplifiee</h2>
+                <p>
+                    Accedez rapidement a votre station et lancez votre recharge avec une
+                    interface pensee pour les trajets du quotidien.
+                </p>
+            </article>
+            <article class="feature-item">
+                <h2>Un suivi clair</h2>
+                <p>
+                    Consultez l'etat de votre recharge, votre historique et les informations
+                    utiles pour mieux gerer vos deplacements.
+                </p>
+            </article>
+            <article class="feature-item">
+                <h2>Un service pour les usagers</h2>
+                <p>
+                    L'application met l'accent sur la disponibilite, la simplicite d'usage
+                    et la securite des donnees des utilisateurs.
+                </p>
+            </article>
+        </div>
+    </section>
+</main>
+
+<footer class="site-footer">
+    <p>Station de recharge de velo electrique</p>
+    <nav class="footer-links" aria-label="Liens utiles">
+        <a href="{% url 'contact' %}">Contact</a>
+        <a href="{% url 'privacy' %}">Politique de confidentialite</a>
+    </nav>
+</footer>
+{% endblock %}
