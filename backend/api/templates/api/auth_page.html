@@ -8,34 +8,15 @@
         <p class="eyebrow">Station de recharge</p>
         <h1>{{ title }}</h1>
         <p class="lead">{{ description }}</p>
-
-        <form class="auth-form" method="post">
-            {% csrf_token %}
-
-            {% if form.non_field_errors %}
-                <div class="form-errors">
-                    {{ form.non_field_errors }}
-                </div>
+        <div class="cta-row">
+            {% if primary_cta_url and primary_cta_label %}
+                <a class="btn btn-primary" href="{{ primary_cta_url }}">{{ primary_cta_label }}</a>
             {% endif %}
-
-            {% for field in form %}
-                <div class="form-group">
-                    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
-                    {{ field }}
-                    {% if field.errors %}
-                        <div class="field-errors">{{ field.errors }}</div>
-                    {% endif %}
-                </div>
-            {% endfor %}
-
-            <button class="btn btn-primary" type="submit">{{ submit_label }}</button>
-        </form>
-
-        <p class="form-alt">
-            {{ alternate_label }}
-            <a href="{% url alternate_url %}">{{ alternate_cta }}</a>
-        </p>
-        <a class="btn btn-secondary" href="{% url 'home' %}">Retour a l'accueil</a>
+            {% if secondary_cta_url and secondary_cta_label %}
+                <a class="btn btn-secondary" href="{{ secondary_cta_url }}">{{ secondary_cta_label }}</a>
+            {% endif %}
+        </div>
+        <a class="inline-link" href="{% url 'home' %}">Retour a l'accueil</a>
     </section>
 </main>
 {% endblock %}

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <link rel="stylesheet" href="css/auth.css">
+    <script defer src="js/api.js"></script>
+    <script defer src="js/dashboard.js"></script>
+</head>
+<body>
+    <main class="page">
+        <section class="dashboard-card">
+            <p class="eyebrow">Station de recharge</p>
+            <h1>Dashboard securise</h1>
+            <p class="lead">
+                Vue de ton compte, de tes reservations et de tes sessions de recharge,
+                avec renouvellement JWT transparent si le token access expire.
+            </p>
+
+            <div id="dashboard-status" class="status" aria-live="polite"></div>
+
+            <div class="dashboard-grid">
+                <div class="dashboard-panel">
+                    <div class="metrics">
+                        <div class="metric">
+                            <strong>Pseudo</strong>
+                            <span id="dashboard-pseudo" class="meta">-</span>
+                        </div>
+                        <div class="metric">
+                            <strong>Email</strong>
+                            <span id="dashboard-email" class="meta">-</span>
+                        </div>
+                        <div class="metric">
+                            <strong>Statut</strong>
+                            <span id="dashboard-statut" class="meta">-</span>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-panel dashboard-token-panel">
+                        <p class="panel-title">Etat de session</p>
+                        <div class="dashboard-kpis">
+                            <div class="kpi">
+                                <span class="label">Access token</span>
+                                <span id="access-expiry" class="value">-</span>
+                            </div>
+                            <div class="kpi">
+                                <span class="label">Refresh token</span>
+                                <span id="refresh-expiry" class="value">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <aside class="dashboard-panel">
+                    <p class="panel-title">Apercu rapide</p>
+                    <div class="dashboard-kpis">
+                        <div class="kpi">
+                            <span class="label">Reservations totales</span>
+                            <span id="kpi-reservations-total" class="value">-</span>
+                        </div>
+                        <div class="kpi">
+                            <span class="label">Reservations a venir</span>
+                            <span id="kpi-reservations-upcoming" class="value">-</span>
+                        </div>
+                        <div class="kpi">
+                            <span class="label">Sessions actives</span>
+                            <span id="kpi-active-sessions" class="value">-</span>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+
+            <div class="dashboard-grid dashboard-lists">
+                <section class="dashboard-panel list-card">
+                    <p class="panel-title">Prochaine reservation</p>
+                    <div id="active-session" class="empty-state">Aucune session active pour le moment.</div>
+                    <div id="upcoming-reservations" class="stacked-list"></div>
+                </section>
+
+                <section class="dashboard-panel list-card">
+                    <p class="panel-title">Sessions recentes</p>
+                    <div id="recent-sessions" class="stacked-list"></div>
+                </section>
+            </div>
+
+            <div class="cta-row">
+                <button id="dashboard-logout" class="btn btn-secondary" type="button">Se deconnecter</button>
+                <a class="link-btn" href="/register.html">Nouveau compte</a>
+                <a class="link-btn" href="/login.html">Changer de compte</a>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

@@ -1,2 +1,5 @@
 django
 djangorestframework
+psycopg2-binary  # Driver PostgreSQL pour Django
+django-cors-headers  # Pour gérer les CORS
+djangorestframework-simplejwt

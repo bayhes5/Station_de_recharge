@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
 from .models import (
     Alerte,
@@ -22,8 +23,48 @@ from .models import (
     Utilisateur,
     UtilisateurRole,
 )
+from .forms import UtilisateurChangeForm, UtilisateurCreationForm
 
-admin.site.register(Utilisateur)
+
+@admin.register(Utilisateur)
+class UtilisateurAdmin(BaseUserAdmin):
+    form = UtilisateurChangeForm
+    add_form = UtilisateurCreationForm
+
+    list_display = ("pseudo", "email", "telephone", "statut", "is_staff", "is_active")
+    list_filter = ("is_staff", "is_active", "statut")
+    search_fields = ("pseudo", "email", "telephone")
+    ordering = ("pseudo",)
+
+    fieldsets = (
+        (None, {"fields": ("pseudo", "email", "password")}),
+        ("Informations personnelles", {"fields": ("telephone", "statut")}),
+        (
+            "Permissions",
+            {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")},
+        ),
+        ("Dates importantes", {"fields": ("last_login", "date_joined")}),
+    )
+
+    add_fieldsets = (
+        (
+            None,
+            {
+                "classes": ("wide",),
+                "fields": (
+                    "pseudo",
+                    "email",
+                    "telephone",
+                    "statut",
+                    "password1",
+                    "password2",
+                    "is_staff",
+                    "is_active",
+                ),
+            },
+        ),
+    )
+
 admin.site.register(ProfilUtilisateur)
 admin.site.register(Role)
 admin.site.register(UtilisateurRole)

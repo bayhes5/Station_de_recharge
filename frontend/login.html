@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connexion</title>
+    <link rel="stylesheet" href="css/auth.css">
+    <script defer src="js/api.js"></script>
+    <script defer src="js/login.js"></script>
+</head>
+<body>
+    <main class="page">
+        <section class="auth-card">
+            <p class="eyebrow">Station de recharge</p>
+            <h1>Connexion</h1>
+            <p class="lead">
+                Connecte-toi avec ton pseudo ou ton email pour obtenir un token JWT.
+            </p>
+
+            <form id="login-form" class="auth-form" novalidate>
+                <div class="field">
+                    <label for="identifiant">Pseudo ou email</label>
+                    <input id="identifiant" name="identifiant" type="text" autocomplete="username" required>
+                </div>
+                <div class="field">
+                    <label for="password">Mot de passe</label>
+                    <input id="password" name="password" type="password" autocomplete="current-password" required>
+                </div>
+
+                <button class="btn btn-primary" type="submit">Se connecter</button>
+                <p id="login-status" class="status" aria-live="polite"></p>
+            </form>
+
+            <div class="cta-row">
+                <a class="btn btn-secondary" href="/register.html">Creer un compte</a>
+                <a class="link-btn" href="/">Retour a l'accueil</a>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

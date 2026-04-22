@@ -1,6 +1,56 @@
+// {
+//   "name": "Django Dev",
+//   "dockerComposeFile": "../docker-compose.yml",
+//   "service": "backend",
+//   "workspaceFolder": "/app"
+// }
+
+// {
+//   "name": "Django + PostgreSQL + Nginx",
+//   "dockerComposeFile": "docker-compose.yml",
+//   "service": "backend",  // Service par défaut où VS Code s'attache
+//   "workspaceFolder": "/app",
+//   "shutdownAction": "stopCompose",
+//   "customizations": {
+//     "vscode": {
+//       "extensions": [
+//         "ms-python.python",
+//         "mtxr.sqltools",
+//         "mtxr.sqltools-driver-pg"
+//       ]
+//     }
+//   },
+//   // Optionnel : Pour éviter les problèmes de permissions sous Windows
+//   "containerUser": "vscode",
+//   "runArgs": ["--user", "1000:1000"]
+//}
+
+// {
+//   "name": "Django + PostgreSQL + Nginx",
+//   "dockerComposeFile": "docker-compose.yml",
+//   "service": "backend",
+//   "workspaceFolder": "/app",
+//   "shutdownAction": "stopCompose",
+//   "customizations": {
+//     "vscode": {
+//       "extensions": [
+//         "ms-python.python",
+//         "mtxr.sqltools",
+//         "mtxr.sqltools-driver-pg"
+//       ]
+//     }
+//   },
+//   // Désactive les options problématiques sous Windows
+// //  "runArgs": [],
+//   "containerUser": "root",
+//   "overrideCommand": false,
+//   "forwardPorts": [8000, 8080, 5432]
+// }
+
 {
-  "name": "Django Dev",
+  "name": "Django Backend",
   "dockerComposeFile": "../docker-compose.yml",
   "service": "backend",
-  "workspaceFolder": "/app"
+  "workspaceFolder": "/app",
+  "shutdownAction": "stopCompose"
 }

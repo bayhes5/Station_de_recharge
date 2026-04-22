@@ -1,17 +1,58 @@
 import uuid
 
+from django.contrib.auth.base_user import BaseUserManager
+from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.db import models
 from django.utils import timezone
 
 
-class Utilisateur(models.Model):
+class UtilisateurManager(BaseUserManager):
+    use_in_migrations = True
+
+    def get_by_natural_key(self, pseudo):
+        return self.get(pseudo=pseudo)
+
+    def create_user(self, pseudo, email, password=None, **extra_fields):
+        if not pseudo:
+            raise ValueError("Le pseudo est obligatoire.")
+        if not email:
+            raise ValueError("L'email est obligatoire.")
+
+        email = self.normalize_email(email)
+        user = self.model(pseudo=pseudo, email=email, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, pseudo, email, password=None, **extra_fields):
+        extra_fields.setdefault("is_staff", True)
+        extra_fields.setdefault("is_superuser", True)
+        extra_fields.setdefault("is_active", True)
+
+        if extra_fields.get("is_staff") is not True:
+            raise ValueError("Le superuser doit avoir is_staff=True.")
+        if extra_fields.get("is_superuser") is not True:
+            raise ValueError("Le superuser doit avoir is_superuser=True.")
+
+        return self.create_user(pseudo, email, password, **extra_fields)
+
+
+class Utilisateur(AbstractBaseUser, PermissionsMixin):
     id_user = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     pseudo = models.CharField(max_length=150, unique=True)
     email = models.EmailField(unique=True)
     telephone = models.CharField(max_length=30, blank=True)
-    statut = models.CharField(max_length=50)
+    statut = models.CharField(max_length=50, default="actif")
     created_at = models.DateTimeField(auto_now_add=True)
-    last_login = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(default=False)
+    date_joined = models.DateTimeField(default=timezone.now)
+
+    objects = UtilisateurManager()
+
+    USERNAME_FIELD = "pseudo"
+    EMAIL_FIELD = "email"
+    REQUIRED_FIELDS = ["email"]
 
     class Meta:
         db_table = "utilisateur"
