@@ -56,12 +56,12 @@
                     <p class="panel-title">Apercu rapide</p>
                     <div class="dashboard-kpis">
                         <div class="kpi">
-                            <span class="label">Reservations totales</span>
-                            <span id="kpi-reservations-total" class="value">-</span>
+                            <span class="label">Sessions totales</span>
+                            <span id="kpi-sessions-total" class="value">-</span>
                         </div>
                         <div class="kpi">
-                            <span class="label">Reservations a venir</span>
-                            <span id="kpi-reservations-upcoming" class="value">-</span>
+                            <span class="label">Sessions terminees</span>
+                            <span id="kpi-past-sessions" class="value">-</span>
                         </div>
                         <div class="kpi">
                             <span class="label">Sessions actives</span>
@@ -73,13 +73,12 @@
 
             <div class="dashboard-grid dashboard-lists">
                 <section class="dashboard-panel list-card">
-                    <p class="panel-title">Prochaine reservation</p>
+                    <p class="panel-title">Session active</p>
                     <div id="active-session" class="empty-state">Aucune session active pour le moment.</div>
-                    <div id="upcoming-reservations" class="stacked-list"></div>
                 </section>
 
                 <section class="dashboard-panel list-card">
-                    <p class="panel-title">Sessions recentes</p>
+                    <p class="panel-title">Historique des recharges</p>
                     <div id="recent-sessions" class="stacked-list"></div>
                 </section>
             </div>
@@ -88,6 +87,8 @@
                 <button id="dashboard-logout" class="btn btn-secondary" type="button">Se deconnecter</button>
                 <a class="link-btn" href="/register.html">Nouveau compte</a>
                 <a class="link-btn" href="/login.html">Changer de compte</a>
+                <a class="link-btn" href="/profile.html">Profil</a>
+                <a id="admin-link" class="link-btn" href="/admin-dashboard.html" hidden>Admin</a>
             </div>
         </section>
     </main>

@@ -3,21 +3,97 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="0; url=/dashboard.html">
     <title>Profil</title>
     <link rel="stylesheet" href="css/auth.css">
+    <script defer src="js/api.js"></script>
+    <script defer src="js/profile.js"></script>
 </head>
 <body>
     <main class="page">
-        <section class="auth-card">
+        <section class="dashboard-card">
             <p class="eyebrow">Station de recharge</p>
-            <h1>Le profil a ete remplace par le dashboard</h1>
+            <h1>Profil utilisateur</h1>
             <p class="lead">
-                Tu es redirige vers la page securisee du compte.
+                Modifie tes informations, change ton mot de passe, telecharge tes donnees
+                et supprime ton compte si tu le souhaites.
             </p>
-            <div class="cta-row">
-                <a class="btn btn-primary" href="/dashboard.html">Aller au dashboard</a>
-                <a class="btn btn-secondary" href="/login.html">Retour connexion</a>
+
+            <div id="profile-status" class="status" aria-live="polite"></div>
+
+            <div class="dashboard-grid">
+                <section class="dashboard-panel">
+                    <p class="panel-title">Informations personnelles</p>
+                    <form id="profile-form" class="account-form">
+                        <div class="form-grid">
+                            <div class="field">
+                                <label for="profile-pseudo">Pseudo</label>
+                                <input id="profile-pseudo" name="pseudo" type="text" required>
+                            </div>
+                            <div class="field">
+                                <label for="profile-email">Email</label>
+                                <input id="profile-email" name="email" type="email" required>
+                            </div>
+                        </div>
+                        <div class="form-grid">
+                            <div class="field">
+                                <label for="profile-telephone">Telephone</label>
+                                <input id="profile-telephone" name="telephone" type="tel">
+                            </div>
+                            <div class="field">
+                                <label for="profile-nom">Nom</label>
+                                <input id="profile-nom" name="nom" type="text">
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label for="profile-statut">Statut</label>
+                            <input id="profile-statut" name="statut" type="text" readonly>
+                        </div>
+                        <button class="btn btn-primary" type="submit">Enregistrer</button>
+                    </form>
+                </section>
+
+                <section class="dashboard-panel">
+                    <p class="panel-title">Mot de passe</p>
+                    <form id="password-form" class="account-form">
+                        <div class="field">
+                            <label for="current-password">Mot de passe actuel</label>
+                            <input id="current-password" name="current_password" type="password" required>
+                        </div>
+                        <div class="field">
+                            <label for="new-password">Nouveau mot de passe</label>
+                            <input id="new-password" name="new_password" type="password" required>
+                        </div>
+                        <div class="field">
+                            <label for="confirm-password">Confirmation</label>
+                            <input id="confirm-password" name="confirm_password" type="password" required>
+                        </div>
+                        <button class="btn btn-primary" type="submit">Changer le mot de passe</button>
+                    </form>
+                </section>
+            </div>
+
+            <div class="dashboard-grid section-block">
+                <section class="dashboard-panel">
+                    <p class="panel-title">RGPD</p>
+                    <p class="lead">
+                        Recupere une copie de ton compte ou supprime-le definitivement.
+                    </p>
+                    <div class="cta-row">
+                        <button id="export-btn" class="btn btn-secondary" type="button">Telecharger mes donnees</button>
+                        <button id="delete-btn" class="btn btn-secondary" type="button">Supprimer mon compte</button>
+                    </div>
+                </section>
+
+                <section class="dashboard-panel danger-zone">
+                    <p class="panel-title">Compte</p>
+                    <p class="danger-text">
+                        La suppression efface le compte et ses donnees associees selon les regles de cascade.
+                    </p>
+                    <div class="cta-row">
+                        <a class="link-btn" href="/dashboard.html">Retour dashboard</a>
+                        <button id="logout-btn" class="btn btn-secondary" type="button">Se deconnecter</button>
+                    </div>
+                </section>
             </div>
         </section>
     </main>

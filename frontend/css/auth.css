@@ -91,6 +91,36 @@ h1 {
     margin-top: 28px;
 }
 
+.account-form {
+    display: grid;
+    gap: 14px;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.section-block {
+    margin-top: 22px;
+    padding-top: 22px;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.danger-zone {
+    border-color: rgba(255, 122, 122, 0.24);
+    background: rgba(255, 122, 122, 0.08);
+}
+
+.danger-zone .panel-title {
+    color: #ffb1b1;
+}
+
+.danger-text {
+    color: #ffd0d0;
+}
+
 .field {
     display: grid;
     gap: 8px;
@@ -101,7 +131,8 @@ h1 {
     font-weight: 600;
 }
 
-.field input {
+.field input,
+.field select {
     width: 100%;
     border: 1px solid rgba(255, 255, 255, 0.14);
     border-radius: 16px;
@@ -115,9 +146,14 @@ h1 {
     color: rgba(236, 246, 251, 0.55);
 }
 
-.field input:focus {
+.field input:focus,
+.field select:focus {
     border-color: rgba(63, 212, 177, 0.6);
     box-shadow: 0 0 0 4px rgba(63, 212, 177, 0.14);
+}
+
+.field option {
+    color: #0b1a23;
 }
 
 .helper,
@@ -329,6 +365,10 @@ h1 {
     }
 
     .metrics {
+        grid-template-columns: 1fr;
+    }
+
+    .form-grid {
         grid-template-columns: 1fr;
     }
 

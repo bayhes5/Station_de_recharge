@@ -25,7 +25,9 @@ document.addEventListener("DOMContentLoaded", () => {
             window.AuthAPI.setTokens(result);
             status.textContent = "Connexion réussie.";
             window.setTimeout(() => {
-                window.location.href = "/dashboard.html";
+                window.location.href = result.user?.is_staff
+                    ? "/admin-dashboard.html"
+                    : "/dashboard.html";
             }, 800);
         } catch (error) {
             status.classList.add("error");

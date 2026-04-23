@@ -16,22 +16,6 @@ function renderBadge(status) {
     return badge;
 }
 
-function renderReservationCard(reservation) {
-    const item = document.createElement("article");
-    item.className = "list-item";
-
-    item.innerHTML = `
-        <div class="list-item-head">
-            <strong>${reservation.station}</strong>
-            <span>${reservation.statut}</span>
-        </div>
-        <p>Emplacement ${reservation.emplacement}</p>
-        <p>${formatDateTime(reservation.date_debut)} - ${formatDateTime(reservation.date_fin)}</p>
-    `;
-
-    return item;
-}
-
 function renderSessionCard(session) {
     const item = document.createElement("article");
     item.className = "list-item";
@@ -60,6 +44,7 @@ function renderEmpty(container, message) {
 document.addEventListener("DOMContentLoaded", async () => {
     const status = document.getElementById("dashboard-status");
     const logoutBtn = document.getElementById("dashboard-logout");
+    const adminLink = document.getElementById("admin-link");
 
     logoutBtn.addEventListener("click", () => {
         window.AuthAPI.logout();
@@ -91,12 +76,9 @@ document.addEventListener("DOMContentLoaded", async () => {
             ? "Expire"
             : `Expire dans ${snapshot.refreshReadable}`;
 
-        document.getElementById("kpi-reservations-total").textContent =
-            result.stats.reservations_total;
-        document.getElementById("kpi-reservations-upcoming").textContent =
-            result.stats.reservations_upcoming;
-        document.getElementById("kpi-active-sessions").textContent =
-            result.stats.active_sessions;
+        document.getElementById("kpi-sessions-total").textContent = result.stats.sessions_total;
+        document.getElementById("kpi-past-sessions").textContent = result.stats.past_sessions;
+        document.getElementById("kpi-active-sessions").textContent = result.stats.active_sessions;
 
         const activeSessionContainer = document.getElementById("active-session");
         activeSessionContainer.innerHTML = "";
@@ -109,24 +91,18 @@ document.addEventListener("DOMContentLoaded", async () => {
             activeSessionContainer.textContent = "Aucune session active pour le moment.";
         }
 
-        const upcomingReservationsContainer = document.getElementById("upcoming-reservations");
-        upcomingReservationsContainer.innerHTML = "";
-        if (result.upcoming_reservations.length === 0) {
-            renderEmpty(upcomingReservationsContainer, "Aucune reservation a venir.");
+        const historyContainer = document.getElementById("recent-sessions");
+        historyContainer.innerHTML = "";
+        if (result.recharge_history.length === 0) {
+            renderEmpty(historyContainer, "Aucune recharge a afficher.");
         } else {
-            result.upcoming_reservations.forEach((reservation) => {
-                upcomingReservationsContainer.appendChild(renderReservationCard(reservation));
+            result.recharge_history.forEach((sessionItem) => {
+                historyContainer.appendChild(renderSessionCard(sessionItem));
             });
         }
 
-        const recentSessionsContainer = document.getElementById("recent-sessions");
-        recentSessionsContainer.innerHTML = "";
-        if (result.recent_sessions.length === 0) {
-            renderEmpty(recentSessionsContainer, "Aucune session enregistree.");
-        } else {
-            result.recent_sessions.forEach((sessionItem) => {
-                recentSessionsContainer.appendChild(renderSessionCard(sessionItem));
-            });
+        if (user.is_staff) {
+            adminLink.hidden = false;
         }
 
         status.textContent = `Session valide. Access: ${snapshot.accessReadable}, refresh: ${snapshot.refreshReadable}.`;

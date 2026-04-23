@@ -107,10 +107,13 @@ services:
       - DB_NAME=station
       - DB_USER=user
       - DB_PASSWORD=password
+      - ADMIN_PSEUDO=admin
+      - ADMIN_EMAIL=admin@station.local
+      - ADMIN_PASSWORD=Admin123!
     depends_on:
       db:
         condition: service_healthy  # <-- Attend que le healthcheck passe
-    command: python manage.py runserver 0.0.0.0:8000
+    command: sh -c "python manage.py migrate --noinput && python manage.py bootstrap_superuser && python manage.py runserver 0.0.0.0:8000"
 
   frontend:
      image: nginx:alpine

@@ -215,6 +215,122 @@ async function getDashboard() {
     });
 }
 
+async function getProfile() {
+    return doRequest("/me/profile/", {
+        method: "GET",
+    });
+}
+
+async function updateProfile(data) {
+    return doRequest("/me/profile/", {
+        method: "PATCH",
+        body: JSON.stringify(data),
+    });
+}
+
+async function changePassword(data) {
+    return doRequest("/me/change-password/", {
+        method: "POST",
+        body: JSON.stringify(data),
+    });
+}
+
+async function exportAccount() {
+    return doRequest("/me/export/", {
+        method: "GET",
+    });
+}
+
+async function deleteAccount() {
+    return doRequest("/me/profile/", {
+        method: "DELETE",
+    });
+}
+
+async function getAdminOverview() {
+    return doRequest("/admin/overview/", {
+        method: "GET",
+    });
+}
+
+async function getAdminUsers() {
+    return doRequest("/admin/users/", {
+        method: "GET",
+    });
+}
+
+async function createAdminUser(data) {
+    return doRequest("/admin/users/", {
+        method: "POST",
+        body: JSON.stringify(data),
+    });
+}
+
+async function updateAdminUser(id, data) {
+    return doRequest(`/admin/users/${id}/`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+    });
+}
+
+async function deleteAdminUser(id) {
+    return doRequest(`/admin/users/${id}/`, {
+        method: "DELETE",
+    });
+}
+
+async function getAdminStations() {
+    return doRequest("/admin/stations/", {
+        method: "GET",
+    });
+}
+
+async function createAdminStation(data) {
+    return doRequest("/admin/stations/", {
+        method: "POST",
+        body: JSON.stringify(data),
+    });
+}
+
+async function updateAdminStation(id, data) {
+    return doRequest(`/admin/stations/${id}/`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+    });
+}
+
+async function deleteAdminStation(id) {
+    return doRequest(`/admin/stations/${id}/`, {
+        method: "DELETE",
+    });
+}
+
+async function getAdminEmplacements() {
+    return doRequest("/admin/emplacements/", {
+        method: "GET",
+    });
+}
+
+async function createAdminEmplacement(data) {
+    return doRequest("/admin/emplacements/", {
+        method: "POST",
+        body: JSON.stringify(data),
+    });
+}
+
+async function updateAdminEmplacement(id, data) {
+    return doRequest(`/admin/emplacements/${id}/`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+    });
+}
+
+async function deleteAdminEmplacement(id) {
+    return doRequest(`/admin/emplacements/${id}/`, {
+        method: "DELETE",
+    });
+}
+
 async function ensureSession() {
     if (!getAccessToken() && !getRefreshToken()) {
         return null;
@@ -261,6 +377,24 @@ window.AuthAPI = {
     login,
     getMe,
     getDashboard,
+    getProfile,
+    updateProfile,
+    changePassword,
+    exportAccount,
+    deleteAccount,
+    getAdminOverview,
+    getAdminUsers,
+    createAdminUser,
+    updateAdminUser,
+    deleteAdminUser,
+    getAdminStations,
+    createAdminStation,
+    updateAdminStation,
+    deleteAdminStation,
+    getAdminEmplacements,
+    createAdminEmplacement,
+    updateAdminEmplacement,
+    deleteAdminEmplacement,
     ensureSession,
     refreshAccessToken,
     getTokenPayload,

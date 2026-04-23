@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin dashboard</title>
+    <link rel="stylesheet" href="css/auth.css">
+    <script defer src="js/api.js"></script>
+    <script defer src="js/admin-dashboard.js"></script>
+</head>
+<body>
+    <main class="page">
+        <section class="dashboard-card">
+            <p class="eyebrow">Station de recharge</p>
+            <h1>Admin dashboard</h1>
+            <p class="lead">
+                Gestion des utilisateurs, stations et emplacements. L'acces est reserve
+                aux comptes administrateurs.
+            </p>
+
+            <div id="admin-status" class="status" aria-live="polite"></div>
+
+            <div class="dashboard-grid">
+                <section class="dashboard-panel">
+                    <p class="panel-title">Vue globale</p>
+                    <div class="dashboard-kpis">
+                        <div class="kpi">
+                            <span class="label">Utilisateurs</span>
+                            <span id="stat-users" class="value">-</span>
+                        </div>
+                        <div class="kpi">
+                            <span class="label">Stations</span>
+                            <span id="stat-stations" class="value">-</span>
+                        </div>
+                        <div class="kpi">
+                            <span class="label">Emplacements</span>
+                            <span id="stat-emplacements" class="value">-</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="dashboard-panel">
+                    <p class="panel-title">Actions rapides</p>
+                    <div class="cta-row">
+                        <button id="refresh-admin" class="btn btn-secondary" type="button">Rafraichir</button>
+                        <a class="link-btn" href="/dashboard.html">Retour user</a>
+                        <button id="logout-admin" class="btn btn-secondary" type="button">Se deconnecter</button>
+                    </div>
+                </section>
+            </div>
+
+            <div class="dashboard-grid dashboard-lists">
+                <section class="dashboard-panel">
+                    <p class="panel-title">Utilisateur</p>
+                    <form id="user-form" class="account-form">
+                        <input type="hidden" name="user_id">
+                        <div class="form-grid">
+                            <div class="field">
+                                <label for="user-pseudo">Pseudo</label>
+                                <input id="user-pseudo" name="pseudo" type="text" required>
+                            </div>
+                            <div class="field">
+                                <label for="user-email">Email</label>
+                                <input id="user-email" name="email" type="email" required>
+                            </div>
+                        </div>
+                        <div class="form-grid">
+                            <div class="field">
+                                <label for="user-telephone">Telephone</label>
+                                <input id="user-telephone" name="telephone" type="text">
+                            </div>
+                            <div class="field">
+                                <label for="user-nom">Nom</label>
+                                <input id="user-nom" name="nom" type="text">
+                            </div>
+                        </div>
+                        <div class="form-grid">
+                            <div class="field">
+                                <label for="user-statut">Statut</label>
+                                <input id="user-statut" name="statut" type="text" value="actif">
+                            </div>
+                            <div class="field">
+                                <label for="user-password">Mot de passe</label>
+                                <input id="user-password" name="password" type="password">
+                            </div>
+                        </div>
+                        <div class="form-grid">
+                            <div class="field">
+                                <label><input id="user-is-active" name="is_active" type="checkbox" checked> Actif</label>
+                            </div>
+                            <div class="field">
+                                <label><input id="user-is-staff" name="is_staff" type="checkbox"> Staff</label>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label><input id="user-is-superuser" name="is_superuser" type="checkbox"> Superuser</label>
+                        </div>
+                        <div class="cta-row">
+                            <button class="btn btn-primary" type="submit">Enregistrer utilisateur</button>
+                            <button id="user-cancel" class="btn btn-secondary" type="button">Annuler</button>
+                        </div>
+                    </form>
+                </section>
+
+                <section class="dashboard-panel">
+                    <p class="panel-title">Station</p>
+                    <form id="station-form" class="account-form">
+                        <input type="hidden" name="station_id">
+                        <div class="field">
+                            <label for="station-nom">Nom</label>
+                            <input id="station-nom" name="nom" type="text" required>
+                        </div>
+                        <div class="field">
+                            <label for="station-localisation">Localisation</label>
+                            <input id="station-localisation" name="localisation_text" type="text" required>
+                        </div>
+                        <div class="form-grid">
+                            <div class="field">
+                                <label for="station-latitude">Latitude</label>
+                                <input id="station-latitude" name="latitude" type="number" step="any" required>
+                            </div>
+                            <div class="field">
+                                <label for="station-longitude">Longitude</label>
+                                <input id="station-longitude" name="longitude" type="number" step="any" required>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label for="station-statut">Statut</label>
+                            <input id="station-statut" name="statut" type="text" required>
+                        </div>
+                        <div class="cta-row">
+                            <button class="btn btn-primary" type="submit">Enregistrer station</button>
+                            <button id="station-cancel" class="btn btn-secondary" type="button">Annuler</button>
+                        </div>
+                    </form>
+                </section>
+            </div>
+
+            <div class="dashboard-grid dashboard-lists">
+                <section class="dashboard-panel">
+                    <p class="panel-title">Emplacement</p>
+                    <form id="emplacement-form" class="account-form">
+                        <input type="hidden" name="emplacement_id">
+                        <div class="field">
+                            <label for="emplacement-station">Station</label>
+                            <select id="emplacement-station" name="station" required></select>
+                        </div>
+                        <div class="form-grid">
+                            <div class="field">
+                                <label for="emplacement-numero">Numero</label>
+                                <input id="emplacement-numero" name="numero" type="number" required>
+                            </div>
+                            <div class="field">
+                                <label for="emplacement-statut">Statut</label>
+                                <input id="emplacement-statut" name="statut" type="text" required>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label for="emplacement-lock">Etat serrure</label>
+                            <input id="emplacement-lock" name="lock_state" type="text" required>
+                        </div>
+                        <div class="cta-row">
+                            <button class="btn btn-primary" type="submit">Enregistrer emplacement</button>
+                            <button id="emplacement-cancel" class="btn btn-secondary" type="button">Annuler</button>
+                        </div>
+                    </form>
+                </section>
+
+                <section class="dashboard-panel list-card">
+                    <p class="panel-title">Utilisateurs</p>
+                    <div id="users-list" class="stacked-list"></div>
+                </section>
+            </div>
+
+            <div class="dashboard-grid dashboard-lists">
+                <section class="dashboard-panel list-card">
+                    <p class="panel-title">Stations</p>
+                    <div id="stations-list" class="stacked-list"></div>
+                </section>
+
+                <section class="dashboard-panel list-card">
+                    <p class="panel-title">Emplacements</p>
+                    <div id="emplacements-list" class="stacked-list"></div>
+                </section>
+            </div>
+        </section>
+    </main>
+</body>
+</html>
