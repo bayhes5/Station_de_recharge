@@ -4,17 +4,15 @@ Prototype de station de recharge de velos electriques avec backend Django, ossat
 
 ## Demarrage rapide
 
-1. Ouvrir le projet dans le DevContainer.
-2. Lancer les migrations :
+1. Copier `.env.example` vers `.env` si besoin et ajuster les variables.
+2. Demarrer la stack Docker :
 
 ```bash
-python manage.py migrate
+docker compose up -d --build
 ```
 
-3. Demarrer le serveur :
+3. Ouvrir :
+- `http://localhost:8000` pour le backend Django
+- `http://localhost:8080` pour le frontend statique
 
-```bash
-python manage.py runserver 0.0.0.0:8000
-```
-
-4. Ouvrir `http://localhost:8000`
+4. Le superuser local est bootstrap automatiquement au demarrage du backend.

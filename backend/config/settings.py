@@ -1,16 +1,32 @@
 from pathlib import Path
-
 from datetime import timedelta
-
 import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = "dev-key"
+def env_bool(name, default=False):
+    return str(os.environ.get(name, str(default))).strip().lower() in {"1", "true", "yes", "on"}
 
-DEBUG = True
 
-ALLOWED_HOSTS = ["*"]
+def env_int(name, default):
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def env_list(name, default):
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+SECRET_KEY = os.environ.get("SECRET_KEY", "dev-key")
+
+DEBUG = env_bool("DEBUG", True)
+
+ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", ["*"])
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -65,8 +81,8 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=env_int("SIMPLE_JWT_ACCESS_MINUTES", 60)),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=env_int("SIMPLE_JWT_REFRESH_DAYS", 7)),
     'AUTH_HEADER_TYPES': ('Bearer',),
     'USER_ID_FIELD': 'id_user',
     'USER_ID_CLAIM': 'user_id',
@@ -96,10 +112,13 @@ DATABASES = {
     }
 }
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:8080",
-    "http://127.0.0.1:8080",
-]
+CORS_ALLOWED_ORIGINS = env_list(
+    "CORS_ALLOWED_ORIGINS",
+    [
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+    ],
+)
 
 LANGUAGE_CODE = "fr-fr"
 
