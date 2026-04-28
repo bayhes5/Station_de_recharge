@@ -1,61 +1,112 @@
-function createItemRow(title, details, onEdit, onDelete) {
-    const item = document.createElement("article");
-    item.className = "list-item";
+function toLocalInputValue(value) {
+    if (!value) return "";
+    const date = new Date(value);
+    const offset = date.getTimezoneOffset() * 60000;
+    return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
 
-    const head = document.createElement("div");
-    head.className = "list-item-head";
+function fromLocalInputValue(value) {
+    if (!value) return "";
+    return new Date(value).toISOString();
+}
 
-    const titleEl = document.createElement("strong");
-    titleEl.textContent = title;
+function createActionButton(label, onClick) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "table-action";
+    button.textContent = label;
+    button.addEventListener("click", onClick);
+    return button;
+}
 
-    const actions = document.createElement("div");
-    actions.className = "cta-row";
-    actions.style.marginTop = "0";
-    actions.style.gap = "8px";
+function createDataTable(container, columns, rows, emptyMessage) {
+    container.innerHTML = "";
 
-    const editButton = document.createElement("button");
-    editButton.type = "button";
-    editButton.className = "btn btn-secondary";
-    editButton.textContent = "Modifier";
-    editButton.addEventListener("click", onEdit);
+    if (!rows.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty-state";
+        empty.textContent = emptyMessage;
+        container.appendChild(empty);
+        return;
+    }
 
-    const deleteButton = document.createElement("button");
-    deleteButton.type = "button";
-    deleteButton.className = "btn btn-secondary";
-    deleteButton.textContent = "Supprimer";
-    deleteButton.addEventListener("click", onDelete);
+    const tableWrap = document.createElement("div");
+    tableWrap.className = "data-table-wrap";
+    const table = document.createElement("table");
+    table.className = "data-table";
 
-    actions.appendChild(editButton);
-    actions.appendChild(deleteButton);
-    head.appendChild(titleEl);
-    head.appendChild(actions);
-    item.appendChild(head);
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    columns.forEach((column) => {
+        const th = document.createElement("th");
+        th.textContent = column.label;
+        headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
 
-    details.forEach((line) => {
-        const p = document.createElement("p");
-        p.textContent = line;
-        item.appendChild(p);
+    const tbody = document.createElement("tbody");
+    rows.forEach((row) => {
+        const tr = document.createElement("tr");
+        columns.forEach((column) => {
+            const td = document.createElement("td");
+            const value = column.render ? column.render(row) : row[column.key];
+            if (value instanceof Node) {
+                td.appendChild(value);
+            } else {
+                td.textContent = value ?? "-";
+            }
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
     });
 
-    return item;
+    table.appendChild(thead);
+    table.appendChild(tbody);
+    tableWrap.appendChild(table);
+    container.appendChild(tableWrap);
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+    const AUTO_REFRESH_MS = 30000;
     const status = document.getElementById("admin-status");
     const logoutBtn = document.getElementById("logout-admin");
-    const refreshBtn = document.getElementById("refresh-admin");
     const userForm = document.getElementById("user-form");
     const stationForm = document.getElementById("station-form");
     const emplacementForm = document.getElementById("emplacement-form");
+    const technicianForm = document.getElementById("technician-form");
+    const maintenanceForm = document.getElementById("maintenance-form");
     const userCancel = document.getElementById("user-cancel");
     const stationCancel = document.getElementById("station-cancel");
     const emplacementCancel = document.getElementById("emplacement-cancel");
+    const technicianCancel = document.getElementById("technician-cancel");
+    const maintenanceCancel = document.getElementById("maintenance-cancel");
 
     let users = [];
     let stations = [];
     let emplacements = [];
-    let isStaff = false;
+    let technicians = [];
+    let maintenances = [];
     let currentAdminId = null;
+    let isLoading = false;
+
+    function setAdminTab(name) {
+        document.querySelectorAll("[data-admin-tab]").forEach((button) => {
+            button.classList.toggle("active", button.dataset.adminTab === name);
+            button.setAttribute("aria-selected", String(button.dataset.adminTab === name));
+        });
+        document.querySelectorAll("[data-admin-panel]").forEach((panel) => {
+            panel.hidden = panel.dataset.adminPanel !== name;
+        });
+    }
+
+    function setStatus(message, isError = false) {
+        status.classList.toggle("error", isError);
+        status.textContent = message;
+    }
+
+    function isEditingForm() {
+        return Boolean(document.activeElement?.closest("form"));
+    }
 
     function resetUserForm() {
         userForm.user_id.value = "";
@@ -68,7 +119,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         userForm.is_active.checked = true;
         userForm.is_staff.checked = false;
         userForm.is_superuser.checked = false;
-        userForm.querySelector('button[type="submit"]').textContent = "Enregistrer utilisateur";
+        userForm.querySelector('button[type="submit"]').textContent = "Enregistrer l’utilisateur";
     }
 
     function resetStationForm() {
@@ -78,218 +129,358 @@ document.addEventListener("DOMContentLoaded", async () => {
         stationForm.latitude.value = "";
         stationForm.longitude.value = "";
         stationForm.statut.value = "active";
-        stationForm.querySelector('button[type="submit"]').textContent = "Enregistrer station";
+        stationForm.querySelector('button[type="submit"]').textContent = "Enregistrer la station";
     }
 
     function resetEmplacementForm() {
         emplacementForm.emplacement_id.value = "";
-        emplacementForm.station.value = "";
         emplacementForm.numero.value = "";
         emplacementForm.statut.value = "disponible";
-        emplacementForm.lock_state.value = "verrouille";
-        emplacementForm.querySelector('button[type="submit"]').textContent = "Enregistrer emplacement";
+        emplacementForm.lock_state.value = "verrouillée";
+        emplacementForm.querySelector('button[type="submit"]').textContent = "Enregistrer l’emplacement";
     }
 
-    function fillStationSelect() {
-        const select = emplacementForm.station;
-        select.innerHTML = "";
-        const placeholder = document.createElement("option");
-        placeholder.value = "";
-        placeholder.textContent = "Choisir une station";
-        select.appendChild(placeholder);
+    function resetTechnicianForm() {
+        technicianForm.technician_id.value = "";
+        technicianForm.utilisateur.value = "";
+        technicianForm.nom.value = "";
+        technicianForm.email.value = "";
+        technicianForm.telephone.value = "";
+        technicianForm.querySelector('button[type="submit"]').textContent = "Enregistrer le technicien";
+    }
 
-        stations.forEach((station) => {
+    function resetMaintenanceForm() {
+        maintenanceForm.maintenance_id.value = "";
+        maintenanceForm.station.value = "";
+        maintenanceForm.technicien.value = "";
+        maintenanceForm.type.value = "";
+        maintenanceForm.description.value = "";
+        maintenanceForm.status.value = "planifiée";
+        maintenanceForm.date_planifiee.value = "";
+        maintenanceForm.date_realisee.value = "";
+        maintenanceForm.querySelector('button[type="submit"]').textContent = "Enregistrer la maintenance";
+    }
+
+    function fillSelect(select, options, placeholder, getValue, getLabel) {
+        select.innerHTML = "";
+        const first = document.createElement("option");
+        first.value = "";
+        first.textContent = placeholder;
+        select.appendChild(first);
+        options.forEach((item) => {
             const option = document.createElement("option");
-            option.value = station.id_station;
-            option.textContent = `${station.nom} - ${station.localisation_text}`;
+            option.value = getValue(item);
+            option.textContent = getLabel(item);
             select.appendChild(option);
         });
     }
 
+    function fillStationSelect() {
+        fillSelect(
+            maintenanceForm.station,
+            stations,
+            "Choisir une station",
+            (station) => station.id_station,
+            (station) => `${station.nom} - ${station.localisation_text}`
+        );
+        fillSelect(
+            emplacementForm.station,
+            stations,
+            "Choisir une station",
+            (station) => station.id_station,
+            (station) => `${station.nom} - ${station.localisation_text}`
+        );
+    }
+
+    function fillTechnicianSelect() {
+        fillSelect(
+            maintenanceForm.technicien,
+            technicians,
+            "Choisir un technicien",
+            (technician) => technician.id_technicien,
+            (technician) => `${technician.nom} (${technician.email})`
+        );
+        fillSelect(
+            technicianForm.utilisateur,
+            users,
+            "Lier un utilisateur",
+            (user) => user.id_user,
+            (user) => `${user.pseudo} (${user.email})${user.is_technician ? " - technicien" : ""}`
+        );
+    }
+
+    function renderActions(onEdit, onDelete) {
+        const actions = document.createElement("div");
+        actions.className = "table-actions";
+        actions.appendChild(createActionButton("Modifier", onEdit));
+        actions.appendChild(createActionButton("Supprimer", onDelete));
+        return actions;
+    }
+
     function renderUsers() {
-        const list = document.getElementById("users-list");
-        list.innerHTML = "";
-
-        if (users.length === 0) {
-            const empty = document.createElement("div");
-            empty.className = "empty-state";
-            empty.textContent = "Aucun utilisateur.";
-            list.appendChild(empty);
-            return;
-        }
-
-        users.forEach((user) => {
-            list.appendChild(
-                createItemRow(
-                    `${user.pseudo} (${user.email})`,
-                    [
-                        `Nom: ${user.nom || "-"}`,
-                        `Telephone: ${user.telephone || "-"}`,
-                        `Statut: ${user.statut || "-"}`,
-                        `Staff: ${user.is_staff ? "oui" : "non"}`,
-                    ],
-                    () => {
-                        userForm.user_id.value = user.id_user;
-                        userForm.pseudo.value = user.pseudo;
-                        userForm.email.value = user.email;
-                        userForm.telephone.value = user.telephone || "";
-                        userForm.nom.value = user.nom || "";
-                        userForm.statut.value = user.statut || "actif";
-                        userForm.password.value = "";
-                        userForm.is_active.checked = user.is_active;
-                        userForm.is_staff.checked = user.is_staff;
-                        userForm.is_superuser.checked = user.is_superuser;
-                        userForm.querySelector('button[type="submit"]').textContent = "Mettre a jour l'utilisateur";
-                    },
-                    async () => {
-                        try {
+        createDataTable(
+            document.getElementById("users-list"),
+            [
+                { label: "Pseudo", render: (user) => user.pseudo },
+                { label: "E-mail", render: (user) => user.email },
+                { label: "Nom", render: (user) => user.nom || "-" },
+                { label: "Téléphone", render: (user) => user.telephone || "-" },
+                { label: "Statut", render: (user) => user.statut || "-" },
+                {
+                    label: "Rôles",
+                    render: (user) => [
+                        user.is_superuser ? "superuser" : null,
+                        user.is_staff ? "staff" : null,
+                        user.is_technician ? "technicien" : null,
+                    ].filter(Boolean).join(", ") || "utilisateur",
+                },
+                {
+                    label: "Actions",
+                    render: (user) => renderActions(
+                        () => {
+                            userForm.user_id.value = user.id_user;
+                            userForm.pseudo.value = user.pseudo;
+                            userForm.email.value = user.email;
+                            userForm.telephone.value = user.telephone || "";
+                            userForm.nom.value = user.nom || "";
+                            userForm.statut.value = user.statut || "actif";
+                            userForm.password.value = "";
+                            userForm.is_active.checked = user.is_active;
+                            userForm.is_staff.checked = user.is_staff;
+                            userForm.is_superuser.checked = user.is_superuser;
+                            userForm.querySelector('button[type="submit"]').textContent = "Mettre à jour l’utilisateur";
+                            setAdminTab("users");
+                        },
+                        async () => {
                             if (user.id_user === currentAdminId) {
-                                status.classList.add("error");
-                                status.textContent = "Tu ne peux pas supprimer ton propre compte depuis cet ecran.";
+                                setStatus("Vous ne pouvez pas supprimer votre propre compte depuis cet écran.", true);
                                 return;
                             }
-                            if (!window.confirm(`Supprimer l'utilisateur ${user.pseudo} ?`)) {
-                                return;
+                            if (!window.confirm(`Supprimer l'utilisateur ${user.pseudo} ?`)) return;
+                            try {
+                                await window.AuthAPI.deleteAdminUser(user.id_user);
+                                await loadAll();
+                            } catch (error) {
+                                setStatus(error.message || "Suppression utilisateur impossible.", true);
                             }
-                            await window.AuthAPI.deleteAdminUser(user.id_user);
-                            await loadAll();
-                        } catch (error) {
-                            status.classList.add("error");
-                            status.textContent = error.message || "Suppression utilisateur impossible.";
                         }
-                    }
-                )
-            );
-        });
+                    ),
+                },
+            ],
+            users,
+            "Aucun utilisateur."
+        );
     }
 
     function renderStations() {
-        const list = document.getElementById("stations-list");
-        list.innerHTML = "";
-
-        if (stations.length === 0) {
-            const empty = document.createElement("div");
-            empty.className = "empty-state";
-            empty.textContent = "Aucune station.";
-            list.appendChild(empty);
-            return;
-        }
-
-        stations.forEach((station) => {
-            list.appendChild(
-                createItemRow(
-                    station.nom,
-                    [
-                        station.localisation_text,
-                        `Coordonnees: ${station.latitude}, ${station.longitude}`,
-                        `Statut: ${station.statut}`,
-                    ],
-                    () => {
-                        stationForm.station_id.value = station.id_station;
-                        stationForm.nom.value = station.nom;
-                        stationForm.localisation_text.value = station.localisation_text;
-                        stationForm.latitude.value = station.latitude;
-                        stationForm.longitude.value = station.longitude;
-                        stationForm.statut.value = station.statut;
-                        stationForm.querySelector('button[type="submit"]').textContent = "Mettre a jour la station";
-                    },
-                    async () => {
-                        try {
-                            if (!window.confirm(`Supprimer la station ${station.nom} ?`)) {
-                                return;
+        createDataTable(
+            document.getElementById("stations-list"),
+            [
+                { label: "Nom", render: (station) => station.nom },
+                { label: "Localisation", render: (station) => station.localisation_text },
+                { label: "Latitude", render: (station) => station.latitude },
+                { label: "Longitude", render: (station) => station.longitude },
+                { label: "Statut", render: (station) => station.statut },
+                {
+                    label: "Actions",
+                    render: (station) => renderActions(
+                        () => {
+                            stationForm.station_id.value = station.id_station;
+                            stationForm.nom.value = station.nom;
+                            stationForm.localisation_text.value = station.localisation_text;
+                            stationForm.latitude.value = station.latitude;
+                            stationForm.longitude.value = station.longitude;
+                            stationForm.statut.value = station.statut;
+                            stationForm.querySelector('button[type="submit"]').textContent = "Mettre à jour la station";
+                            setAdminTab("infrastructure");
+                        },
+                        async () => {
+                            if (!window.confirm(`Supprimer la station ${station.nom} ?`)) return;
+                            try {
+                                await window.AuthAPI.deleteAdminStation(station.id_station);
+                                await loadAll();
+                            } catch (error) {
+                                setStatus(error.message || "Suppression station impossible.", true);
                             }
-                            await window.AuthAPI.deleteAdminStation(station.id_station);
-                            await loadAll();
-                        } catch (error) {
-                            status.classList.add("error");
-                            status.textContent = error.message || "Suppression station impossible.";
                         }
-                    }
-                )
-            );
-        });
+                    ),
+                },
+            ],
+            stations,
+            "Aucune station."
+        );
     }
 
     function renderEmplacements() {
-        const list = document.getElementById("emplacements-list");
-        list.innerHTML = "";
-
-        if (emplacements.length === 0) {
-            const empty = document.createElement("div");
-            empty.className = "empty-state";
-            empty.textContent = "Aucun emplacement.";
-            list.appendChild(empty);
-            return;
-        }
-
-        emplacements.forEach((emplacement) => {
-            list.appendChild(
-                createItemRow(
-                    `Emplacement ${emplacement.numero} - ${emplacement.station_nom}`,
-                    [
-                        `Statut: ${emplacement.statut}`,
-                        `Serrure: ${emplacement.lock_state}`,
-                    ],
-                    () => {
-                        emplacementForm.emplacement_id.value = emplacement.id_emplacement;
-                        emplacementForm.station.value = emplacement.station;
-                        emplacementForm.numero.value = emplacement.numero;
-                        emplacementForm.statut.value = emplacement.statut;
-                        emplacementForm.lock_state.value = emplacement.lock_state;
-                        emplacementForm.querySelector('button[type="submit"]').textContent = "Mettre a jour l'emplacement";
-                    },
-                    async () => {
-                        try {
-                            if (!window.confirm(`Supprimer l'emplacement ${emplacement.numero} ?`)) {
-                                return;
+        createDataTable(
+            document.getElementById("emplacements-list"),
+            [
+                { label: "Station", render: (emplacement) => emplacement.station_nom },
+                { label: "Numéro", render: (emplacement) => emplacement.numero },
+                { label: "Statut", render: (emplacement) => emplacement.statut },
+                { label: "Serrure", render: (emplacement) => emplacement.lock_state },
+                {
+                    label: "Actions",
+                    render: (emplacement) => renderActions(
+                        () => {
+                            emplacementForm.emplacement_id.value = emplacement.id_emplacement;
+                            emplacementForm.station.value = emplacement.station;
+                            emplacementForm.numero.value = emplacement.numero;
+                            emplacementForm.statut.value = emplacement.statut;
+                            emplacementForm.lock_state.value = emplacement.lock_state;
+                            emplacementForm.querySelector('button[type="submit"]').textContent = "Mettre à jour l’emplacement";
+                            setAdminTab("infrastructure");
+                        },
+                        async () => {
+                            if (!window.confirm(`Supprimer l'emplacement ${emplacement.numero} ?`)) return;
+                            try {
+                                await window.AuthAPI.deleteAdminEmplacement(emplacement.id_emplacement);
+                                await loadAll();
+                            } catch (error) {
+                                setStatus(error.message || "Suppression emplacement impossible.", true);
                             }
-                            await window.AuthAPI.deleteAdminEmplacement(emplacement.id_emplacement);
-                            await loadAll();
-                        } catch (error) {
-                            status.classList.add("error");
-                            status.textContent = error.message || "Suppression emplacement impossible.";
                         }
-                    }
-                )
-            );
-        });
+                    ),
+                },
+            ],
+            emplacements,
+            "Aucun emplacement."
+        );
+    }
+
+    function renderTechnicians() {
+        createDataTable(
+            document.getElementById("technicians-list"),
+            [
+                { label: "Nom", render: (technician) => technician.nom },
+                { label: "E-mail", render: (technician) => technician.email },
+                { label: "Utilisateur lié", render: (technician) => technician.utilisateur_pseudo || "-" },
+                { label: "Téléphone", render: (technician) => technician.telephone || "-" },
+                {
+                    label: "Actions",
+                    render: (technician) => renderActions(
+                        () => {
+                            technicianForm.technician_id.value = technician.id_technicien;
+                            technicianForm.utilisateur.value = technician.utilisateur || "";
+                            technicianForm.nom.value = technician.nom;
+                            technicianForm.email.value = technician.email;
+                            technicianForm.telephone.value = technician.telephone || "";
+                            technicianForm.querySelector('button[type="submit"]').textContent = "Mettre à jour le technicien";
+                            setAdminTab("operations");
+                        },
+                        async () => {
+                            if (!window.confirm(`Supprimer le technicien ${technician.nom} ?`)) return;
+                            try {
+                                await window.AuthAPI.deleteAdminTechnician(technician.id_technicien);
+                                await loadAll();
+                            } catch (error) {
+                                setStatus(error.message || "Suppression technicien impossible.", true);
+                            }
+                        }
+                    ),
+                },
+            ],
+            technicians,
+            "Aucun technicien."
+        );
+    }
+
+    function renderMaintenances() {
+        createDataTable(
+            document.getElementById("maintenances-list"),
+            [
+                { label: "Station", render: (maintenance) => maintenance.station_nom },
+                { label: "Technicien", render: (maintenance) => maintenance.technicien_nom || "-" },
+                { label: "Type", render: (maintenance) => maintenance.type },
+                { label: "Statut", render: (maintenance) => maintenance.status },
+                { label: "Date planifiée", render: (maintenance) => new Date(maintenance.date_planifiee).toLocaleString("fr-FR") },
+                { label: "Date réalisée", render: (maintenance) => maintenance.date_realisee ? new Date(maintenance.date_realisee).toLocaleString("fr-FR") : "-" },
+                {
+                    label: "Actions",
+                    render: (maintenance) => renderActions(
+                        () => {
+                            maintenanceForm.maintenance_id.value = maintenance.id_maintenance;
+                            maintenanceForm.station.value = maintenance.station;
+                            maintenanceForm.technicien.value = maintenance.technicien;
+                            maintenanceForm.type.value = maintenance.type;
+                            maintenanceForm.description.value = maintenance.description;
+                            maintenanceForm.status.value = maintenance.status;
+                            maintenanceForm.date_planifiee.value = toLocalInputValue(maintenance.date_planifiee);
+                            maintenanceForm.date_realisee.value = toLocalInputValue(maintenance.date_realisee);
+                            maintenanceForm.querySelector('button[type="submit"]').textContent = "Mettre à jour la maintenance";
+                            setAdminTab("operations");
+                        },
+                        async () => {
+                            if (!window.confirm(`Supprimer la maintenance ${maintenance.type} ?`)) return;
+                            try {
+                                await window.AuthAPI.deleteAdminMaintenance(maintenance.id_maintenance);
+                                await loadAll();
+                            } catch (error) {
+                                setStatus(error.message || "Suppression maintenance impossible.", true);
+                            }
+                        }
+                    ),
+                },
+            ],
+            maintenances,
+            "Aucune maintenance."
+        );
     }
 
     async function loadAll() {
-        const overview = await window.AuthAPI.getAdminOverview();
-        const adminUsers = await window.AuthAPI.getAdminUsers();
-        const adminStations = await window.AuthAPI.getAdminStations();
-        const adminEmplacements = await window.AuthAPI.getAdminEmplacements();
+        if (isLoading) return;
+        isLoading = true;
 
-        document.getElementById("stat-users").textContent = overview.stats.users_total;
-        document.getElementById("stat-stations").textContent = overview.stats.stations_total;
-        document.getElementById("stat-emplacements").textContent = overview.stats.emplacements_total;
+        try {
+            const overview = await window.AuthAPI.getAdminOverview();
+            const adminUsers = await window.AuthAPI.getAdminUsers();
+            const adminStations = await window.AuthAPI.getAdminStations();
+            const adminEmplacements = await window.AuthAPI.getAdminEmplacements();
+            const adminTechnicians = await window.AuthAPI.getAdminTechnicians();
+            const adminMaintenances = await window.AuthAPI.getAdminMaintenances();
 
-        users = adminUsers.results || [];
-        stations = adminStations.results || [];
-        emplacements = adminEmplacements.results || [];
+            document.getElementById("stat-users").textContent = overview.stats.users_total;
+            document.getElementById("stat-stations").textContent = overview.stats.stations_total;
+            document.getElementById("stat-emplacements").textContent = overview.stats.emplacements_total;
 
-        fillStationSelect();
-        renderUsers();
-        renderStations();
-        renderEmplacements();
+            users = adminUsers.results || [];
+            stations = adminStations.results || [];
+            emplacements = adminEmplacements.results || [];
+            technicians = adminTechnicians.results || [];
+            maintenances = adminMaintenances.results || [];
 
-        status.classList.remove("error");
-        status.textContent = "Administration chargee.";
+            fillStationSelect();
+            fillTechnicianSelect();
+            renderUsers();
+            renderStations();
+            renderEmplacements();
+            renderTechnicians();
+            renderMaintenances();
+
+            setStatus("Administration chargée. Mise à jour automatique toutes les 30 secondes.");
+        } finally {
+            isLoading = false;
+        }
     }
 
-    logoutBtn.addEventListener("click", () => window.AuthAPI.logout());
-    refreshBtn.addEventListener("click", async () => {
-        await loadAll();
+    document.querySelectorAll("[data-admin-tab]").forEach((button) => {
+        button.addEventListener("click", () => setAdminTab(button.dataset.adminTab));
     });
+
+    document.querySelectorAll("[data-admin-jump]").forEach((button) => {
+        button.addEventListener("click", () => setAdminTab(button.dataset.adminJump));
+    });
+
+    logoutBtn.addEventListener("click", () => window.AuthAPI.logout());
 
     userCancel.addEventListener("click", resetUserForm);
     stationCancel.addEventListener("click", resetStationForm);
     emplacementCancel.addEventListener("click", resetEmplacementForm);
+    technicianCancel.addEventListener("click", resetTechnicianForm);
+    maintenanceCancel.addEventListener("click", resetMaintenanceForm);
 
     userForm.addEventListener("submit", async (event) => {
         event.preventDefault();
-        status.classList.remove("error");
         const submitButton = userForm.querySelector('button[type="submit"]');
         submitButton.disabled = true;
 
@@ -309,21 +500,15 @@ document.addEventListener("DOMContentLoaded", async () => {
                 await window.AuthAPI.updateAdminUser(userForm.user_id.value, payload);
             } else {
                 if (!userForm.password.value) {
-                    status.classList.add("error");
-                    status.textContent = "Le mot de passe est obligatoire pour creer un utilisateur.";
-                    submitButton.disabled = false;
+                    setStatus("Le mot de passe est obligatoire pour créer un utilisateur.", true);
                     return;
                 }
-                await window.AuthAPI.createAdminUser({
-                    ...payload,
-                    password: userForm.password.value,
-                });
+                await window.AuthAPI.createAdminUser({ ...payload, password: userForm.password.value });
             }
             resetUserForm();
             await loadAll();
         } catch (error) {
-            status.classList.add("error");
-            status.textContent = error.message || "Erreur utilisateur.";
+            setStatus(error.message || "Erreur utilisateur.", true);
         } finally {
             submitButton.disabled = false;
         }
@@ -331,7 +516,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     stationForm.addEventListener("submit", async (event) => {
         event.preventDefault();
-        status.classList.remove("error");
         const submitButton = stationForm.querySelector('button[type="submit"]');
         submitButton.disabled = true;
 
@@ -352,8 +536,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             resetStationForm();
             await loadAll();
         } catch (error) {
-            status.classList.add("error");
-            status.textContent = error.message || "Erreur station.";
+            setStatus(error.message || "Erreur station.", true);
         } finally {
             submitButton.disabled = false;
         }
@@ -361,7 +544,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     emplacementForm.addEventListener("submit", async (event) => {
         event.preventDefault();
-        status.classList.remove("error");
         const submitButton = emplacementForm.querySelector('button[type="submit"]');
         submitButton.disabled = true;
 
@@ -374,18 +556,71 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         try {
             if (emplacementForm.emplacement_id.value) {
-                await window.AuthAPI.updateAdminEmplacement(
-                    emplacementForm.emplacement_id.value,
-                    payload
-                );
+                await window.AuthAPI.updateAdminEmplacement(emplacementForm.emplacement_id.value, payload);
             } else {
                 await window.AuthAPI.createAdminEmplacement(payload);
             }
             resetEmplacementForm();
             await loadAll();
         } catch (error) {
-            status.classList.add("error");
-            status.textContent = error.message || "Erreur emplacement.";
+            setStatus(error.message || "Erreur emplacement.", true);
+        } finally {
+            submitButton.disabled = false;
+        }
+    });
+
+    technicianForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const submitButton = technicianForm.querySelector('button[type="submit"]');
+        submitButton.disabled = true;
+
+        const payload = {
+            utilisateur: technicianForm.utilisateur.value || null,
+            nom: technicianForm.nom.value.trim(),
+            email: technicianForm.email.value.trim(),
+            telephone: technicianForm.telephone.value.trim(),
+        };
+
+        try {
+            if (technicianForm.technician_id.value) {
+                await window.AuthAPI.updateAdminTechnician(technicianForm.technician_id.value, payload);
+            } else {
+                await window.AuthAPI.createAdminTechnician(payload);
+            }
+            resetTechnicianForm();
+            await loadAll();
+        } catch (error) {
+            setStatus(error.message || "Erreur technicien.", true);
+        } finally {
+            submitButton.disabled = false;
+        }
+    });
+
+    maintenanceForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const submitButton = maintenanceForm.querySelector('button[type="submit"]');
+        submitButton.disabled = true;
+
+        const payload = {
+            station: maintenanceForm.station.value,
+            technicien: maintenanceForm.technicien.value,
+            type: maintenanceForm.type.value.trim(),
+            description: maintenanceForm.description.value.trim(),
+            status: maintenanceForm.status.value.trim(),
+            date_planifiee: fromLocalInputValue(maintenanceForm.date_planifiee.value),
+            date_realisee: maintenanceForm.date_realisee.value ? fromLocalInputValue(maintenanceForm.date_realisee.value) : null,
+        };
+
+        try {
+            if (maintenanceForm.maintenance_id.value) {
+                await window.AuthAPI.updateAdminMaintenance(maintenanceForm.maintenance_id.value, payload);
+            } else {
+                await window.AuthAPI.createAdminMaintenance(payload);
+            }
+            resetMaintenanceForm();
+            await loadAll();
+        } catch (error) {
+            setStatus(error.message || "Erreur maintenance.", true);
         } finally {
             submitButton.disabled = false;
         }
@@ -393,8 +628,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     const session = await window.AuthAPI.ensureSession();
     if (!session) {
-        status.classList.add("error");
-        status.textContent = "Session absente ou expiree. Redirection vers la connexion.";
+        setStatus("Session absente ou expirée. Redirection vers la connexion.", true);
         window.setTimeout(() => {
             window.location.href = "/login.html";
         }, 1200);
@@ -403,11 +637,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     try {
         const dashboard = await window.AuthAPI.getDashboard();
-        isStaff = Boolean(dashboard.user?.is_staff);
         currentAdminId = dashboard.user?.id || null;
-        if (!isStaff) {
-            status.classList.add("error");
-            status.textContent = "Acces refuse. Redirection vers le dashboard utilisateur.";
+        if (!dashboard.user?.is_staff) {
+            setStatus("Accès refusé. Redirection vers le tableau de bord utilisateur.", true);
             window.setTimeout(() => {
                 window.location.href = "/dashboard.html";
             }, 1200);
@@ -417,10 +649,21 @@ document.addEventListener("DOMContentLoaded", async () => {
         resetUserForm();
         resetStationForm();
         resetEmplacementForm();
+        resetTechnicianForm();
+        resetMaintenanceForm();
         await loadAll();
+        setAdminTab("overview");
+        window.setInterval(async () => {
+            if (isEditingForm()) return;
+
+            try {
+                await loadAll();
+            } catch (_error) {
+                setStatus("Impossible de rafraîchir l’administration.", true);
+            }
+        }, AUTO_REFRESH_MS);
     } catch (_error) {
-        status.classList.add("error");
-        status.textContent = "Impossible de charger l'administration.";
+        setStatus("Impossible de charger l’administration.", true);
         window.AuthAPI.clearTokens();
         window.setTimeout(() => {
             window.location.href = "/login.html";

@@ -11,7 +11,6 @@ from .models import (
     Emplacement,
     JournalSecurite,
     Maintenance,
-    Port,
     ProfilUtilisateur,
     Reservation,
     Role,
@@ -31,9 +30,9 @@ class UtilisateurAdmin(BaseUserAdmin):
     form = UtilisateurChangeForm
     add_form = UtilisateurCreationForm
 
-    list_display = ("pseudo", "email", "telephone", "statut", "is_staff", "is_active")
+    list_display = ("pseudo", "email", "profile_telephone", "statut", "is_staff", "is_active")
     list_filter = ("is_staff", "is_active", "statut")
-    search_fields = ("pseudo", "email", "telephone")
+    search_fields = ("pseudo", "email", "profil__telephone")
     ordering = ("pseudo",)
 
     fieldsets = (
@@ -65,6 +64,10 @@ class UtilisateurAdmin(BaseUserAdmin):
         ),
     )
 
+    @admin.display(description="Téléphone")
+    def profile_telephone(self, obj):
+        return getattr(getattr(obj, "profil", None), "telephone", "")
+
 admin.site.register(ProfilUtilisateur)
 admin.site.register(Role)
 admin.site.register(UtilisateurRole)
@@ -77,7 +80,6 @@ admin.site.register(Session)
 admin.site.register(SessionTelemetry)
 admin.site.register(Station)
 admin.site.register(Emplacement)
-admin.site.register(Port)
 admin.site.register(Device)
 admin.site.register(Capteur)
 admin.site.register(CapteurData)

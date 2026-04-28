@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tableau de bord technicien</title>
+    <meta http-equiv="Cache-Control" content="no-store">
+    <link rel="stylesheet" href="css/auth.css?v=tech-auto-refresh-1">
+    <script defer src="js/api.js?v=tech-auto-refresh-1"></script>
+    <script defer src="js/technician-dashboard.js?v=tech-auto-refresh-1"></script>
+</head>
+<body>
+    <a class="skip-link" href="#contenu">Aller au contenu</a>
+    <main class="page">
+        <section id="contenu" class="dashboard-card app-shell" aria-labelledby="tech-title">
+            <header class="page-header">
+                <div>
+                    <p class="eyebrow">Station de recharge</p>
+                    <h1 id="tech-title">Tableau de bord technicien</h1>
+                    <p class="lead">Suivi des maintenances assignées et des interventions à venir.</p>
+                </div>
+                <div class="header-actions">
+                    <a class="btn btn-secondary" href="/dashboard.html">Tableau de bord</a>
+                    <button id="logout-tech" class="btn btn-secondary" type="button">Se déconnecter</button>
+                </div>
+            </header>
+
+            <div id="tech-status" class="status" aria-live="polite"></div>
+
+            <section class="dashboard-panel section-block">
+                <p class="panel-title">Mes maintenances</p>
+                <div id="maintenances-list" class="stacked-list"></div>
+            </section>
+        </section>
+    </main>
+</body>
+</html>

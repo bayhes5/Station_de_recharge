@@ -195,6 +195,14 @@ async function register(data) {
     });
 }
 
+async function checkRegisterAvailability(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    return doRequest(`/register/availability/${query ? `?${query}` : ""}`, {
+        method: "GET",
+        auth: false,
+    });
+}
+
 async function login(data) {
     return doRequest("/login/", {
         method: "POST",
@@ -211,6 +219,32 @@ async function getMe() {
 
 async function getDashboard() {
     return doRequest("/dashboard/", {
+        method: "GET",
+    });
+}
+
+async function getStations() {
+    return doRequest("/stations/", {
+        method: "GET",
+    });
+}
+
+async function getReservations() {
+    return doRequest("/reservations/", {
+        method: "GET",
+    });
+}
+
+async function createReservation(data) {
+    return doRequest("/reservations/", {
+        method: "POST",
+        body: JSON.stringify(data),
+    });
+}
+
+async function getReservationAvailability(params) {
+    const query = new URLSearchParams(params || {}).toString();
+    return doRequest(`/reservations/availability/${query ? `?${query}` : ""}`, {
         method: "GET",
     });
 }
@@ -238,6 +272,31 @@ async function changePassword(data) {
 async function exportAccount() {
     return doRequest("/me/export/", {
         method: "GET",
+    });
+}
+
+async function getAuthMethods() {
+    return doRequest("/me/auth-methods/", {
+        method: "GET",
+    });
+}
+
+async function getAuthHistory() {
+    return doRequest("/me/auth-history/", {
+        method: "GET",
+    });
+}
+
+async function createAuthMethod(data) {
+    return doRequest("/me/auth-methods/create/", {
+        method: "POST",
+        body: JSON.stringify(data),
+    });
+}
+
+async function deleteAuthMethod(authId) {
+    return doRequest(`/me/auth-methods/${authId}/`, {
+        method: "DELETE",
     });
 }
 
@@ -331,6 +390,71 @@ async function deleteAdminEmplacement(id) {
     });
 }
 
+async function getAdminTechnicians() {
+    return doRequest("/admin/technicians/", {
+        method: "GET",
+    });
+}
+
+async function createAdminTechnician(data) {
+    return doRequest("/admin/technicians/", {
+        method: "POST",
+        body: JSON.stringify(data),
+    });
+}
+
+async function updateAdminTechnician(id, data) {
+    return doRequest(`/admin/technicians/${id}/`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+    });
+}
+
+async function deleteAdminTechnician(id) {
+    return doRequest(`/admin/technicians/${id}/`, {
+        method: "DELETE",
+    });
+}
+
+async function getAdminMaintenances() {
+    return doRequest("/admin/maintenances/", {
+        method: "GET",
+    });
+}
+
+async function createAdminMaintenance(data) {
+    return doRequest("/admin/maintenances/", {
+        method: "POST",
+        body: JSON.stringify(data),
+    });
+}
+
+async function updateAdminMaintenance(id, data) {
+    return doRequest(`/admin/maintenances/${id}/`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+    });
+}
+
+async function deleteAdminMaintenance(id) {
+    return doRequest(`/admin/maintenances/${id}/`, {
+        method: "DELETE",
+    });
+}
+
+async function getTechnicianMaintenances() {
+    return doRequest("/technician/maintenances/", {
+        method: "GET",
+    });
+}
+
+async function terminalAuthenticate(data) {
+    return doRequest("/terminal/authenticate/", {
+        method: "POST",
+        body: JSON.stringify(data),
+    });
+}
+
 async function ensureSession() {
     if (!getAccessToken() && !getRefreshToken()) {
         return null;
@@ -374,13 +498,22 @@ function logout() {
 window.AuthAPI = {
     API_BASE_URL,
     register,
+    checkRegisterAvailability,
     login,
     getMe,
     getDashboard,
+    getStations,
+    getReservations,
+    createReservation,
+    getReservationAvailability,
     getProfile,
     updateProfile,
     changePassword,
     exportAccount,
+    getAuthMethods,
+    getAuthHistory,
+    createAuthMethod,
+    deleteAuthMethod,
     deleteAccount,
     getAdminOverview,
     getAdminUsers,
@@ -395,6 +528,16 @@ window.AuthAPI = {
     createAdminEmplacement,
     updateAdminEmplacement,
     deleteAdminEmplacement,
+    getAdminTechnicians,
+    createAdminTechnician,
+    updateAdminTechnician,
+    deleteAdminTechnician,
+    getAdminMaintenances,
+    createAdminMaintenance,
+    updateAdminMaintenance,
+    deleteAdminMaintenance,
+    getTechnicianMaintenances,
+    terminalAuthenticate,
     ensureSession,
     refreshAccessToken,
     getTokenPayload,

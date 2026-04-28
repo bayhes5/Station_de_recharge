@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kiosk de recharge</title>
+    <link rel="stylesheet" href="style.css">
+    <script defer src="app.js"></script>
+</head>
+<body>
+    <main class="shell">
+        <section class="panel hero">
+            <p class="eyebrow">Station locale</p>
+            <h1>Authentification de charge</h1>
+            <p class="lead">
+                Présente ton badge RFID, scanne ton QR code ou saisis le code alphanumérique
+                lié à ta réservation.
+            </p>
+            <div class="status" id="status">Prêt.</div>
+        </section>
+
+        <section class="panel">
+            <div class="mode-switch">
+                <button class="mode-btn active" data-mode="qr" type="button">QR code</button>
+                <button class="mode-btn" data-mode="rfid" type="button">RFID</button>
+                <button class="mode-btn" data-mode="code" type="button">Code</button>
+            </div>
+
+            <form id="auth-form" class="auth-form">
+                <label>
+                    Code de réservation
+                    <input id="reservation-code" type="text" placeholder="EX: 8K4P2D7Q" required>
+                </label>
+                <label>
+                    Valeur d'authentification
+                    <input id="auth-value" type="text" placeholder="Code QR / badge RFID / code" required>
+                </label>
+                <button type="submit" class="primary">Déverrouiller</button>
+            </form>
+        </section>
+
+        <section class="panel">
+            <h2>Clavier matriciel virtuel</h2>
+            <div class="keypad">
+                <button type="button" class="keypad-key" data-key="1">1</button>
+                <button type="button" class="keypad-key" data-key="2">2</button>
+                <button type="button" class="keypad-key" data-key="3">3</button>
+                <button type="button" class="keypad-key" data-key="4">4</button>
+                <button type="button" class="keypad-key" data-key="5">5</button>
+                <button type="button" class="keypad-key" data-key="6">6</button>
+                <button type="button" class="keypad-key" data-key="7">7</button>
+                <button type="button" class="keypad-key" data-key="8">8</button>
+                <button type="button" class="keypad-key" data-key="9">9</button>
+                <button type="button" class="keypad-key" data-key="A">A</button>
+                <button type="button" class="keypad-key" data-key="B">B</button>
+                <button type="button" class="keypad-key" data-key="C">C</button>
+                <button type="button" class="keypad-key" data-key="D">D</button>
+                <button type="button" class="keypad-key" data-key="E">E</button>
+                <button type="button" class="keypad-key" data-key="F">F</button>
+                <button type="button" class="keypad-key keypad-wide" data-action="backspace">⌫</button>
+                <button type="button" class="keypad-key keypad-wide" data-key="0">0</button>
+                <button type="button" class="keypad-key keypad-wide" data-action="clear">C</button>
+            </div>
+        </section>
+
+        <section class="panel">
+            <h2>Derniers événements</h2>
+            <div id="events" class="events">
+                <div class="event empty">Aucun événement pour le moment.</div>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

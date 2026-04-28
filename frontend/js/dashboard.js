@@ -19,17 +19,32 @@ function renderBadge(status) {
 function renderSessionCard(session) {
     const item = document.createElement("article");
     item.className = "list-item";
-
     item.innerHTML = `
         <div class="list-item-head">
             <strong>${session.station}</strong>
-            <span>${session.status === "active" ? "En cours" : "Terminee"}</span>
+            <span>${session.status === "active" ? "En cours" : "Terminée"}</span>
         </div>
         <p>Emplacement ${session.emplacement}</p>
-        <p>Debut: ${formatDateTime(session.start_time)}</p>
-        <p>Fin: ${formatDateTime(session.end_time)}</p>
+        <p>Début : ${formatDateTime(session.start_time)}</p>
+        <p>Fin : ${formatDateTime(session.end_time)}</p>
     `;
+    return item;
+}
 
+function renderReservationCard(reservation) {
+    const item = document.createElement("article");
+    item.className = "list-item";
+    item.innerHTML = `
+        <div class="list-item-head">
+            <strong>${reservation.station_nom || reservation.station}</strong>
+            <span>${reservation.statut}</span>
+        </div>
+        <p>Emplacement ${reservation.emplacement}</p>
+        <p>Début : ${formatDateTime(reservation.date_debut)}</p>
+        <p>Fin : ${formatDateTime(reservation.date_fin)}</p>
+        <p>Mode : ${reservation.auth_mode || "-"}</p>
+        <p>Code : ${reservation.reference_code || "-"}</p>
+    `;
     return item;
 }
 
@@ -41,10 +56,23 @@ function renderEmpty(container, message) {
     container.appendChild(empty);
 }
 
+function setActiveTab(tabName) {
+    document.querySelectorAll("[data-tab]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.tab === tabName);
+        button.setAttribute("aria-selected", String(button.dataset.tab === tabName));
+    });
+    document.querySelectorAll("[data-tab-panel]").forEach((panel) => {
+        panel.hidden = panel.dataset.tabPanel !== tabName;
+    });
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
     const status = document.getElementById("dashboard-status");
     const logoutBtn = document.getElementById("dashboard-logout");
-    const adminLink = document.getElementById("admin-link");
+
+    document.querySelectorAll("[data-tab]").forEach((button) => {
+        button.addEventListener("click", () => setActiveTab(button.dataset.tab));
+    });
 
     logoutBtn.addEventListener("click", () => {
         window.AuthAPI.logout();
@@ -53,7 +81,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const session = await window.AuthAPI.ensureSession();
     if (!session) {
         status.classList.add("error");
-        status.textContent = "Session absente ou expiree. Redirection vers la connexion.";
+        status.textContent = "Session absente ou expirée. Redirection vers la connexion.";
         window.setTimeout(() => {
             window.location.href = "/login.html";
         }, 1200);
@@ -70,15 +98,15 @@ document.addEventListener("DOMContentLoaded", async () => {
         document.getElementById("dashboard-statut").textContent = user.statut || "-";
 
         document.getElementById("access-expiry").textContent = snapshot.accessExpired
-            ? "Expire"
+            ? "Expiré"
             : `Expire dans ${snapshot.accessReadable}`;
         document.getElementById("refresh-expiry").textContent = snapshot.refreshExpired
-            ? "Expire"
+            ? "Expiré"
             : `Expire dans ${snapshot.refreshReadable}`;
 
         document.getElementById("kpi-sessions-total").textContent = result.stats.sessions_total;
-        document.getElementById("kpi-past-sessions").textContent = result.stats.past_sessions;
-        document.getElementById("kpi-active-sessions").textContent = result.stats.active_sessions;
+        document.getElementById("kpi-reservations-total").textContent = result.stats.reservations_total;
+        document.getElementById("kpi-upcoming-reservations").textContent = result.stats.reservations_upcoming;
 
         const activeSessionContainer = document.getElementById("active-session");
         activeSessionContainer.innerHTML = "";
@@ -92,23 +120,40 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
 
         const historyContainer = document.getElementById("recent-sessions");
-        historyContainer.innerHTML = "";
         if (result.recharge_history.length === 0) {
-            renderEmpty(historyContainer, "Aucune recharge a afficher.");
+            renderEmpty(historyContainer, "Aucune recharge à afficher.");
         } else {
+            historyContainer.innerHTML = "";
             result.recharge_history.forEach((sessionItem) => {
                 historyContainer.appendChild(renderSessionCard(sessionItem));
             });
         }
 
-        if (user.is_staff) {
-            adminLink.hidden = false;
+        const upcomingReservations = document.getElementById("upcoming-reservations");
+        if (!result.upcoming_reservations?.length) {
+            renderEmpty(upcomingReservations, "Aucune réservation à venir.");
+        } else {
+            upcomingReservations.innerHTML = "";
+            result.upcoming_reservations.forEach((reservation) => {
+                upcomingReservations.appendChild(renderReservationCard(reservation));
+            });
         }
 
-        status.textContent = `Session valide. Access: ${snapshot.accessReadable}, refresh: ${snapshot.refreshReadable}.`;
+        const recentReservations = document.getElementById("recent-reservations");
+        if (!result.reservations_history?.length) {
+            renderEmpty(recentReservations, "Aucune réservation récente.");
+        } else {
+            recentReservations.innerHTML = "";
+            result.reservations_history.forEach((reservation) => {
+                recentReservations.appendChild(renderReservationCard(reservation));
+            });
+        }
+
+        status.textContent = "Données chargées.";
+        setActiveTab("overview");
     } catch (_error) {
         status.classList.add("error");
-        status.textContent = "Impossible de charger le dashboard. Reconnecte-toi.";
+        status.textContent = "Impossible de charger le tableau de bord. Reconnecte-toi.";
         window.AuthAPI.clearTokens();
         window.setTimeout(() => {
             window.location.href = "/login.html";

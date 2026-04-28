@@ -3,23 +3,56 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Station de recharge</title>
+    <title>Station de recharge | M&eacute;tropole Verte</title>
     <link rel="stylesheet" href="css/auth.css">
 </head>
 <body>
+    <a class="skip-link" href="#contenu">Aller au contenu</a>
     <main class="page">
-        <section class="home-card">
-            <p class="eyebrow">Station de recharge</p>
-            <h1>Un front simple, propre et connecté a ton API Django.</h1>
-            <p class="lead">
-                Cette interface front consomme l'API pour l'inscription, la connexion et
-                le profil utilisateur, tandis que Django garde les pages institutionnelles
-                et la logique serveur.
-            </p>
-            <div class="cta-row">
-                <a class="btn btn-primary" href="/register.html">S'inscrire</a>
-                <a class="btn btn-secondary" href="/login.html">Se connecter</a>
+        <section id="contenu" class="home-card home-hero" aria-labelledby="home-title">
+            <a class="brand-logo home-brand" href="/index.html" aria-label="Accueil M&eacute;tropole Verte">
+                <span class="logo-mark" aria-hidden="true">
+                    <span class="logo-leaf"></span>
+                    <span class="logo-bolt"></span>
+                </span>
+                <span>
+                    <strong>M&eacute;tropole Verte</strong>
+                    <small>Station de recharge</small>
+                </span>
+            </a>
+
+            <div class="home-copy">
+                <p class="eyebrow">Mobilit&eacute; &eacute;lectrique locale</p>
+                <h1 id="home-title">R&eacute;servez votre borne en quelques secondes.</h1>
+                <p class="lead home-lead">
+                    Un espace simple pour choisir un emplacement, lancer l&rsquo;acc&egrave;s par badge,
+                    QR code ou code temporaire, puis suivre vos recharges.
+                </p>
             </div>
+
+            <aside class="home-action-panel" aria-label="Acc&egrave;s au service">
+                <p class="panel-title">Acc&egrave;s rapide</p>
+                <div class="home-cta-stack">
+                    <a class="btn btn-primary btn-hero" href="/register.html">S&rsquo;inscrire</a>
+                    <a class="btn btn-secondary btn-hero" href="/login.html">Se connecter</a>
+                </div>
+                <p class="helper">Cr&eacute;ez un compte pour r&eacute;server une borne ou connectez-vous pour retrouver vos sessions.</p>
+            </aside>
+
+            <aside class="home-summary" aria-label="Aper&ccedil;u du service">
+                <div class="summary-stat">
+                    <span class="summary-value">30 min</span>
+                    <span class="summary-label">Cr&eacute;neau de r&eacute;servation</span>
+                </div>
+                <div class="summary-stat">
+                    <span class="summary-value">RFID</span>
+                    <span class="summary-label">Badge, QR code ou code temporaire</span>
+                </div>
+                <div class="summary-stat">
+                    <span class="summary-value">24/7</span>
+                    <span class="summary-label">Suivi des sessions et de l&rsquo;historique</span>
+                </div>
+            </aside>
         </section>
     </main>
 </body>

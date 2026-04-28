@@ -3,25 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard</title>
-    <link rel="stylesheet" href="css/auth.css">
-    <script defer src="js/api.js"></script>
-    <script defer src="js/dashboard.js"></script>
+    <meta http-equiv="Cache-Control" content="no-store">
+    <title>Tableau de bord</title>
+    <link rel="stylesheet" href="css/auth.css?v=dashboard-clean-1">
+    <script defer src="js/api.js?v=dashboard-clean-1"></script>
+    <script defer src="js/dashboard.js?v=dashboard-clean-1"></script>
 </head>
 <body>
+    <a class="skip-link" href="#contenu">Aller au contenu</a>
     <main class="page">
-        <section class="dashboard-card">
-            <p class="eyebrow">Station de recharge</p>
-            <h1>Dashboard securise</h1>
-            <p class="lead">
-                Vue de ton compte, de tes reservations et de tes sessions de recharge,
-                avec renouvellement JWT transparent si le token access expire.
-            </p>
+        <section id="contenu" class="dashboard-card app-shell" aria-labelledby="dashboard-title">
+            <header class="page-header">
+                <div>
+                    <p class="eyebrow">Station de recharge</p>
+                    <h1 id="dashboard-title">Tableau de bord</h1>
+                    <p class="lead">Réservations, sessions de recharge et état de votre compte.</p>
+                </div>
+                <div class="header-actions">
+                    <a class="btn btn-primary" href="/reservation.html">Réserver</a>
+                    <a class="btn btn-secondary" href="/profile.html">Profil</a>
+                    <button id="dashboard-logout" class="btn btn-secondary" type="button">Se déconnecter</button>
+                </div>
+            </header>
 
             <div id="dashboard-status" class="status" aria-live="polite"></div>
 
-            <div class="dashboard-grid">
-                <div class="dashboard-panel">
+            <nav class="tab-bar" role="tablist" aria-label="Navigation du tableau de bord">
+                <button class="tab-button active" type="button" role="tab" aria-selected="true" data-tab="overview">Vue d’ensemble</button>
+                <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="reservations">Réservations</button>
+                <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="sessions">Recharges</button>
+            </nav>
+
+            <section class="dashboard-grid" role="tabpanel" data-tab-panel="overview">
+                <section class="dashboard-panel">
+                    <p class="panel-title">Identité</p>
                     <div class="metrics">
                         <div class="metric">
                             <strong>Pseudo</strong>
@@ -36,42 +51,57 @@
                             <span id="dashboard-statut" class="meta">-</span>
                         </div>
                     </div>
-
-                    <div class="dashboard-panel dashboard-token-panel">
-                        <p class="panel-title">Etat de session</p>
-                        <div class="dashboard-kpis">
-                            <div class="kpi">
-                                <span class="label">Access token</span>
-                                <span id="access-expiry" class="value">-</span>
-                            </div>
-                            <div class="kpi">
-                                <span class="label">Refresh token</span>
-                                <span id="refresh-expiry" class="value">-</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                </section>
 
                 <aside class="dashboard-panel">
-                    <p class="panel-title">Apercu rapide</p>
+                    <p class="panel-title">Activité</p>
                     <div class="dashboard-kpis">
                         <div class="kpi">
                             <span class="label">Sessions totales</span>
                             <span id="kpi-sessions-total" class="value">-</span>
                         </div>
                         <div class="kpi">
-                            <span class="label">Sessions terminees</span>
-                            <span id="kpi-past-sessions" class="value">-</span>
+                            <span class="label">Réservations totales</span>
+                            <span id="kpi-reservations-total" class="value">-</span>
                         </div>
                         <div class="kpi">
-                            <span class="label">Sessions actives</span>
-                            <span id="kpi-active-sessions" class="value">-</span>
+                            <span class="label">Réservations à venir</span>
+                            <span id="kpi-upcoming-reservations" class="value">-</span>
                         </div>
                     </div>
                 </aside>
-            </div>
 
-            <div class="dashboard-grid dashboard-lists">
+                <section class="dashboard-panel dashboard-token-panel">
+                    <p class="panel-title">Sécurité de session</p>
+                    <div class="dashboard-kpis kpi-row">
+                        <div class="kpi">
+                            <span class="label">Jeton d’accès</span>
+                            <span id="access-expiry" class="value">-</span>
+                        </div>
+                        <div class="kpi">
+                            <span class="label">Jeton de renouvellement</span>
+                            <span id="refresh-expiry" class="value">-</span>
+                        </div>
+                    </div>
+                </section>
+            </section>
+
+            <section class="dashboard-grid dashboard-lists" role="tabpanel" data-tab-panel="reservations" hidden>
+                <section class="dashboard-panel list-card">
+                    <div class="panel-heading">
+                        <p class="panel-title">Réservations à venir</p>
+                        <a class="link-btn compact" href="/reservation.html">Nouvelle réservation</a>
+                    </div>
+                    <div id="upcoming-reservations" class="stacked-list"></div>
+                </section>
+
+                <section class="dashboard-panel list-card">
+                    <p class="panel-title">Historique des réservations</p>
+                    <div id="recent-reservations" class="stacked-list"></div>
+                </section>
+            </section>
+
+            <section class="dashboard-grid dashboard-lists" role="tabpanel" data-tab-panel="sessions" hidden>
                 <section class="dashboard-panel list-card">
                     <p class="panel-title">Session active</p>
                     <div id="active-session" class="empty-state">Aucune session active pour le moment.</div>
@@ -81,15 +111,7 @@
                     <p class="panel-title">Historique des recharges</p>
                     <div id="recent-sessions" class="stacked-list"></div>
                 </section>
-            </div>
-
-            <div class="cta-row">
-                <button id="dashboard-logout" class="btn btn-secondary" type="button">Se deconnecter</button>
-                <a class="link-btn" href="/register.html">Nouveau compte</a>
-                <a class="link-btn" href="/login.html">Changer de compte</a>
-                <a class="link-btn" href="/profile.html">Profil</a>
-                <a id="admin-link" class="link-btn" href="/admin-dashboard.html" hidden>Admin</a>
-            </div>
+            </section>
         </section>
     </main>
 </body>

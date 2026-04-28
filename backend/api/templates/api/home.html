@@ -1,43 +1,61 @@
 {% extends "api/base.html" %}
 
-{% block title %}Accueil | Station de recharge{% endblock %}
+{% block title %}Accueil | M&eacute;tropole Verte{% endblock %}
 
 {% block content %}
 <main class="page-shell">
     <section class="hero-card">
-        <p class="eyebrow">Mobilite douce et energie intelligente</p>
-        <h1>Rechargez votre velo electrique facilement, rapidement et en toute confiance.</h1>
-        <p class="lead">
-            Notre application accompagne les utilisateurs d'une station de recharge de velo
-            electrique en centralisant l'acces aux bornes, le suivi des sessions de charge
-            et les informations utiles pour rouler sereinement au quotidien.
-        </p>
+        <a class="brand-logo home-brand" href="/" aria-label="Accueil M&eacute;tropole Verte">
+            <span class="logo-mark" aria-hidden="true">
+                <span class="logo-leaf"></span>
+                <span class="logo-bolt"></span>
+            </span>
+            <span>
+                <strong>M&eacute;tropole Verte</strong>
+                <small>Station de recharge</small>
+            </span>
+        </a>
 
-        <div class="cta-row">
-            <a class="btn btn-primary" href="{{ frontend_base_url }}/register.html">S'inscrire</a>
-            <a class="btn btn-secondary" href="{{ frontend_base_url }}/login.html">Se connecter</a>
+        <div class="hero-layout">
+            <div class="hero-copy">
+                <p class="eyebrow">Mobilit&eacute; douce et &eacute;nergie intelligente</p>
+                <h1>Rechargez votre v&eacute;lo &eacute;lectrique facilement.</h1>
+                <p class="lead">
+                    R&eacute;servez un emplacement, choisissez votre mode d&rsquo;acc&egrave;s et suivez vos
+                    sessions depuis un espace pens&eacute; pour les trajets du quotidien.
+                </p>
+            </div>
+
+            <aside class="home-action-panel" aria-label="Acc&egrave;s au service">
+                <p class="panel-title">Acc&egrave;s rapide</p>
+                <div class="home-cta-stack">
+                    <a class="btn btn-primary btn-hero" href="{{ frontend_base_url }}/register.html">S&rsquo;inscrire</a>
+                    <a class="btn btn-secondary btn-hero" href="{{ frontend_base_url }}/login.html">Se connecter</a>
+                </div>
+                <p class="helper">Cr&eacute;ez un compte ou connectez-vous pour retrouver vos r&eacute;servations.</p>
+            </aside>
         </div>
 
         <div class="feature-grid">
             <article class="feature-item">
-                <h2>Une recharge simplifiee</h2>
+                <h2>Une recharge simplifi&eacute;e</h2>
                 <p>
-                    Accedez rapidement a votre station et lancez votre recharge avec une
-                    interface pensee pour les trajets du quotidien.
+                    Acc&eacute;dez rapidement &agrave; votre station et lancez votre recharge avec une
+                    interface claire.
                 </p>
             </article>
             <article class="feature-item">
                 <h2>Un suivi clair</h2>
                 <p>
-                    Consultez l'etat de votre recharge, votre historique et les informations
-                    utiles pour mieux gerer vos deplacements.
+                    Consultez l&rsquo;&eacute;tat de votre recharge, votre historique et les informations
+                    utiles.
                 </p>
             </article>
             <article class="feature-item">
                 <h2>Un service pour les usagers</h2>
                 <p>
-                    L'application met l'accent sur la disponibilite, la simplicite d'usage
-                    et la securite des donnees des utilisateurs.
+                    M&eacute;tropole Verte met l&rsquo;accent sur la disponibilit&eacute;, la simplicit&eacute;
+                    d&rsquo;usage et la s&eacute;curit&eacute; des donn&eacute;es.
                 </p>
             </article>
         </div>
@@ -45,10 +63,10 @@
 </main>
 
 <footer class="site-footer">
-    <p>Station de recharge de velo electrique</p>
+    <p>Station de recharge de v&eacute;lo &eacute;lectrique</p>
     <nav class="footer-links" aria-label="Liens utiles">
         <a href="{% url 'contact' %}">Contact</a>
-        <a href="{% url 'privacy' %}">Politique de confidentialite</a>
+        <a href="{% url 'privacy' %}">Politique de confidentialit&eacute;</a>
     </nav>
 </footer>
 {% endblock %}

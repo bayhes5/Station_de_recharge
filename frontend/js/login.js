@@ -16,7 +16,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (!payload.identifiant || !payload.password) {
             status.classList.add("error");
-            status.textContent = "Le pseudo/email et le mot de passe sont obligatoires.";
+            status.textContent = "Le pseudo/e-mail et le mot de passe sont obligatoires.";
+            submitButton.disabled = false;
             return;
         }
 
@@ -25,9 +26,13 @@ document.addEventListener("DOMContentLoaded", () => {
             window.AuthAPI.setTokens(result);
             status.textContent = "Connexion réussie.";
             window.setTimeout(() => {
-                window.location.href = result.user?.is_staff
-                    ? "/admin-dashboard.html"
-                    : "/dashboard.html";
+                if (result.user?.is_staff) {
+                    window.location.href = "/admin-dashboard.html";
+                } else if (result.user?.is_technician) {
+                    window.location.href = "/technician-dashboard.html";
+                } else {
+                    window.location.href = "/dashboard.html";
+                }
             }, 800);
         } catch (error) {
             status.classList.add("error");

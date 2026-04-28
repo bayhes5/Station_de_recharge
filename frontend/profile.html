@@ -3,98 +3,142 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-store">
     <title>Profil</title>
-    <link rel="stylesheet" href="css/auth.css">
-    <script defer src="js/api.js"></script>
-    <script defer src="js/profile.js"></script>
+    <link rel="stylesheet" href="css/auth.css?v=profile-rfid-delete-1">
+    <script defer src="js/api.js?v=profile-rfid-delete-1"></script>
+    <script defer src="js/profile.js?v=profile-rfid-delete-1"></script>
 </head>
 <body>
+    <a class="skip-link" href="#contenu">Aller au contenu</a>
     <main class="page">
-        <section class="dashboard-card">
-            <p class="eyebrow">Station de recharge</p>
-            <h1>Profil utilisateur</h1>
-            <p class="lead">
-                Modifie tes informations, change ton mot de passe, telecharge tes donnees
-                et supprime ton compte si tu le souhaites.
-            </p>
+        <section id="contenu" class="dashboard-card app-shell" aria-labelledby="profile-title">
+            <header class="page-header">
+                <div>
+                    <p class="eyebrow">Station de recharge</p>
+                    <h1 id="profile-title">Profil utilisateur</h1>
+                    <p class="lead">Informations personnelles, sécurité, moyens d’authentification et données du compte.</p>
+                </div>
+                <div class="header-actions">
+                    <a class="btn btn-secondary" href="/dashboard.html">Tableau de bord</a>
+                    <a class="btn btn-primary" href="/reservation.html">Réserver</a>
+                </div>
+            </header>
 
             <div id="profile-status" class="status" aria-live="polite"></div>
 
-            <div class="dashboard-grid">
-                <section class="dashboard-panel">
-                    <p class="panel-title">Informations personnelles</p>
-                    <form id="profile-form" class="account-form">
-                        <div class="form-grid">
-                            <div class="field">
-                                <label for="profile-pseudo">Pseudo</label>
-                                <input id="profile-pseudo" name="pseudo" type="text" required>
-                            </div>
-                            <div class="field">
-                                <label for="profile-email">Email</label>
-                                <input id="profile-email" name="email" type="email" required>
-                            </div>
-                        </div>
-                        <div class="form-grid">
-                            <div class="field">
-                                <label for="profile-telephone">Telephone</label>
-                                <input id="profile-telephone" name="telephone" type="tel">
-                            </div>
-                            <div class="field">
-                                <label for="profile-nom">Nom</label>
-                                <input id="profile-nom" name="nom" type="text">
-                            </div>
-                        </div>
-                        <div class="field">
-                            <label for="profile-statut">Statut</label>
-                            <input id="profile-statut" name="statut" type="text" readonly>
-                        </div>
-                        <button class="btn btn-primary" type="submit">Enregistrer</button>
-                    </form>
-                </section>
+            <nav class="tab-bar" role="tablist" aria-label="Navigation du profil">
+                <button class="tab-button active" type="button" role="tab" aria-selected="true" data-tab-button="account">Compte</button>
+                <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-button="auth">Authentification</button>
+                <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-button="history">Historique</button>
+                <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-button="rgpd">Données</button>
+            </nav>
 
-                <section class="dashboard-panel">
-                    <p class="panel-title">Mot de passe</p>
-                    <form id="password-form" class="account-form">
-                        <div class="field">
-                            <label for="current-password">Mot de passe actuel</label>
-                            <input id="current-password" name="current_password" type="password" required>
-                        </div>
-                        <div class="field">
-                            <label for="new-password">Nouveau mot de passe</label>
-                            <input id="new-password" name="new_password" type="password" required>
-                        </div>
-                        <div class="field">
-                            <label for="confirm-password">Confirmation</label>
-                            <input id="confirm-password" name="confirm_password" type="password" required>
-                        </div>
-                        <button class="btn btn-primary" type="submit">Changer le mot de passe</button>
-                    </form>
-                </section>
-            </div>
+            <section class="section-block" role="tabpanel" data-tab-panel="account">
+                <div class="dashboard-grid">
+                    <section class="dashboard-panel">
+                        <p class="panel-title">Informations personnelles</p>
+                        <form id="profile-form" class="account-form">
+                            <div class="form-grid">
+                                <div class="field">
+                                    <label for="profile-pseudo">Pseudo</label>
+                                    <input id="profile-pseudo" name="pseudo" type="text" required>
+                                </div>
+                                <div class="field">
+                                    <label for="profile-email">E-mail</label>
+                                    <input id="profile-email" name="email" type="email" required>
+                                </div>
+                            </div>
+                            <div class="form-grid">
+                                <div class="field">
+                                    <label for="profile-telephone">Téléphone</label>
+                                    <input id="profile-telephone" name="telephone" type="tel">
+                                </div>
+                                <div class="field">
+                                    <label for="profile-nom">Nom</label>
+                                    <input id="profile-nom" name="nom" type="text">
+                                </div>
+                            </div>
+                            <div class="field">
+                                <label for="profile-statut">Statut</label>
+                                <input id="profile-statut" name="statut" type="text" readonly>
+                            </div>
+                            <button class="btn btn-primary" type="submit">Enregistrer</button>
+                        </form>
+                    </section>
 
-            <div class="dashboard-grid section-block">
-                <section class="dashboard-panel">
-                    <p class="panel-title">RGPD</p>
-                    <p class="lead">
-                        Recupere une copie de ton compte ou supprime-le definitivement.
-                    </p>
-                    <div class="cta-row">
-                        <button id="export-btn" class="btn btn-secondary" type="button">Telecharger mes donnees</button>
-                        <button id="delete-btn" class="btn btn-secondary" type="button">Supprimer mon compte</button>
-                    </div>
-                </section>
+                    <section class="dashboard-panel">
+                        <p class="panel-title">Mot de passe</p>
+                        <form id="password-form" class="account-form">
+                            <div class="field">
+                                <label for="current-password">Mot de passe actuel</label>
+                                <input id="current-password" name="current_password" type="password" required>
+                            </div>
+                            <div class="field">
+                                <label for="new-password">Nouveau mot de passe</label>
+                                <input id="new-password" name="new_password" type="password" required>
+                            </div>
+                            <div class="field">
+                                <label for="confirm-password">Confirmation</label>
+                                <input id="confirm-password" name="confirm_password" type="password" required>
+                            </div>
+                            <button class="btn btn-primary" type="submit">Changer le mot de passe</button>
+                        </form>
+                    </section>
+                </div>
+            </section>
 
-                <section class="dashboard-panel danger-zone">
-                    <p class="panel-title">Compte</p>
-                    <p class="danger-text">
-                        La suppression efface le compte et ses donnees associees selon les regles de cascade.
-                    </p>
-                    <div class="cta-row">
-                        <a class="link-btn" href="/dashboard.html">Retour dashboard</a>
-                        <button id="logout-btn" class="btn btn-secondary" type="button">Se deconnecter</button>
-                    </div>
+            <section class="section-block" role="tabpanel" data-tab-panel="auth" hidden>
+                <div class="dashboard-grid">
+                    <section class="dashboard-panel">
+                        <p class="panel-title">Badge RFID</p>
+                        <p class="lead">Enregistrez votre badge RFID pour le réutiliser lors des réservations. Les QR codes et codes temporaires sont générés uniquement au moment d’une réservation.</p>
+                        <form id="auth-method-form" class="account-form">
+                            <div class="field">
+                                <label for="auth-value">Valeur RFID</label>
+                                <input id="auth-value" name="auth_value" type="text" placeholder="Valeur du badge RFID" required>
+                            </div>
+                            <button class="btn btn-primary" type="submit">Enregistrer le badge</button>
+                        </form>
+                        <div id="auth-methods-list" class="stacked-list section-stack"></div>
+                    </section>
+
+                    <section class="dashboard-panel">
+                        <p class="panel-title">Aperçu de réservation</p>
+                        <p class="lead">Les accès générés à la réservation apparaissent ici pour contrôle.</p>
+                        <div id="auth-history-preview" class="stacked-list section-stack"></div>
+                    </section>
+                </div>
+            </section>
+
+            <section class="section-block" role="tabpanel" data-tab-panel="history" hidden>
+                <section class="dashboard-panel">
+                    <p class="panel-title">Historique d’authentification</p>
+                        <p class="lead">Retrouvez les réservations, les modes d’accès et leurs périodes de validité.</p>
+                    <div id="auth-history-list" class="stacked-list section-stack"></div>
                 </section>
-            </div>
+            </section>
+
+            <section class="section-block" role="tabpanel" data-tab-panel="rgpd" hidden>
+                <div class="dashboard-grid">
+                    <section class="dashboard-panel">
+                        <p class="panel-title">Données personnelles</p>
+                        <p class="lead">Récupérez une copie de votre compte ou supprimez-le définitivement.</p>
+                        <div class="cta-row">
+                            <button id="export-btn" class="btn btn-secondary" type="button">Télécharger mes données</button>
+                            <button id="delete-btn" class="btn btn-secondary" type="button">Supprimer mon compte</button>
+                        </div>
+                    </section>
+
+                    <section class="dashboard-panel danger-zone">
+                        <p class="panel-title">Suppression</p>
+                        <p class="danger-text">La suppression efface le compte et ses données associées selon les règles de cascade.</p>
+                        <div class="cta-row">
+                            <button id="logout-btn" class="btn btn-secondary" type="button">Se déconnecter</button>
+                        </div>
+                    </section>
+                </div>
+            </section>
         </section>
     </main>
 </body>

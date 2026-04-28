@@ -87,8 +87,8 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
-    healthcheck:  # <-- Ajoute ceci
-      test: ["CMD-SHELL", "pg_isready -U user -d station"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -104,8 +104,8 @@ services:
       - "8000:8000"
     depends_on:
       db:
-        condition: service_healthy  # <-- Attend que le healthcheck passe
-    command: sh -c "python manage.py migrate --noinput && python manage.py bootstrap_superuser && python manage.py runserver 0.0.0.0:8000"
+        condition: service_healthy
+    command: sh /app/docker-entrypoint.sh
 
   frontend:
      image: nginx:alpine
@@ -117,5 +117,17 @@ services:
      depends_on:
        - backend
 
+  raspberry:
+    image: python:3.11-slim
+    container_name: raspberry_kiosk
+    working_dir: /app
+    volumes:
+      - ./raspberry/app:/app
+    ports:
+      - "9000:9000"
+    command: python main.py
+    depends_on:
+      - backend
+
 volumes:
-    postgres_data:  # Volume pour persister les données de PostgreSQL
+  postgres_data:  # Volume pour persister les données de PostgreSQL

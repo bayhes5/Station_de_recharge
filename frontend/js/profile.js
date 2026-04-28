@@ -8,6 +8,113 @@ function downloadJson(filename, data) {
     URL.revokeObjectURL(url);
 }
 
+function formatDate(value) {
+    if (!value) {
+        return "-";
+    }
+    return new Date(value).toLocaleString("fr-FR");
+}
+
+function renderAuthMethods(listElement, methods, onDelete) {
+    listElement.innerHTML = "";
+
+    if (!methods.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty-state";
+        empty.textContent = "Aucun badge RFID configuré.";
+        listElement.appendChild(empty);
+        return;
+    }
+
+    methods.forEach((method) => {
+        const item = document.createElement("article");
+        item.className = "list-item";
+
+        const head = document.createElement("div");
+        head.className = "list-item-head";
+
+        const title = document.createElement("strong");
+        title.textContent = method.type_label === "RFID" ? "Badge RFID" : method.type_label;
+
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.textContent = "Enregistré";
+
+        head.appendChild(title);
+        head.appendChild(badge);
+
+        const value = document.createElement("p");
+        value.textContent = `Valeur : ${method.display_value || "Non affichable"}`;
+
+        const meta = document.createElement("p");
+        meta.textContent = "Utilisé automatiquement lors d’une réservation avec badge RFID.";
+
+        const actions = document.createElement("div");
+        actions.className = "cta-row";
+
+        const deleteButton = document.createElement("button");
+        deleteButton.className = "btn btn-secondary";
+        deleteButton.type = "button";
+        deleteButton.textContent = "Supprimer";
+        deleteButton.addEventListener("click", () => onDelete(method));
+
+        actions.appendChild(deleteButton);
+
+        item.appendChild(head);
+        item.appendChild(value);
+        item.appendChild(meta);
+        item.appendChild(actions);
+        listElement.appendChild(item);
+    });
+}
+
+function renderAuthHistory(listElement, history) {
+    listElement.innerHTML = "";
+
+    if (!history.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty-state";
+        empty.textContent = "Aucune réservation avec authentification pour le moment.";
+        listElement.appendChild(empty);
+        return;
+    }
+
+    history.forEach((entry) => {
+        const item = document.createElement("article");
+        item.className = "list-item";
+
+        const head = document.createElement("div");
+        head.className = "list-item-head";
+
+        const title = document.createElement("strong");
+        title.textContent = `${entry.auth_type} - ${entry.station_nom} / emplacement ${entry.emplacement}`;
+
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.textContent = entry.auth_source === "generated" ? "Généré à la réservation" : "Enregistré";
+
+        head.appendChild(title);
+        head.appendChild(badge);
+
+        const ref = document.createElement("p");
+        ref.textContent = `Réservation : ${entry.reference_code || "-"} | ${formatDate(entry.date_debut)} → ${formatDate(entry.date_fin)}`;
+
+        const value = document.createElement("p");
+        value.textContent = `Valeur : ${entry.auth_value || "Non disponible"}`;
+
+        const meta = document.createElement("p");
+        meta.textContent = entry.auth_expiration
+            ? `Expire le ${formatDate(entry.auth_expiration)}`
+            : "Sans expiration";
+
+        item.appendChild(head);
+        item.appendChild(ref);
+        item.appendChild(value);
+        item.appendChild(meta);
+        listElement.appendChild(item);
+    });
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
     const status = document.getElementById("profile-status");
     const logoutBtn = document.getElementById("logout-btn");
@@ -15,20 +122,43 @@ document.addEventListener("DOMContentLoaded", async () => {
     const deleteBtn = document.getElementById("delete-btn");
     const profileForm = document.getElementById("profile-form");
     const passwordForm = document.getElementById("password-form");
-
-    logoutBtn.addEventListener("click", () => window.AuthAPI.logout());
-
-    const session = await window.AuthAPI.ensureSession();
-    if (!session) {
-        status.classList.add("error");
-        status.textContent = "Session absente ou expiree. Redirection vers la connexion.";
-        window.setTimeout(() => {
-            window.location.href = "/login.html";
-        }, 1200);
-        return;
-    }
+    const authMethodForm = document.getElementById("auth-method-form");
+    const authMethodsList = document.getElementById("auth-methods-list");
+    const authHistoryList = document.getElementById("auth-history-list");
+    const authHistoryPreview = document.getElementById("auth-history-preview");
+    const tabButtons = [...document.querySelectorAll("[data-tab-button]")];
+    const tabPanels = [...document.querySelectorAll("[data-tab-panel]")];
 
     let currentProfile = null;
+
+    function setStatus(message, isError = false) {
+        status.classList.toggle("error", isError);
+        status.textContent = message;
+    }
+
+    function setTab(name) {
+        tabButtons.forEach((button) => {
+            button.classList.toggle("active", button.dataset.tabButton === name);
+            button.setAttribute("aria-selected", String(button.dataset.tabButton === name));
+        });
+
+        tabPanels.forEach((panel) => {
+            panel.hidden = panel.dataset.tabPanel !== name;
+        });
+    }
+
+    async function deleteRfidBadge(method) {
+        const confirmed = window.confirm("Supprimer ce badge RFID ?");
+        if (!confirmed) return;
+
+        try {
+            await window.AuthAPI.deleteAuthMethod(method.id_auth);
+            await loadAuthMethods();
+            setStatus("Badge RFID supprimé.");
+        } catch (error) {
+            setStatus(error.message || "Impossible de supprimer le badge RFID.", true);
+        }
+    }
 
     async function loadProfile() {
         const result = await window.AuthAPI.getProfile();
@@ -42,21 +172,74 @@ document.addEventListener("DOMContentLoaded", async () => {
         profileForm.nom.value = profile.nom || user.nom || "";
         profileForm.statut.value = user.statut || "";
 
-        status.classList.remove("error");
-        status.textContent = "Profil charge.";
+        setStatus("Profil chargé.");
     }
 
-    try {
-        await loadProfile();
-    } catch (_error) {
-        status.classList.add("error");
-        status.textContent = "Impossible de charger le profil.";
+    async function loadAuthMethods() {
+        const result = await window.AuthAPI.getAuthMethods();
+        renderAuthMethods(authMethodsList, result.results || [], deleteRfidBadge);
+    }
+
+    async function loadAuthHistory() {
+        const result = await window.AuthAPI.getAuthHistory();
+        const history = result.results || [];
+        renderAuthHistory(authHistoryList, history);
+
+        const preview = history
+            .filter((entry) => entry.auth_source === "generated")
+            .slice(0, 3);
+        renderAuthHistory(authHistoryPreview, preview);
+    }
+
+    tabButtons.forEach((button) => {
+        button.addEventListener("click", () => setTab(button.dataset.tabButton));
+    });
+
+    logoutBtn.addEventListener("click", () => window.AuthAPI.logout());
+
+    const session = await window.AuthAPI.ensureSession();
+    if (!session) {
+        setStatus("Session absente ou expirée. Redirection vers la connexion.", true);
+        window.setTimeout(() => {
+            window.location.href = "/login.html";
+        }, 1200);
         return;
     }
 
+    try {
+        await Promise.all([loadProfile(), loadAuthMethods(), loadAuthHistory()]);
+        setTab("account");
+    } catch (_error) {
+        setStatus("Impossible de charger le profil ou l’historique d’authentification.", true);
+        return;
+    }
+
+    authMethodForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        setStatus("");
+        const submitButton = authMethodForm.querySelector('button[type="submit"]');
+        submitButton.disabled = true;
+
+        const payload = {
+            auth_mode: "rfid",
+            auth_value: authMethodForm.auth_value.value.trim(),
+        };
+
+        try {
+            await window.AuthAPI.createAuthMethod(payload);
+            authMethodForm.reset();
+            await loadAuthMethods();
+            setStatus("Badge RFID enregistré.");
+        } catch (error) {
+            setStatus(error.message || "Erreur lors de l’enregistrement du badge RFID.", true);
+        } finally {
+            submitButton.disabled = false;
+        }
+    });
+
     profileForm.addEventListener("submit", async (event) => {
         event.preventDefault();
-        status.classList.remove("error");
+        setStatus("");
 
         const submitButton = profileForm.querySelector('button[type="submit"]');
         submitButton.disabled = true;
@@ -71,15 +254,14 @@ document.addEventListener("DOMContentLoaded", async () => {
         try {
             await window.AuthAPI.updateProfile(payload);
             await loadProfile();
-            status.textContent = "Profil mis a jour.";
+            setStatus("Profil mis à jour.");
         } catch (error) {
-            status.classList.add("error");
             if (error.payload?.email) {
-                status.textContent = `Email: ${error.payload.email.join(" ")}`;
+                setStatus(`E-mail : ${error.payload.email.join(" ")}`, true);
             } else if (error.payload?.pseudo) {
-                status.textContent = `Pseudo: ${error.payload.pseudo.join(" ")}`;
+                setStatus(`Pseudo : ${error.payload.pseudo.join(" ")}`, true);
             } else {
-                status.textContent = error.message || "Erreur lors de la mise a jour du profil.";
+                setStatus(error.message || "Erreur lors de la mise à jour du profil.", true);
             }
         } finally {
             submitButton.disabled = false;
@@ -88,7 +270,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     passwordForm.addEventListener("submit", async (event) => {
         event.preventDefault();
-        status.classList.remove("error");
+        setStatus("");
 
         const submitButton = passwordForm.querySelector('button[type="submit"]');
         submitButton.disabled = true;
@@ -100,8 +282,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         };
 
         if (payload.new_password !== payload.confirm_password) {
-            status.classList.add("error");
-            status.textContent = "Les mots de passe ne correspondent pas.";
+            setStatus("Les mots de passe ne correspondent pas.", true);
             submitButton.disabled = false;
             return;
         }
@@ -109,15 +290,14 @@ document.addEventListener("DOMContentLoaded", async () => {
         try {
             await window.AuthAPI.changePassword(payload);
             passwordForm.reset();
-            status.textContent = "Mot de passe mis a jour.";
+            setStatus("Mot de passe mis à jour.");
         } catch (error) {
-            status.classList.add("error");
             if (error.payload?.current_password) {
-                status.textContent = error.payload.current_password;
+                setStatus(error.payload.current_password, true);
             } else if (error.payload?.new_password) {
-                status.textContent = `Nouveau mot de passe: ${error.payload.new_password.join(" ")}`;
+                setStatus(`Nouveau mot de passe : ${error.payload.new_password.join(" ")}`, true);
             } else {
-                status.textContent = error.message || "Erreur lors du changement de mot de passe.";
+                setStatus(error.message || "Erreur lors du changement de mot de passe.", true);
             }
         } finally {
             submitButton.disabled = false;
@@ -128,16 +308,15 @@ document.addEventListener("DOMContentLoaded", async () => {
         try {
             const account = await window.AuthAPI.exportAccount();
             downloadJson(`compte-${currentProfile.user.pseudo || "utilisateur"}.json`, account);
-            status.textContent = "Export RGPD telecharge.";
+            setStatus("Export RGPD téléchargé.");
         } catch (_error) {
-            status.classList.add("error");
-            status.textContent = "Impossible de telecharger tes donnees.";
+            setStatus("Impossible de télécharger vos données.", true);
         }
     });
 
     deleteBtn.addEventListener("click", async () => {
         const confirmed = window.confirm(
-            "Cette action supprime ton compte et les donnees associees. Continuer ?"
+            "Cette action supprime votre compte et les données associées. Continuer ?"
         );
 
         if (!confirmed) {
@@ -149,8 +328,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             window.AuthAPI.clearTokens();
             window.location.href = "/register.html";
         } catch (_error) {
-            status.classList.add("error");
-            status.textContent = "Impossible de supprimer le compte.";
+            setStatus("Impossible de supprimer le compte.", true);
         }
     });
 });

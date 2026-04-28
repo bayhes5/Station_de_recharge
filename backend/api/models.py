@@ -3,6 +3,7 @@ import uuid
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 
@@ -39,11 +40,11 @@ class UtilisateurManager(BaseUserManager):
 
 class Utilisateur(AbstractBaseUser, PermissionsMixin):
     id_user = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    pseudo = models.CharField(max_length=150, unique=True)
+    pseudo = models.CharField(max_length=100, unique=True)
     email = models.EmailField(unique=True)
-    telephone = models.CharField(max_length=30, blank=True)
     statut = models.CharField(max_length=50, default="actif")
     created_at = models.DateTimeField(auto_now_add=True)
+    failed_attempts = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)
@@ -69,7 +70,8 @@ class ProfilUtilisateur(models.Model):
         related_name="profil",
         db_column="id_user",
     )
-    nom = models.CharField(max_length=255)
+    nom = models.CharField(max_length=100, blank=True)
+    telephone = models.CharField(max_length=20, blank=True)
 
     class Meta:
         db_table = "profil_utilisateur"
@@ -80,7 +82,8 @@ class ProfilUtilisateur(models.Model):
 
 class Role(models.Model):
     id_role = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    nom = models.CharField(max_length=100, unique=True)
+    nom = models.CharField(max_length=50, unique=True)
+    description = models.TextField(blank=True)
 
     class Meta:
         db_table = "role"
@@ -96,6 +99,7 @@ class UtilisateurRole(models.Model):
         db_column="id_user",
     )
     role = models.ForeignKey(Role, on_delete=models.CASCADE, db_column="id_role")
+    assigned_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         db_table = "utilisateur_role"
@@ -129,9 +133,11 @@ class JournalSecurite(models.Model):
     id_log = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     utilisateur = models.ForeignKey(
         Utilisateur,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         related_name="journaux_securite",
         db_column="id_user",
+        null=True,
+        blank=True,
     )
     action = models.CharField(max_length=255)
     ip = models.GenericIPAddressField()
@@ -144,7 +150,7 @@ class JournalSecurite(models.Model):
 
 class TypeAuth(models.Model):
     id_type = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    libelle = models.CharField(max_length=100, unique=True)
+    libelle = models.CharField(max_length=50, unique=True)
     factor_level = models.PositiveSmallIntegerField()
 
     class Meta:
@@ -168,20 +174,24 @@ class Authentification(models.Model):
         related_name="authentifications",
         db_column="id_type",
     )
-    hash_valeur = models.CharField(max_length=255)
-    expiration = models.DateTimeField()
+    hash_valeur = models.TextField(db_column="secret_hash")
+    display_value = models.CharField(max_length=255, blank=True, default="")
+    expiration = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
-        db_table = "authentification"
+        db_table = "auth_method"
 
 
 class Station(models.Model):
     id_station = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    nom = models.CharField(max_length=150)
-    localisation_text = models.CharField(max_length=255)
-    latitude = models.FloatField()
-    longitude = models.FloatField()
+    nom = models.CharField(max_length=100)
+    localisation_text = models.CharField(max_length=255, db_column="localisation")
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
     statut = models.CharField(max_length=50)
+    created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         db_table = "station"
@@ -203,8 +213,8 @@ class Emplacement(models.Model):
         db_column="id_station",
     )
     numero = models.PositiveIntegerField()
-    statut = models.CharField(max_length=50)
-    lock_state = models.CharField(max_length=50)
+    statut = models.CharField(max_length=50, db_column="etat")
+    lock_state = models.CharField(max_length=50, db_column="statut_cadenas")
 
     class Meta:
         db_table = "emplacement"
@@ -220,11 +230,14 @@ class Reservation(models.Model):
         default=uuid.uuid4,
         editable=False,
     )
+    reference_code = models.CharField(max_length=12, unique=True, null=True, blank=True)
     utilisateur = models.ForeignKey(
         Utilisateur,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         related_name="reservations",
         db_column="id_user",
+        null=True,
+        blank=True,
     )
     emplacement = models.ForeignKey(
         Emplacement,
@@ -232,12 +245,27 @@ class Reservation(models.Model):
         related_name="reservations",
         db_column="id_emplacement",
     )
+    authentification = models.ForeignKey(
+        "Authentification",
+        on_delete=models.SET_NULL,
+        related_name="reservations",
+        db_column="id_auth",
+        null=True,
+        blank=True,
+    )
+    auth_choice = models.CharField(max_length=20, default="qr")
     date_debut = models.DateTimeField()
     date_fin = models.DateTimeField()
     statut = models.CharField(max_length=50)
 
     class Meta:
         db_table = "reservation"
+        constraints = [
+            models.CheckConstraint(condition=Q(date_fin__gt=models.F("date_debut")), name="reservation_date_fin_gt_debut"),
+        ]
+        indexes = [
+            models.Index(fields=["emplacement", "date_debut", "date_fin"], name="idx_reservation_emp_dates"),
+        ]
 
 
 class Session(models.Model):
@@ -258,7 +286,16 @@ class Session(models.Model):
     end_time = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        db_table = "session"
+        db_table = "charging_session"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(end_time__isnull=True) | Q(end_time__gt=models.F("start_time")),
+                name="session_end_gt_start",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["emplacement"], name="idx_session_emplacement"),
+        ]
 
 
 class SessionTelemetry(models.Model):
@@ -275,57 +312,47 @@ class SessionTelemetry(models.Model):
     )
     courant = models.FloatField()
     tension = models.FloatField()
-    energie_kwh = models.FloatField(db_column="energie_kWh")
+    energie_kwh = models.FloatField()
     timestamp = models.DateTimeField(default=timezone.now)
 
     class Meta:
         db_table = "session_telemetry"
 
 
-class Port(models.Model):
-    id_port = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    emplacement = models.ForeignKey(
-        Emplacement,
-        on_delete=models.CASCADE,
-        related_name="ports",
-        db_column="id_emplacement",
-    )
-    puissance_max = models.FloatField()
-    voltage_max = models.FloatField()
-    courant_max = models.FloatField()
-    statut = models.CharField(max_length=50)
-
-    class Meta:
-        db_table = "port"
-
-
 class Device(models.Model):
     id_device = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    emplacement = models.ForeignKey(
+    emplacement = models.OneToOneField(
         Emplacement,
         on_delete=models.CASCADE,
-        related_name="devices",
+        related_name="device",
         db_column="id_emplacement",
     )
-    type_device = models.CharField(max_length=100)
-    firmware_version = models.CharField(max_length=100)
+    type_device = models.CharField(max_length=50)
+    firmware_version = models.CharField(max_length=50)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    mac_address = models.CharField(max_length=50, blank=True)
     last_seen = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=50)
 
     class Meta:
         db_table = "device"
+        indexes = [
+            models.Index(fields=["last_seen"], name="idx_device_last_seen"),
+        ]
 
 
 class Capteur(models.Model):
     id_capteur = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    emplacement = models.ForeignKey(
-        Emplacement,
+    device = models.ForeignKey(
+        Device,
         on_delete=models.CASCADE,
         related_name="capteurs",
-        db_column="id_emplacement",
+        db_column="id_device",
+        null=True,
+        blank=True,
     )
-    type = models.CharField(max_length=100)
-    unite = models.CharField(max_length=50)
+    type = models.CharField(max_length=50)
+    unite = models.CharField(max_length=20)
 
     class Meta:
         db_table = "capteur"
@@ -344,31 +371,52 @@ class CapteurData(models.Model):
 
     class Meta:
         db_table = "capteur_data"
+        indexes = [
+            models.Index(fields=["capteur", "timestamp"], name="idx_capteur_data_time"),
+        ]
 
 
 class Alerte(models.Model):
     id_alerte = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    emplacement = models.ForeignKey(
-        Emplacement,
-        on_delete=models.CASCADE,
+    data = models.ForeignKey(
+        CapteurData,
+        on_delete=models.SET_NULL,
         related_name="alertes",
-        db_column="id_emplacement",
+        db_column="id_data",
+        null=True,
+        blank=True,
     )
-    type = models.CharField(max_length=100)
+    session = models.ForeignKey(
+        Session,
+        on_delete=models.SET_NULL,
+        related_name="alertes",
+        db_column="id_session",
+        null=True,
+        blank=True,
+    )
+    type = models.CharField(max_length=50)
     message = models.TextField()
     niveau_severite = models.CharField(max_length=50)
     status = models.CharField(max_length=50)
-    timestamp = models.DateTimeField(default=timezone.now)
+    timestamp = models.DateTimeField(default=timezone.now, db_column="date")
 
     class Meta:
         db_table = "alerte"
 
 
 class Technicien(models.Model):
-    id_technicien = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    nom = models.CharField(max_length=255)
+    id_technicien = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_column="id_tech")
+    utilisateur = models.OneToOneField(
+        Utilisateur,
+        on_delete=models.SET_NULL,
+        related_name="technicien_profile",
+        db_column="id_user",
+        null=True,
+        blank=True,
+    )
+    nom = models.CharField(max_length=100)
     email = models.EmailField(unique=True)
-    telephone = models.CharField(max_length=30, blank=True)
+    telephone = models.CharField(max_length=20, blank=True)
 
     class Meta:
         db_table = "technicien"
