@@ -44,11 +44,9 @@ docker compose version
 ### 1. Cloner le projet
 
 ```bash
-git clone <url-du-depot>
+git clone https://github.com/bayhes5/Station_de_recharge
 cd Station_de_recharge
 ```
-
-Remplacer `<url-du-depot>` par l'URL du dépôt Git.
 
 ### 2. Créer le fichier d'environnement
 
