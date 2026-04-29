@@ -4,46 +4,47 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Cache-Control" content="no-store">
-    <title>Tableau de bord</title>
-    <link rel="stylesheet" href="css/auth.css?v=dashboard-clean-1">
-    <script defer src="js/api.js?v=dashboard-clean-1"></script>
-    <script defer src="js/dashboard.js?v=dashboard-clean-1"></script>
+    <title>Tableau de bord | M&eacute;tropole Verte</title>
+    <link rel="stylesheet" href="css/auth.css?v=dashboard-data-view-1">
+    <script defer src="js/api.js?v=dashboard-data-view-1"></script>
+    <script defer src="js/dashboard.js?v=dashboard-data-view-1"></script>
 </head>
 <body>
     <a class="skip-link" href="#contenu">Aller au contenu</a>
-    <main class="page">
-        <section id="contenu" class="dashboard-card app-shell" aria-labelledby="dashboard-title">
-            <header class="page-header">
+    <main class="page admin-page">
+        <section id="contenu" class="dashboard-card admin-shell app-shell" aria-labelledby="dashboard-title">
+            <header class="page-header admin-header">
                 <div>
-                    <p class="eyebrow">Station de recharge</p>
+                    <p class="eyebrow">M&eacute;tropole Verte</p>
                     <h1 id="dashboard-title">Tableau de bord</h1>
-                    <p class="lead">Réservations, sessions de recharge et état de votre compte.</p>
+                    <p class="lead">R&eacute;servations, sessions de recharge et &eacute;tat de votre compte.</p>
                 </div>
                 <div class="header-actions">
-                    <a class="btn btn-primary" href="/reservation.html">Réserver</a>
+                    <a id="dashboard-admin-link" class="btn btn-secondary" href="/admin-dashboard.html" hidden>Administration</a>
+                    <a class="btn btn-primary" href="/reservation.html">R&eacute;server</a>
                     <a class="btn btn-secondary" href="/profile.html">Profil</a>
-                    <button id="dashboard-logout" class="btn btn-secondary" type="button">Se déconnecter</button>
+                    <button id="dashboard-logout" class="btn btn-secondary" type="button">Se d&eacute;connecter</button>
                 </div>
             </header>
 
             <div id="dashboard-status" class="status" aria-live="polite"></div>
 
-            <nav class="tab-bar" role="tablist" aria-label="Navigation du tableau de bord">
-                <button class="tab-button active" type="button" role="tab" aria-selected="true" data-tab="overview">Vue d’ensemble</button>
-                <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="reservations">Réservations</button>
+            <nav class="tab-bar admin-tabs" role="tablist" aria-label="Navigation du tableau de bord">
+                <button class="tab-button active" type="button" role="tab" aria-selected="true" data-tab="overview">Vue d&rsquo;ensemble</button>
+                <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="reservations">R&eacute;servations</button>
                 <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="sessions">Recharges</button>
             </nav>
 
-            <section class="dashboard-grid" role="tabpanel" data-tab-panel="overview">
+            <section class="admin-overview-grid" role="tabpanel" data-tab-panel="overview">
                 <section class="dashboard-panel">
-                    <p class="panel-title">Identité</p>
+                    <p class="panel-title">Identit&eacute;</p>
                     <div class="metrics">
                         <div class="metric">
                             <strong>Pseudo</strong>
                             <span id="dashboard-pseudo" class="meta">-</span>
                         </div>
                         <div class="metric">
-                            <strong>Email</strong>
+                            <strong>E-mail</strong>
                             <span id="dashboard-email" class="meta">-</span>
                         </div>
                         <div class="metric">
@@ -54,28 +55,28 @@
                 </section>
 
                 <aside class="dashboard-panel">
-                    <p class="panel-title">Activité</p>
-                    <div class="dashboard-kpis">
+                    <p class="panel-title">Activit&eacute;</p>
+                    <div class="dashboard-kpis admin-kpis">
                         <div class="kpi">
                             <span class="label">Sessions totales</span>
                             <span id="kpi-sessions-total" class="value">-</span>
                         </div>
                         <div class="kpi">
-                            <span class="label">Réservations totales</span>
+                            <span class="label">R&eacute;servations totales</span>
                             <span id="kpi-reservations-total" class="value">-</span>
                         </div>
                         <div class="kpi">
-                            <span class="label">Réservations à venir</span>
+                            <span class="label">R&eacute;servations &agrave; venir</span>
                             <span id="kpi-upcoming-reservations" class="value">-</span>
                         </div>
                     </div>
                 </aside>
 
                 <section class="dashboard-panel dashboard-token-panel">
-                    <p class="panel-title">Sécurité de session</p>
+                    <p class="panel-title">S&eacute;curit&eacute; de session</p>
                     <div class="dashboard-kpis kpi-row">
                         <div class="kpi">
-                            <span class="label">Jeton d’accès</span>
+                            <span class="label">Jeton d&rsquo;acc&egrave;s</span>
                             <span id="access-expiry" class="value">-</span>
                         </div>
                         <div class="kpi">
@@ -86,30 +87,42 @@
                 </section>
             </section>
 
-            <section class="dashboard-grid dashboard-lists" role="tabpanel" data-tab-panel="reservations" hidden>
-                <section class="dashboard-panel list-card">
-                    <div class="panel-heading">
-                        <p class="panel-title">Réservations à venir</p>
-                        <a class="link-btn compact" href="/reservation.html">Nouvelle réservation</a>
+            <section class="admin-data-stack" role="tabpanel" data-tab-panel="reservations" hidden>
+                <section class="dashboard-panel list-card admin-table-panel">
+                    <div class="panel-heading table-toolbar">
+                        <div>
+                            <p class="panel-title">R&eacute;servations &agrave; venir</p>
+                            <p class="table-caption">Annulation possible avant le d&eacute;but de la r&eacute;servation.</p>
+                        </div>
+                        <a class="link-btn compact" href="/reservation.html">Nouvelle r&eacute;servation</a>
                     </div>
-                    <div id="upcoming-reservations" class="stacked-list"></div>
+                    <div id="upcoming-reservations" class="stacked-list dashboard-card-list"></div>
                 </section>
 
-                <section class="dashboard-panel list-card">
-                    <p class="panel-title">Historique des réservations</p>
-                    <div id="recent-reservations" class="stacked-list"></div>
+                <section class="dashboard-panel list-card admin-table-panel">
+                    <div class="panel-heading table-toolbar">
+                        <div>
+                            <p class="panel-title">Historique des r&eacute;servations</p>
+                            <p class="table-caption">R&eacute;servations pass&eacute;es ou annul&eacute;es.</p>
+                        </div>
+                    </div>
+                    <div id="recent-reservations" class="stacked-list dashboard-card-list"></div>
                 </section>
             </section>
 
-            <section class="dashboard-grid dashboard-lists" role="tabpanel" data-tab-panel="sessions" hidden>
-                <section class="dashboard-panel list-card">
-                    <p class="panel-title">Session active</p>
+            <section class="admin-data-stack" role="tabpanel" data-tab-panel="sessions" hidden>
+                <section class="dashboard-panel list-card admin-table-panel">
+                    <div class="panel-heading table-toolbar">
+                        <p class="panel-title">Session active</p>
+                    </div>
                     <div id="active-session" class="empty-state">Aucune session active pour le moment.</div>
                 </section>
 
-                <section class="dashboard-panel list-card">
-                    <p class="panel-title">Historique des recharges</p>
-                    <div id="recent-sessions" class="stacked-list"></div>
+                <section class="dashboard-panel list-card admin-table-panel">
+                    <div class="panel-heading table-toolbar">
+                        <p class="panel-title">Historique des recharges</p>
+                    </div>
+                    <div id="recent-sessions" class="stacked-list dashboard-card-list"></div>
                 </section>
             </section>
         </section>

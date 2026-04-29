@@ -242,6 +242,18 @@ async function createReservation(data) {
     });
 }
 
+async function cancelReservation(id) {
+    return doRequest(`/reservations/${id}/cancel/`, {
+        method: "POST",
+    });
+}
+
+async function getReservationAccessPayload(id) {
+    return doRequest(`/reservations/${id}/access-payload/`, {
+        method: "POST",
+    });
+}
+
 async function getReservationAvailability(params) {
     const query = new URLSearchParams(params || {}).toString();
     return doRequest(`/reservations/availability/${query ? `?${query}` : ""}`, {
@@ -308,6 +320,24 @@ async function deleteAccount() {
 
 async function getAdminOverview() {
     return doRequest("/admin/overview/", {
+        method: "GET",
+    });
+}
+
+async function getAdminReservations() {
+    return doRequest("/admin/reservations/", {
+        method: "GET",
+    });
+}
+
+async function cancelAdminReservation(id) {
+    return doRequest(`/admin/reservations/${id}/cancel/`, {
+        method: "POST",
+    });
+}
+
+async function getAdminSessions() {
+    return doRequest("/admin/sessions/", {
         method: "GET",
     });
 }
@@ -505,6 +535,8 @@ window.AuthAPI = {
     getStations,
     getReservations,
     createReservation,
+    cancelReservation,
+    getReservationAccessPayload,
     getReservationAvailability,
     getProfile,
     updateProfile,
@@ -516,6 +548,9 @@ window.AuthAPI = {
     deleteAuthMethod,
     deleteAccount,
     getAdminOverview,
+    getAdminReservations,
+    cancelAdminReservation,
+    getAdminSessions,
     getAdminUsers,
     createAdminUser,
     updateAdminUser,

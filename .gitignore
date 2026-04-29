@@ -1,5 +1,12 @@
 __pycache__/
 *.pyc
+.pytest_cache/
+pytest-cache-files-*/
+.coverage
+htmlcov/
 .env
 .vscode
 db.sqlite3
+backend/test*.sqlite3
+backend/schema.yml
+docs/build/

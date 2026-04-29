@@ -1,19 +1,20 @@
-function toLocalInputValue(value) {
-    if (!value) return "";
-    const date = new Date(value);
-    const offset = date.getTimezoneOffset() * 60000;
-    return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+function formatDateTime(value) {
+    if (!value) return "-";
+    return new Date(value).toLocaleString("fr-FR");
 }
 
-function fromLocalInputValue(value) {
-    if (!value) return "";
-    return new Date(value).toISOString();
+function createActionLink(label, href) {
+    const link = document.createElement("a");
+    link.className = "table-action";
+    link.href = href;
+    link.textContent = label;
+    return link;
 }
 
-function createActionButton(label, onClick) {
+function createActionButton(label, onClick, variant = "") {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "table-action";
+    button.className = `table-action${variant ? ` ${variant}` : ""}`;
     button.textContent = label;
     button.addEventListener("click", onClick);
     return button;
@@ -31,15 +32,17 @@ function createDataTable(container, columns, rows, emptyMessage) {
     }
 
     const tableWrap = document.createElement("div");
-    tableWrap.className = "data-table-wrap";
+    tableWrap.className = "data-table-wrap admin-data-table-wrap";
+
     const table = document.createElement("table");
-    table.className = "data-table";
+    table.className = "data-table admin-data-table";
 
     const thead = document.createElement("thead");
     const headRow = document.createElement("tr");
     columns.forEach((column) => {
         const th = document.createElement("th");
         th.textContent = column.label;
+        if (column.className) th.className = column.className;
         headRow.appendChild(th);
     });
     thead.appendChild(headRow);
@@ -49,6 +52,7 @@ function createDataTable(container, columns, rows, emptyMessage) {
         const tr = document.createElement("tr");
         columns.forEach((column) => {
             const td = document.createElement("td");
+            if (column.className) td.className = column.className;
             const value = column.render ? column.render(row) : row[column.key];
             if (value instanceof Node) {
                 td.appendChild(value);
@@ -70,151 +74,77 @@ document.addEventListener("DOMContentLoaded", async () => {
     const AUTO_REFRESH_MS = 30000;
     const status = document.getElementById("admin-status");
     const logoutBtn = document.getElementById("logout-admin");
-    const userForm = document.getElementById("user-form");
-    const stationForm = document.getElementById("station-form");
-    const emplacementForm = document.getElementById("emplacement-form");
-    const technicianForm = document.getElementById("technician-form");
-    const maintenanceForm = document.getElementById("maintenance-form");
-    const userCancel = document.getElementById("user-cancel");
-    const stationCancel = document.getElementById("station-cancel");
-    const emplacementCancel = document.getElementById("emplacement-cancel");
-    const technicianCancel = document.getElementById("technician-cancel");
-    const maintenanceCancel = document.getElementById("maintenance-cancel");
 
     let users = [];
     let stations = [];
     let emplacements = [];
     let technicians = [];
     let maintenances = [];
+    let upcomingReservations = [];
+    let archivedReservations = [];
+    let activeSessions = [];
+    let archivedSessions = [];
     let currentAdminId = null;
     let isLoading = false;
 
-    function setAdminTab(name) {
+    function setAdminTab(name, pushHash = true) {
         document.querySelectorAll("[data-admin-tab]").forEach((button) => {
-            button.classList.toggle("active", button.dataset.adminTab === name);
-            button.setAttribute("aria-selected", String(button.dataset.adminTab === name));
+            const active = button.dataset.adminTab === name;
+            button.classList.toggle("active", active);
+            button.setAttribute("aria-selected", String(active));
         });
         document.querySelectorAll("[data-admin-panel]").forEach((panel) => {
             panel.hidden = panel.dataset.adminPanel !== name;
         });
+        if (pushHash && window.location.hash !== `#${name}`) {
+            window.history.replaceState(null, "", `#${name}`);
+        }
     }
 
     function setStatus(message, isError = false) {
         status.classList.toggle("error", isError);
+        status.classList.toggle("success", Boolean(message) && !isError);
         status.textContent = message;
     }
 
-    function isEditingForm() {
-        return Boolean(document.activeElement?.closest("form"));
+    function editHref(resource, id) {
+        return `/admin-form.html?resource=${resource}&id=${id}`;
     }
 
-    function resetUserForm() {
-        userForm.user_id.value = "";
-        userForm.pseudo.value = "";
-        userForm.email.value = "";
-        userForm.telephone.value = "";
-        userForm.nom.value = "";
-        userForm.statut.value = "actif";
-        userForm.password.value = "";
-        userForm.is_active.checked = true;
-        userForm.is_staff.checked = false;
-        userForm.is_superuser.checked = false;
-        userForm.querySelector('button[type="submit"]').textContent = "Enregistrer l’utilisateur";
-    }
-
-    function resetStationForm() {
-        stationForm.station_id.value = "";
-        stationForm.nom.value = "";
-        stationForm.localisation_text.value = "";
-        stationForm.latitude.value = "";
-        stationForm.longitude.value = "";
-        stationForm.statut.value = "active";
-        stationForm.querySelector('button[type="submit"]').textContent = "Enregistrer la station";
-    }
-
-    function resetEmplacementForm() {
-        emplacementForm.emplacement_id.value = "";
-        emplacementForm.numero.value = "";
-        emplacementForm.statut.value = "disponible";
-        emplacementForm.lock_state.value = "verrouillée";
-        emplacementForm.querySelector('button[type="submit"]').textContent = "Enregistrer l’emplacement";
-    }
-
-    function resetTechnicianForm() {
-        technicianForm.technician_id.value = "";
-        technicianForm.utilisateur.value = "";
-        technicianForm.nom.value = "";
-        technicianForm.email.value = "";
-        technicianForm.telephone.value = "";
-        technicianForm.querySelector('button[type="submit"]').textContent = "Enregistrer le technicien";
-    }
-
-    function resetMaintenanceForm() {
-        maintenanceForm.maintenance_id.value = "";
-        maintenanceForm.station.value = "";
-        maintenanceForm.technicien.value = "";
-        maintenanceForm.type.value = "";
-        maintenanceForm.description.value = "";
-        maintenanceForm.status.value = "planifiée";
-        maintenanceForm.date_planifiee.value = "";
-        maintenanceForm.date_realisee.value = "";
-        maintenanceForm.querySelector('button[type="submit"]').textContent = "Enregistrer la maintenance";
-    }
-
-    function fillSelect(select, options, placeholder, getValue, getLabel) {
-        select.innerHTML = "";
-        const first = document.createElement("option");
-        first.value = "";
-        first.textContent = placeholder;
-        select.appendChild(first);
-        options.forEach((item) => {
-            const option = document.createElement("option");
-            option.value = getValue(item);
-            option.textContent = getLabel(item);
-            select.appendChild(option);
-        });
-    }
-
-    function fillStationSelect() {
-        fillSelect(
-            maintenanceForm.station,
-            stations,
-            "Choisir une station",
-            (station) => station.id_station,
-            (station) => `${station.nom} - ${station.localisation_text}`
-        );
-        fillSelect(
-            emplacementForm.station,
-            stations,
-            "Choisir une station",
-            (station) => station.id_station,
-            (station) => `${station.nom} - ${station.localisation_text}`
-        );
-    }
-
-    function fillTechnicianSelect() {
-        fillSelect(
-            maintenanceForm.technicien,
-            technicians,
-            "Choisir un technicien",
-            (technician) => technician.id_technicien,
-            (technician) => `${technician.nom} (${technician.email})`
-        );
-        fillSelect(
-            technicianForm.utilisateur,
-            users,
-            "Lier un utilisateur",
-            (user) => user.id_user,
-            (user) => `${user.pseudo} (${user.email})${user.is_technician ? " - technicien" : ""}`
-        );
-    }
-
-    function renderActions(onEdit, onDelete) {
+    function renderActions({ resource, id, label, onDelete }) {
         const actions = document.createElement("div");
         actions.className = "table-actions";
-        actions.appendChild(createActionButton("Modifier", onEdit));
-        actions.appendChild(createActionButton("Supprimer", onDelete));
+        actions.appendChild(createActionLink("Modifier", editHref(resource, id)));
+        actions.appendChild(createActionButton("Supprimer", onDelete, "danger-action"));
+        actions.setAttribute("aria-label", `Actions ${label}`);
         return actions;
+    }
+
+    function renderCancelAction(reservation) {
+        const actions = document.createElement("div");
+        actions.className = "table-actions";
+
+        const button = createActionButton("Annuler", () => deleteAndReload(
+            `Annuler la réservation ${reservation.reference_code || ""} ?`,
+            () => window.AuthAPI.cancelAdminReservation(reservation.id_reservation)
+        ), "danger-action");
+        button.disabled = !reservation.can_cancel;
+        if (!reservation.can_cancel) {
+            button.title = "Cette réservation ne peut plus être annulée.";
+        }
+        actions.appendChild(button);
+        return actions;
+    }
+
+    async function deleteAndReload(confirmMessage, deleteRequest) {
+        if (!window.confirm(confirmMessage)) return;
+        try {
+            await deleteRequest();
+            await loadAll();
+            setStatus("Suppression effectu\u00e9e.");
+        } catch (error) {
+            setStatus(error.message || "Suppression impossible.", true);
+        }
     }
 
     function renderUsers() {
@@ -224,47 +154,36 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Pseudo", render: (user) => user.pseudo },
                 { label: "E-mail", render: (user) => user.email },
                 { label: "Nom", render: (user) => user.nom || "-" },
-                { label: "Téléphone", render: (user) => user.telephone || "-" },
+                { label: "T\u00e9l\u00e9phone", render: (user) => user.telephone || "-" },
                 { label: "Statut", render: (user) => user.statut || "-" },
                 {
-                    label: "Rôles",
+                    label: "R\u00f4les",
                     render: (user) => [
-                        user.is_superuser ? "superuser" : null,
+                        user.is_superuser ? "super-admin" : null,
                         user.is_staff ? "staff" : null,
                         user.is_technician ? "technicien" : null,
                     ].filter(Boolean).join(", ") || "utilisateur",
                 },
+                { label: "Actif", render: (user) => user.is_active ? "Oui" : "Non" },
+                { label: "Cr\u00e9\u00e9 le", render: (user) => formatDateTime(user.date_joined) },
                 {
                     label: "Actions",
-                    render: (user) => renderActions(
-                        () => {
-                            userForm.user_id.value = user.id_user;
-                            userForm.pseudo.value = user.pseudo;
-                            userForm.email.value = user.email;
-                            userForm.telephone.value = user.telephone || "";
-                            userForm.nom.value = user.nom || "";
-                            userForm.statut.value = user.statut || "actif";
-                            userForm.password.value = "";
-                            userForm.is_active.checked = user.is_active;
-                            userForm.is_staff.checked = user.is_staff;
-                            userForm.is_superuser.checked = user.is_superuser;
-                            userForm.querySelector('button[type="submit"]').textContent = "Mettre à jour l’utilisateur";
-                            setAdminTab("users");
-                        },
-                        async () => {
-                            if (user.id_user === currentAdminId) {
-                                setStatus("Vous ne pouvez pas supprimer votre propre compte depuis cet écran.", true);
+                    className: "actions-column",
+                    render: (user) => renderActions({
+                        resource: "user",
+                        id: user.id_user,
+                        label: user.pseudo,
+                        onDelete: async () => {
+                            if (String(user.id_user) === String(currentAdminId)) {
+                                setStatus("Vous ne pouvez pas supprimer votre propre compte depuis cet \u00e9cran.", true);
                                 return;
                             }
-                            if (!window.confirm(`Supprimer l'utilisateur ${user.pseudo} ?`)) return;
-                            try {
-                                await window.AuthAPI.deleteAdminUser(user.id_user);
-                                await loadAll();
-                            } catch (error) {
-                                setStatus(error.message || "Suppression utilisateur impossible.", true);
-                            }
-                        }
-                    ),
+                            await deleteAndReload(
+                                `Supprimer l'utilisateur ${user.pseudo} ?`,
+                                () => window.AuthAPI.deleteAdminUser(user.id_user)
+                            );
+                        },
+                    }),
                 },
             ],
             users,
@@ -283,27 +202,16 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Statut", render: (station) => station.statut },
                 {
                     label: "Actions",
-                    render: (station) => renderActions(
-                        () => {
-                            stationForm.station_id.value = station.id_station;
-                            stationForm.nom.value = station.nom;
-                            stationForm.localisation_text.value = station.localisation_text;
-                            stationForm.latitude.value = station.latitude;
-                            stationForm.longitude.value = station.longitude;
-                            stationForm.statut.value = station.statut;
-                            stationForm.querySelector('button[type="submit"]').textContent = "Mettre à jour la station";
-                            setAdminTab("infrastructure");
-                        },
-                        async () => {
-                            if (!window.confirm(`Supprimer la station ${station.nom} ?`)) return;
-                            try {
-                                await window.AuthAPI.deleteAdminStation(station.id_station);
-                                await loadAll();
-                            } catch (error) {
-                                setStatus(error.message || "Suppression station impossible.", true);
-                            }
-                        }
-                    ),
+                    className: "actions-column",
+                    render: (station) => renderActions({
+                        resource: "station",
+                        id: station.id_station,
+                        label: station.nom,
+                        onDelete: () => deleteAndReload(
+                            `Supprimer la station ${station.nom} ?`,
+                            () => window.AuthAPI.deleteAdminStation(station.id_station)
+                        ),
+                    }),
                 },
             ],
             stations,
@@ -316,31 +224,21 @@ document.addEventListener("DOMContentLoaded", async () => {
             document.getElementById("emplacements-list"),
             [
                 { label: "Station", render: (emplacement) => emplacement.station_nom },
-                { label: "Numéro", render: (emplacement) => emplacement.numero },
+                { label: "Num\u00e9ro", render: (emplacement) => emplacement.numero },
                 { label: "Statut", render: (emplacement) => emplacement.statut },
                 { label: "Serrure", render: (emplacement) => emplacement.lock_state },
                 {
                     label: "Actions",
-                    render: (emplacement) => renderActions(
-                        () => {
-                            emplacementForm.emplacement_id.value = emplacement.id_emplacement;
-                            emplacementForm.station.value = emplacement.station;
-                            emplacementForm.numero.value = emplacement.numero;
-                            emplacementForm.statut.value = emplacement.statut;
-                            emplacementForm.lock_state.value = emplacement.lock_state;
-                            emplacementForm.querySelector('button[type="submit"]').textContent = "Mettre à jour l’emplacement";
-                            setAdminTab("infrastructure");
-                        },
-                        async () => {
-                            if (!window.confirm(`Supprimer l'emplacement ${emplacement.numero} ?`)) return;
-                            try {
-                                await window.AuthAPI.deleteAdminEmplacement(emplacement.id_emplacement);
-                                await loadAll();
-                            } catch (error) {
-                                setStatus(error.message || "Suppression emplacement impossible.", true);
-                            }
-                        }
-                    ),
+                    className: "actions-column",
+                    render: (emplacement) => renderActions({
+                        resource: "emplacement",
+                        id: emplacement.id_emplacement,
+                        label: `emplacement ${emplacement.numero}`,
+                        onDelete: () => deleteAndReload(
+                            `Supprimer l'emplacement ${emplacement.numero} ?`,
+                            () => window.AuthAPI.deleteAdminEmplacement(emplacement.id_emplacement)
+                        ),
+                    }),
                 },
             ],
             emplacements,
@@ -354,30 +252,20 @@ document.addEventListener("DOMContentLoaded", async () => {
             [
                 { label: "Nom", render: (technician) => technician.nom },
                 { label: "E-mail", render: (technician) => technician.email },
-                { label: "Utilisateur lié", render: (technician) => technician.utilisateur_pseudo || "-" },
-                { label: "Téléphone", render: (technician) => technician.telephone || "-" },
+                { label: "Utilisateur li\u00e9", render: (technician) => technician.utilisateur_pseudo || "-" },
+                { label: "T\u00e9l\u00e9phone", render: (technician) => technician.telephone || "-" },
                 {
                     label: "Actions",
-                    render: (technician) => renderActions(
-                        () => {
-                            technicianForm.technician_id.value = technician.id_technicien;
-                            technicianForm.utilisateur.value = technician.utilisateur || "";
-                            technicianForm.nom.value = technician.nom;
-                            technicianForm.email.value = technician.email;
-                            technicianForm.telephone.value = technician.telephone || "";
-                            technicianForm.querySelector('button[type="submit"]').textContent = "Mettre à jour le technicien";
-                            setAdminTab("operations");
-                        },
-                        async () => {
-                            if (!window.confirm(`Supprimer le technicien ${technician.nom} ?`)) return;
-                            try {
-                                await window.AuthAPI.deleteAdminTechnician(technician.id_technicien);
-                                await loadAll();
-                            } catch (error) {
-                                setStatus(error.message || "Suppression technicien impossible.", true);
-                            }
-                        }
-                    ),
+                    className: "actions-column",
+                    render: (technician) => renderActions({
+                        resource: "technician",
+                        id: technician.id_technicien,
+                        label: technician.nom,
+                        onDelete: () => deleteAndReload(
+                            `Supprimer le technicien ${technician.nom} ?`,
+                            () => window.AuthAPI.deleteAdminTechnician(technician.id_technicien)
+                        ),
+                    }),
                 },
             ],
             technicians,
@@ -393,37 +281,64 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Technicien", render: (maintenance) => maintenance.technicien_nom || "-" },
                 { label: "Type", render: (maintenance) => maintenance.type },
                 { label: "Statut", render: (maintenance) => maintenance.status },
-                { label: "Date planifiée", render: (maintenance) => new Date(maintenance.date_planifiee).toLocaleString("fr-FR") },
-                { label: "Date réalisée", render: (maintenance) => maintenance.date_realisee ? new Date(maintenance.date_realisee).toLocaleString("fr-FR") : "-" },
+                { label: "Date planifi\u00e9e", render: (maintenance) => formatDateTime(maintenance.date_planifiee) },
+                { label: "Date r\u00e9alis\u00e9e", render: (maintenance) => formatDateTime(maintenance.date_realisee) },
                 {
                     label: "Actions",
-                    render: (maintenance) => renderActions(
-                        () => {
-                            maintenanceForm.maintenance_id.value = maintenance.id_maintenance;
-                            maintenanceForm.station.value = maintenance.station;
-                            maintenanceForm.technicien.value = maintenance.technicien;
-                            maintenanceForm.type.value = maintenance.type;
-                            maintenanceForm.description.value = maintenance.description;
-                            maintenanceForm.status.value = maintenance.status;
-                            maintenanceForm.date_planifiee.value = toLocalInputValue(maintenance.date_planifiee);
-                            maintenanceForm.date_realisee.value = toLocalInputValue(maintenance.date_realisee);
-                            maintenanceForm.querySelector('button[type="submit"]').textContent = "Mettre à jour la maintenance";
-                            setAdminTab("operations");
-                        },
-                        async () => {
-                            if (!window.confirm(`Supprimer la maintenance ${maintenance.type} ?`)) return;
-                            try {
-                                await window.AuthAPI.deleteAdminMaintenance(maintenance.id_maintenance);
-                                await loadAll();
-                            } catch (error) {
-                                setStatus(error.message || "Suppression maintenance impossible.", true);
-                            }
-                        }
-                    ),
+                    className: "actions-column",
+                    render: (maintenance) => renderActions({
+                        resource: "maintenance",
+                        id: maintenance.id_maintenance,
+                        label: maintenance.type,
+                        onDelete: () => deleteAndReload(
+                            `Supprimer la maintenance ${maintenance.type} ?`,
+                            () => window.AuthAPI.deleteAdminMaintenance(maintenance.id_maintenance)
+                        ),
+                    }),
                 },
             ],
             maintenances,
             "Aucune maintenance."
+        );
+    }
+
+    function renderReservations(containerId, rows, emptyMessage) {
+        createDataTable(
+            document.getElementById(containerId),
+            [
+                { label: "Code", render: (reservation) => reservation.reference_code || "-" },
+                { label: "Utilisateur", render: (reservation) => reservation.utilisateur_pseudo || "-" },
+                { label: "Station", render: (reservation) => reservation.station_nom || "-" },
+                { label: "Emplacement", render: (reservation) => reservation.emplacement_numero || reservation.emplacement || "-" },
+                { label: "Début", render: (reservation) => formatDateTime(reservation.date_debut) },
+                { label: "Fin", render: (reservation) => formatDateTime(reservation.date_fin) },
+                { label: "Mode", render: (reservation) => reservation.auth_mode || "-" },
+                { label: "Statut", render: (reservation) => reservation.statut || "-" },
+                {
+                    label: "Actions",
+                    className: "actions-column",
+                    render: renderCancelAction,
+                },
+            ],
+            rows,
+            emptyMessage
+        );
+    }
+
+    function renderSessions(containerId, rows, emptyMessage) {
+        createDataTable(
+            document.getElementById(containerId),
+            [
+                { label: "Utilisateur", render: (session) => session.utilisateur_pseudo || "-" },
+                { label: "Code réservation", render: (session) => session.reference_code || "-" },
+                { label: "Station", render: (session) => session.station || "-" },
+                { label: "Emplacement", render: (session) => session.emplacement || "-" },
+                { label: "Début", render: (session) => formatDateTime(session.start_time) },
+                { label: "Fin", render: (session) => formatDateTime(session.end_time) },
+                { label: "Statut", render: (session) => session.status === "active" ? "En cours" : "Archivée" },
+            ],
+            rows,
+            emptyMessage
         );
     }
 
@@ -432,32 +347,68 @@ document.addEventListener("DOMContentLoaded", async () => {
         isLoading = true;
 
         try {
-            const overview = await window.AuthAPI.getAdminOverview();
-            const adminUsers = await window.AuthAPI.getAdminUsers();
-            const adminStations = await window.AuthAPI.getAdminStations();
-            const adminEmplacements = await window.AuthAPI.getAdminEmplacements();
-            const adminTechnicians = await window.AuthAPI.getAdminTechnicians();
-            const adminMaintenances = await window.AuthAPI.getAdminMaintenances();
+            const [
+                overview,
+                adminUsers,
+                adminStations,
+                adminEmplacements,
+                adminTechnicians,
+                adminMaintenances,
+            ] = await Promise.all([
+                window.AuthAPI.getAdminOverview(),
+                window.AuthAPI.getAdminUsers(),
+                window.AuthAPI.getAdminStations(),
+                window.AuthAPI.getAdminEmplacements(),
+                window.AuthAPI.getAdminTechnicians(),
+                window.AuthAPI.getAdminMaintenances(),
+            ]);
+
+            let adminReservations = { upcoming: [], archived: [] };
+            let adminSessions = { active: [], archived: [] };
+            let optionalDataFailed = false;
+
+            try {
+                [adminReservations, adminSessions] = await Promise.all([
+                    window.AuthAPI.getAdminReservations(),
+                    window.AuthAPI.getAdminSessions(),
+                ]);
+            } catch (_error) {
+                optionalDataFailed = true;
+            }
 
             document.getElementById("stat-users").textContent = overview.stats.users_total;
             document.getElementById("stat-stations").textContent = overview.stats.stations_total;
             document.getElementById("stat-emplacements").textContent = overview.stats.emplacements_total;
+            document.getElementById("stat-reservations-upcoming").textContent = overview.stats.reservations_upcoming ?? "-";
+            document.getElementById("stat-sessions-active").textContent = overview.stats.sessions_active ?? "-";
+            document.getElementById("stat-sessions-archived").textContent = overview.stats.sessions_archived ?? "-";
 
             users = adminUsers.results || [];
             stations = adminStations.results || [];
             emplacements = adminEmplacements.results || [];
             technicians = adminTechnicians.results || [];
             maintenances = adminMaintenances.results || [];
+            upcomingReservations = adminReservations.upcoming || [];
+            archivedReservations = adminReservations.archived || [];
+            activeSessions = adminSessions.active || [];
+            archivedSessions = adminSessions.archived || [];
 
-            fillStationSelect();
-            fillTechnicianSelect();
             renderUsers();
             renderStations();
             renderEmplacements();
             renderTechnicians();
             renderMaintenances();
+            renderReservations("admin-upcoming-reservations", upcomingReservations, "Aucune réservation à venir.");
+            renderReservations("admin-archived-reservations", archivedReservations, "Aucune réservation archivée.");
+            renderSessions("admin-active-sessions", activeSessions, "Aucune session en cours.");
+            renderSessions("admin-archived-sessions", archivedSessions, "Aucune session archivée.");
 
-            setStatus("Administration chargée. Mise à jour automatique toutes les 30 secondes.");
+            setStatus(
+                optionalDataFailed
+                    ? "Administration chargée. Redémarrez le backend pour activer les vues réservations/sessions."
+                    : "Données chargées. Mise à jour automatique toutes les 30 secondes.",
+                optionalDataFailed
+            );
         } finally {
             isLoading = false;
         }
@@ -473,162 +424,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     logoutBtn.addEventListener("click", () => window.AuthAPI.logout());
 
-    userCancel.addEventListener("click", resetUserForm);
-    stationCancel.addEventListener("click", resetStationForm);
-    emplacementCancel.addEventListener("click", resetEmplacementForm);
-    technicianCancel.addEventListener("click", resetTechnicianForm);
-    maintenanceCancel.addEventListener("click", resetMaintenanceForm);
-
-    userForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const submitButton = userForm.querySelector('button[type="submit"]');
-        submitButton.disabled = true;
-
-        const payload = {
-            pseudo: userForm.pseudo.value.trim(),
-            email: userForm.email.value.trim(),
-            telephone: userForm.telephone.value.trim(),
-            nom: userForm.nom.value.trim(),
-            statut: userForm.statut.value.trim(),
-            is_active: userForm.is_active.checked,
-            is_staff: userForm.is_staff.checked,
-            is_superuser: userForm.is_superuser.checked,
-        };
-
-        try {
-            if (userForm.user_id.value) {
-                await window.AuthAPI.updateAdminUser(userForm.user_id.value, payload);
-            } else {
-                if (!userForm.password.value) {
-                    setStatus("Le mot de passe est obligatoire pour créer un utilisateur.", true);
-                    return;
-                }
-                await window.AuthAPI.createAdminUser({ ...payload, password: userForm.password.value });
-            }
-            resetUserForm();
-            await loadAll();
-        } catch (error) {
-            setStatus(error.message || "Erreur utilisateur.", true);
-        } finally {
-            submitButton.disabled = false;
-        }
-    });
-
-    stationForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const submitButton = stationForm.querySelector('button[type="submit"]');
-        submitButton.disabled = true;
-
-        const payload = {
-            nom: stationForm.nom.value.trim(),
-            localisation_text: stationForm.localisation_text.value.trim(),
-            latitude: Number(stationForm.latitude.value),
-            longitude: Number(stationForm.longitude.value),
-            statut: stationForm.statut.value.trim(),
-        };
-
-        try {
-            if (stationForm.station_id.value) {
-                await window.AuthAPI.updateAdminStation(stationForm.station_id.value, payload);
-            } else {
-                await window.AuthAPI.createAdminStation(payload);
-            }
-            resetStationForm();
-            await loadAll();
-        } catch (error) {
-            setStatus(error.message || "Erreur station.", true);
-        } finally {
-            submitButton.disabled = false;
-        }
-    });
-
-    emplacementForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const submitButton = emplacementForm.querySelector('button[type="submit"]');
-        submitButton.disabled = true;
-
-        const payload = {
-            station: emplacementForm.station.value,
-            numero: Number(emplacementForm.numero.value),
-            statut: emplacementForm.statut.value.trim(),
-            lock_state: emplacementForm.lock_state.value.trim(),
-        };
-
-        try {
-            if (emplacementForm.emplacement_id.value) {
-                await window.AuthAPI.updateAdminEmplacement(emplacementForm.emplacement_id.value, payload);
-            } else {
-                await window.AuthAPI.createAdminEmplacement(payload);
-            }
-            resetEmplacementForm();
-            await loadAll();
-        } catch (error) {
-            setStatus(error.message || "Erreur emplacement.", true);
-        } finally {
-            submitButton.disabled = false;
-        }
-    });
-
-    technicianForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const submitButton = technicianForm.querySelector('button[type="submit"]');
-        submitButton.disabled = true;
-
-        const payload = {
-            utilisateur: technicianForm.utilisateur.value || null,
-            nom: technicianForm.nom.value.trim(),
-            email: technicianForm.email.value.trim(),
-            telephone: technicianForm.telephone.value.trim(),
-        };
-
-        try {
-            if (technicianForm.technician_id.value) {
-                await window.AuthAPI.updateAdminTechnician(technicianForm.technician_id.value, payload);
-            } else {
-                await window.AuthAPI.createAdminTechnician(payload);
-            }
-            resetTechnicianForm();
-            await loadAll();
-        } catch (error) {
-            setStatus(error.message || "Erreur technicien.", true);
-        } finally {
-            submitButton.disabled = false;
-        }
-    });
-
-    maintenanceForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const submitButton = maintenanceForm.querySelector('button[type="submit"]');
-        submitButton.disabled = true;
-
-        const payload = {
-            station: maintenanceForm.station.value,
-            technicien: maintenanceForm.technicien.value,
-            type: maintenanceForm.type.value.trim(),
-            description: maintenanceForm.description.value.trim(),
-            status: maintenanceForm.status.value.trim(),
-            date_planifiee: fromLocalInputValue(maintenanceForm.date_planifiee.value),
-            date_realisee: maintenanceForm.date_realisee.value ? fromLocalInputValue(maintenanceForm.date_realisee.value) : null,
-        };
-
-        try {
-            if (maintenanceForm.maintenance_id.value) {
-                await window.AuthAPI.updateAdminMaintenance(maintenanceForm.maintenance_id.value, payload);
-            } else {
-                await window.AuthAPI.createAdminMaintenance(payload);
-            }
-            resetMaintenanceForm();
-            await loadAll();
-        } catch (error) {
-            setStatus(error.message || "Erreur maintenance.", true);
-        } finally {
-            submitButton.disabled = false;
-        }
-    });
-
     const session = await window.AuthAPI.ensureSession();
     if (!session) {
-        setStatus("Session absente ou expirée. Redirection vers la connexion.", true);
+        setStatus("Session absente ou expir\u00e9e. Redirection vers la connexion.", true);
         window.setTimeout(() => {
             window.location.href = "/login.html";
         }, 1200);
@@ -637,33 +435,29 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     try {
         const dashboard = await window.AuthAPI.getDashboard();
-        currentAdminId = dashboard.user?.id || null;
+        currentAdminId = dashboard.user?.id || dashboard.user?.id_user || null;
         if (!dashboard.user?.is_staff) {
-            setStatus("Accès refusé. Redirection vers le tableau de bord utilisateur.", true);
+            setStatus("Acc\u00e8s refus\u00e9. Redirection vers le tableau de bord utilisateur.", true);
             window.setTimeout(() => {
                 window.location.href = "/dashboard.html";
             }, 1200);
             return;
         }
 
-        resetUserForm();
-        resetStationForm();
-        resetEmplacementForm();
-        resetTechnicianForm();
-        resetMaintenanceForm();
         await loadAll();
-        setAdminTab("overview");
-        window.setInterval(async () => {
-            if (isEditingForm()) return;
+        const initialTab = (window.location.hash || "#overview").replace("#", "");
+        const allowedTabs = ["overview", "users", "infrastructure", "reservations", "sessions", "operations"];
+        setAdminTab(allowedTabs.includes(initialTab) ? initialTab : "overview", false);
 
+        window.setInterval(async () => {
             try {
                 await loadAll();
             } catch (_error) {
-                setStatus("Impossible de rafraîchir l’administration.", true);
+                setStatus("Impossible de rafra\u00eechir l'administration.", true);
             }
         }, AUTO_REFRESH_MS);
     } catch (_error) {
-        setStatus("Impossible de charger l’administration.", true);
+        setStatus("Impossible de charger l'administration.", true);
         window.AuthAPI.clearTokens();
         window.setTimeout(() => {
             window.location.href = "/login.html";

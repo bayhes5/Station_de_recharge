@@ -1,4 +1,4 @@
-const SESSION_MINUTES = 30;
+const RESERVATION_WINDOW_MINUTES = 30;
 const AUTH_OPTIONS = {
     rfid: "Badge RFID",
     qr: "QR code temporaire",
@@ -18,13 +18,11 @@ function addMinutes(date, minutes) {
 }
 
 function formatDateTime(value) {
-    if (!value) {
-        return "-";
-    }
+    if (!value) return "-";
     return new Date(value).toLocaleString("fr-FR");
 }
 
-function renderReservations(container, reservations) {
+function renderReservations(container, reservations, onCancel, onAccess) {
     container.innerHTML = "";
 
     if (!reservations.length) {
@@ -40,7 +38,7 @@ function renderReservations(container, reservations) {
         item.className = "list-item";
 
         const title = document.createElement("strong");
-        title.textContent = `${reservation.station_nom || reservation.station} - emplacement ${reservation.emplacement}`;
+        title.textContent = `${reservation.station_nom || reservation.station} - emplacement ${reservation.emplacement_numero || reservation.emplacement}`;
 
         const details = document.createElement("p");
         details.textContent = `${formatDateTime(reservation.date_debut)} → ${formatDateTime(reservation.date_fin)} | ${reservation.statut} | ${reservation.auth_mode || "-"}`;
@@ -51,6 +49,36 @@ function renderReservations(container, reservations) {
         item.appendChild(title);
         item.appendChild(details);
         item.appendChild(code);
+
+        const canShowAccess = ["qr", "code"].includes(reservation.auth_mode)
+            && !["annulee", "terminee"].includes(reservation.statut)
+            && (!reservation.date_fin || new Date(reservation.date_fin) >= new Date());
+
+        if ((reservation.can_cancel && onCancel) || (canShowAccess && onAccess)) {
+            const actions = document.createElement("div");
+            actions.className = "cta-row";
+
+            if (canShowAccess && onAccess) {
+                const accessButton = document.createElement("button");
+                accessButton.className = "btn btn-secondary";
+                accessButton.type = "button";
+                accessButton.textContent = reservation.auth_mode === "qr" ? "Afficher le QR" : "Afficher le code";
+                accessButton.addEventListener("click", () => onAccess(reservation));
+                actions.appendChild(accessButton);
+            }
+
+            if (reservation.can_cancel && onCancel) {
+                const cancelButton = document.createElement("button");
+                cancelButton.className = "btn btn-secondary";
+                cancelButton.type = "button";
+                cancelButton.textContent = "Annuler";
+                cancelButton.addEventListener("click", () => onCancel(reservation));
+                actions.appendChild(cancelButton);
+            }
+
+            item.appendChild(actions);
+        }
+
         container.appendChild(item);
     });
 }
@@ -84,6 +112,50 @@ function renderAvailability(container, station, emplacements) {
     });
 }
 
+function appendAccessPayload(container, result) {
+    if (result.reservation_code) {
+        const reservationLine = document.createElement("div");
+        reservationLine.className = "empty-state";
+        reservationLine.textContent = `Code de réservation : ${result.reservation_code}`;
+        container.appendChild(reservationLine);
+    }
+
+    const access = result.access_payload;
+    if (!access) return;
+
+    if (access.mode === "qr") {
+        const qrCard = document.createElement("article");
+        qrCard.className = "qr-access-card";
+
+        const title = document.createElement("strong");
+        title.textContent = "QR code sécurisé";
+
+        const qrFrame = document.createElement("div");
+        qrFrame.className = "qr-frame";
+        if (access.qr_svg) {
+            qrFrame.innerHTML = access.qr_svg;
+        } else {
+            qrFrame.textContent = "QR indisponible. Installez la dépendance backend qrcode[pil].";
+        }
+
+        const meta = document.createElement("p");
+        meta.textContent = `Valide jusqu'à ${formatDateTime(access.expires_at)}. Le lecteur QR du terminal transmettra automatiquement le jeton sécurisé.`;
+
+        qrCard.appendChild(title);
+        qrCard.appendChild(qrFrame);
+        qrCard.appendChild(meta);
+        container.appendChild(qrCard);
+        return;
+    }
+
+    if (access.mode === "code") {
+        const codeLine = document.createElement("div");
+        codeLine.className = "empty-state access-code";
+        codeLine.textContent = `Code temporaire : ${access.value}`;
+        container.appendChild(codeLine);
+    }
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
     const status = document.getElementById("reservation-status");
     const form = document.getElementById("reservation-form");
@@ -96,9 +168,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     const authValueInput = document.getElementById("reservation-auth-value");
     const availabilityBox = document.getElementById("availability-box");
     const reservationsList = document.getElementById("reservations-list");
-    const reservationCodeBox = document.createElement("div");
-    reservationCodeBox.className = "empty-state";
-
     const session = await window.AuthAPI.ensureSession();
     if (!session) {
         status.classList.add("error");
@@ -135,7 +204,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     function getEndDate() {
         const start = getStartDate();
-        return start ? addMinutes(start, SESSION_MINUTES) : null;
+        return start ? addMinutes(start, RESERVATION_WINDOW_MINUTES) : null;
     }
 
     function updateEndDisplay() {
@@ -172,6 +241,37 @@ document.addEventListener("DOMContentLoaded", async () => {
         authValueInput.value = isRfid ? savedRfidValue : "";
     }
 
+    async function cancelReservation(reservation) {
+        if (!window.confirm(`Annuler la réservation ${reservation.reference_code || ""} ?`)) return;
+
+        try {
+            await window.AuthAPI.cancelReservation(reservation.id_reservation);
+            status.classList.remove("error");
+            status.textContent = "Réservation annulée.";
+            await loadReservations();
+            await refreshAvailability();
+        } catch (error) {
+            status.classList.add("error");
+            status.textContent = error.message || "Impossible d’annuler la réservation.";
+        }
+    }
+
+    async function showReservationAccess(reservation) {
+        try {
+            const result = await window.AuthAPI.getReservationAccessPayload(reservation.id_reservation);
+            availabilityBox.innerHTML = "";
+            appendAccessPayload(availabilityBox, result);
+            status.classList.remove("error");
+            status.textContent = reservation.auth_mode === "qr"
+                ? "QR code régénéré pour cette réservation."
+                : "Code temporaire régénéré pour cette réservation.";
+            await loadReservations();
+        } catch (error) {
+            status.classList.add("error");
+            status.textContent = error.message || "Impossible de générer l'accès temporaire.";
+        }
+    }
+
     async function loadSavedRfid() {
         const result = await window.AuthAPI.getAuthMethods();
         const methods = result.results || [];
@@ -182,7 +282,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     async function loadReservations() {
         const result = await window.AuthAPI.getReservations();
-        renderReservations(reservationsList, result.results || []);
+        renderReservations(reservationsList, result.results || [], cancelReservation, showReservationAccess);
     }
 
     async function loadStations() {
@@ -231,8 +331,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     try {
         await Promise.all([loadStations(), loadReservations(), loadSavedRfid()]);
-        const startDefault = new Date();
-        startInput.value = toLocalInputValue(startDefault);
+        startInput.value = toLocalInputValue(new Date());
         updateEndDisplay();
         status.textContent = savedRfidValue
             ? "Badge RFID détecté. Il est sélectionné par défaut pour la réservation."
@@ -282,21 +381,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             const result = await window.AuthAPI.createReservation(payload);
             status.textContent = "Réservation créée avec succès.";
             availabilityBox.innerHTML = "";
-            if (result.reservation_code) {
-                reservationCodeBox.className = "empty-state";
-                reservationCodeBox.textContent = `Code de réservation : ${result.reservation_code}`;
-                availabilityBox.appendChild(reservationCodeBox);
-            }
-            if (result.reservation?.auth_display_value) {
-                const codeLine = document.createElement("div");
-                codeLine.className = "empty-state";
-                codeLine.textContent = `Valeur d’authentification (${result.reservation.auth_mode}) : ${result.reservation.auth_display_value}`;
-                availabilityBox.appendChild(codeLine);
-                const hint = document.createElement("div");
-                hint.className = "empty-state";
-                hint.textContent = "Le kiosque demande le code de réservation, puis la valeur QR/RFID/code selon le mode choisi.";
-                availabilityBox.appendChild(hint);
-            }
+            appendAccessPayload(availabilityBox, result);
             form.reset();
             startInput.value = toLocalInputValue(new Date());
             configureAuthOptions();

@@ -200,6 +200,30 @@ API principale:
 - `/api/technician/maintenances/`
 - `/api/admin/overview/`
 
+Documentation:
+
+- `/api/schema/` schema OpenAPI genere par drf-spectacular
+- `/api/docs/` documentation interactive Swagger UI
+- `/api/redoc/` documentation interactive Redoc
+- `docs/` documentation technique Sphinx
+
+Tests:
+
+```powershell
+cd backend
+..\.venv\Scripts\python.exe -m pytest
+```
+
+Avec couverture:
+
+```powershell
+cd backend
+..\.venv\Scripts\python.exe -m pytest --cov=api --cov-report=term-missing
+```
+
+Les tests utilisent `config.test_settings` et une base SQLite locale pour rester
+independants de PostgreSQL.
+
 ## Kiosque Raspberry
 
 Le kiosque est un simple serveur HTTP local lance sur le port `9000`.

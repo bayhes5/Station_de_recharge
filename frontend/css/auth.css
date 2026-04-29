@@ -93,6 +93,11 @@ button {
     padding: 40px 0;
 }
 
+.admin-page {
+    width: min(1680px, calc(100% - 32px));
+    align-items: start;
+}
+
 .auth-shell {
     width: 100%;
     display: grid;
@@ -321,6 +326,11 @@ button {
 .dashboard-card {
     max-width: 1120px;
     margin: 0 auto;
+}
+
+.admin-shell,
+.admin-form-shell {
+    max-width: none;
 }
 
 .app-shell {
@@ -709,6 +719,24 @@ h2 {
     align-items: start;
 }
 
+.admin-overview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+    gap: 16px;
+    align-items: start;
+    margin-top: 18px;
+}
+
+.admin-kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.admin-data-stack {
+    display: grid;
+    gap: 18px;
+    margin-top: 18px;
+}
+
 .dashboard-grid > .dashboard-token-panel {
     grid-column: 1 / -1;
 }
@@ -818,6 +846,37 @@ h2 {
     min-height: 0;
 }
 
+.admin-table-panel {
+    padding: 0;
+    overflow: hidden;
+    background: var(--surface);
+}
+
+.table-toolbar {
+    margin: 0;
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.table-toolbar .btn {
+    flex: 0 0 auto;
+}
+
+.table-caption {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 0.92rem;
+}
+
+.table-host {
+    min-width: 0;
+}
+
+.dashboard-card-list {
+    padding: 18px 20px;
+}
+
 .data-table-wrap {
     width: 100%;
     overflow-x: auto;
@@ -828,9 +887,13 @@ h2 {
 
 .data-table {
     width: 100%;
-    min-width: 760px;
+    min-width: 1100px;
     border-collapse: collapse;
     font-size: 0.92rem;
+}
+
+.admin-data-table {
+    min-width: 1240px;
 }
 
 .data-table th,
@@ -840,6 +903,16 @@ h2 {
     vertical-align: middle;
     border-bottom: 1px solid var(--border);
     white-space: nowrap;
+}
+
+.data-table th:first-child,
+.data-table td:first-child {
+    padding-left: 18px;
+}
+
+.data-table th:last-child,
+.data-table td:last-child {
+    padding-right: 18px;
 }
 
 .data-table th {
@@ -862,22 +935,74 @@ h2 {
 .table-actions {
     display: inline-flex;
     gap: 8px;
+    align-items: center;
 }
 
 .table-action {
-    min-height: 32px;
-    padding: 0 10px;
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 11px;
     border: 1px solid var(--border-strong);
     border-radius: 6px;
     background: var(--surface);
     color: var(--primary-strong);
     font-weight: 800;
     cursor: pointer;
+    white-space: nowrap;
 }
 
 .table-action:hover {
     border-color: var(--primary);
     background: var(--primary-soft);
+}
+
+.table-action:disabled {
+    cursor: not-allowed;
+    opacity: 0.52;
+    transform: none;
+}
+
+.danger-action {
+    color: var(--danger);
+}
+
+.danger-action:hover {
+    border-color: rgba(194, 57, 52, 0.45);
+    background: var(--danger-soft);
+}
+
+.actions-column {
+    position: sticky;
+    right: 0;
+    z-index: 1;
+    min-width: 190px;
+    background: var(--surface);
+    box-shadow: -10px 0 18px rgba(22, 34, 51, 0.05);
+}
+
+th.actions-column {
+    z-index: 2;
+    background: var(--surface-muted);
+}
+
+.admin-form-shell {
+    max-width: 980px;
+}
+
+.admin-edit-panel {
+    background: var(--surface);
+}
+
+.admin-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.admin-field-wide {
+    grid-column: 1 / -1;
 }
 
 .stacked-list {
@@ -923,6 +1048,47 @@ h2 {
     padding: 16px;
     color: var(--muted);
     border-style: dashed;
+}
+
+.qr-access-card {
+    display: grid;
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
+.qr-access-card strong {
+    color: var(--text);
+}
+
+.qr-access-card p {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.5;
+}
+
+.qr-frame {
+    display: grid;
+    place-items: center;
+    width: min(100%, 280px);
+    aspect-ratio: 1;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: #fff;
+}
+
+.qr-frame svg {
+    width: 100%;
+    height: 100%;
+}
+
+.access-code {
+    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    color: var(--text);
+    overflow-wrap: anywhere;
 }
 
 label:has(input[type="checkbox"]) {

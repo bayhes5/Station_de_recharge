@@ -1,8 +1,5 @@
 function formatDateTime(value) {
-    if (!value) {
-        return "-";
-    }
-
+    if (!value) return "-";
     return new Intl.DateTimeFormat("fr-FR", {
         dateStyle: "medium",
         timeStyle: "short",
@@ -22,7 +19,7 @@ function renderSessionCard(session) {
     item.innerHTML = `
         <div class="list-item-head">
             <strong>${session.station}</strong>
-            <span>${session.status === "active" ? "En cours" : "Terminée"}</span>
+            <span>${session.status === "active" ? "En cours" : "Archivée"}</span>
         </div>
         <p>Emplacement ${session.emplacement}</p>
         <p>Début : ${formatDateTime(session.start_time)}</p>
@@ -31,7 +28,7 @@ function renderSessionCard(session) {
     return item;
 }
 
-function renderReservationCard(reservation) {
+function renderReservationCard(reservation, onCancel) {
     const item = document.createElement("article");
     item.className = "list-item";
     item.innerHTML = `
@@ -39,12 +36,25 @@ function renderReservationCard(reservation) {
             <strong>${reservation.station_nom || reservation.station}</strong>
             <span>${reservation.statut}</span>
         </div>
-        <p>Emplacement ${reservation.emplacement}</p>
+        <p>Emplacement ${reservation.emplacement_numero || reservation.emplacement}</p>
         <p>Début : ${formatDateTime(reservation.date_debut)}</p>
         <p>Fin : ${formatDateTime(reservation.date_fin)}</p>
         <p>Mode : ${reservation.auth_mode || "-"}</p>
         <p>Code : ${reservation.reference_code || "-"}</p>
     `;
+
+    if (reservation.can_cancel && onCancel) {
+        const actions = document.createElement("div");
+        actions.className = "cta-row";
+        const cancelButton = document.createElement("button");
+        cancelButton.className = "btn btn-secondary";
+        cancelButton.type = "button";
+        cancelButton.textContent = "Annuler la réservation";
+        cancelButton.addEventListener("click", () => onCancel(reservation));
+        actions.appendChild(cancelButton);
+        item.appendChild(actions);
+    }
+
     return item;
 }
 
@@ -58,8 +68,9 @@ function renderEmpty(container, message) {
 
 function setActiveTab(tabName) {
     document.querySelectorAll("[data-tab]").forEach((button) => {
-        button.classList.toggle("active", button.dataset.tab === tabName);
-        button.setAttribute("aria-selected", String(button.dataset.tab === tabName));
+        const active = button.dataset.tab === tabName;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-selected", String(active));
     });
     document.querySelectorAll("[data-tab-panel]").forEach((panel) => {
         panel.hidden = panel.dataset.tabPanel !== tabName;
@@ -69,6 +80,13 @@ function setActiveTab(tabName) {
 document.addEventListener("DOMContentLoaded", async () => {
     const status = document.getElementById("dashboard-status");
     const logoutBtn = document.getElementById("dashboard-logout");
+    const adminLink = document.getElementById("dashboard-admin-link");
+
+    function setStatus(message, isError = false) {
+        status.classList.toggle("error", isError);
+        status.classList.toggle("success", Boolean(message) && !isError);
+        status.textContent = message;
+    }
 
     document.querySelectorAll("[data-tab]").forEach((button) => {
         button.addEventListener("click", () => setActiveTab(button.dataset.tab));
@@ -78,21 +96,25 @@ document.addEventListener("DOMContentLoaded", async () => {
         window.AuthAPI.logout();
     });
 
-    const session = await window.AuthAPI.ensureSession();
-    if (!session) {
-        status.classList.add("error");
-        status.textContent = "Session absente ou expirée. Redirection vers la connexion.";
-        window.setTimeout(() => {
-            window.location.href = "/login.html";
-        }, 1200);
-        return;
+    async function cancelUserReservation(reservation) {
+        if (!window.confirm(`Annuler la réservation ${reservation.reference_code || ""} ?`)) return;
+
+        try {
+            await window.AuthAPI.cancelReservation(reservation.id_reservation);
+            setStatus("Réservation annulée.");
+            await loadDashboard();
+            setActiveTab("reservations");
+        } catch (error) {
+            setStatus(error.message || "Impossible d'annuler la réservation.", true);
+        }
     }
 
-    try {
+    async function loadDashboard() {
         const result = await window.AuthAPI.getDashboard();
         const user = result.user;
         const snapshot = window.AuthAPI.getSessionSnapshot();
 
+        adminLink.hidden = !user.is_staff;
         document.getElementById("dashboard-pseudo").textContent = user.pseudo;
         document.getElementById("dashboard-email").textContent = user.email;
         document.getElementById("dashboard-statut").textContent = user.statut || "-";
@@ -135,7 +157,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         } else {
             upcomingReservations.innerHTML = "";
             result.upcoming_reservations.forEach((reservation) => {
-                upcomingReservations.appendChild(renderReservationCard(reservation));
+                upcomingReservations.appendChild(renderReservationCard(reservation, cancelUserReservation));
             });
         }
 
@@ -148,12 +170,23 @@ document.addEventListener("DOMContentLoaded", async () => {
                 recentReservations.appendChild(renderReservationCard(reservation));
             });
         }
+    }
 
-        status.textContent = "Données chargées.";
+    const session = await window.AuthAPI.ensureSession();
+    if (!session) {
+        setStatus("Session absente ou expirée. Redirection vers la connexion.", true);
+        window.setTimeout(() => {
+            window.location.href = "/login.html";
+        }, 1200);
+        return;
+    }
+
+    try {
+        await loadDashboard();
+        setStatus("Données chargées.");
         setActiveTab("overview");
     } catch (_error) {
-        status.classList.add("error");
-        status.textContent = "Impossible de charger le tableau de bord. Reconnecte-toi.";
+        setStatus("Impossible de charger le tableau de bord. Reconnectez-vous.", true);
         window.AuthAPI.clearTokens();
         window.setTimeout(() => {
             window.location.href = "/login.html";

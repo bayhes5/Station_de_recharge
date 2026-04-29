@@ -176,6 +176,7 @@ class Authentification(models.Model):
     )
     hash_valeur = models.TextField(db_column="secret_hash")
     display_value = models.CharField(max_length=255, blank=True, default="")
+    metadata = models.JSONField(default=dict, blank=True)
     expiration = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)

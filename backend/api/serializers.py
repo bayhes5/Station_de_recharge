@@ -3,6 +3,7 @@ from datetime import timedelta
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import serializers
 import re
 
@@ -238,20 +239,25 @@ class AuthMethodSerializer(serializers.ModelSerializer):
             "type_label",
             "hash_valeur",
             "display_value",
+            "metadata",
             "expiration",
         )
         extra_kwargs = {
             "hash_valeur": {"write_only": True},
             "display_value": {"read_only": True},
+            "metadata": {"read_only": True},
         }
 
 
 class ReservationSerializer(serializers.ModelSerializer):
     station_nom = serializers.CharField(source="emplacement.station.nom", read_only=True)
+    emplacement_numero = serializers.IntegerField(source="emplacement.numero", read_only=True)
+    utilisateur_pseudo = serializers.CharField(source="utilisateur.pseudo", read_only=True)
     auth_mode = serializers.CharField(source="auth_choice", read_only=True)
     auth_type = serializers.CharField(source="authentification.type_auth.libelle", read_only=True)
     auth_display_value = serializers.CharField(source="authentification.display_value", read_only=True)
     auth_expiration = serializers.DateTimeField(source="authentification.expiration", read_only=True)
+    can_cancel = serializers.SerializerMethodField()
 
     class Meta:
         model = Reservation
@@ -259,7 +265,9 @@ class ReservationSerializer(serializers.ModelSerializer):
             "id_reservation",
             "reference_code",
             "utilisateur",
+            "utilisateur_pseudo",
             "emplacement",
+            "emplacement_numero",
             "station_nom",
             "authentification",
             "auth_mode",
@@ -269,11 +277,15 @@ class ReservationSerializer(serializers.ModelSerializer):
             "date_debut",
             "date_fin",
             "statut",
+            "can_cancel",
         )
         extra_kwargs = {
             "utilisateur": {"read_only": True},
             "authentification": {"read_only": True},
         }
+
+    def get_can_cancel(self, obj):
+        return obj.statut not in {"annulee", "terminee"} and obj.date_debut > timezone.now()
 
 
 class ReservationCreateSerializer(serializers.Serializer):

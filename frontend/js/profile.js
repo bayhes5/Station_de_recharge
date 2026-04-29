@@ -126,6 +126,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const authMethodsList = document.getElementById("auth-methods-list");
     const authHistoryList = document.getElementById("auth-history-list");
     const authHistoryPreview = document.getElementById("auth-history-preview");
+    const adminLink = document.getElementById("profile-admin-link");
     const tabButtons = [...document.querySelectorAll("[data-tab-button]")];
     const tabPanels = [...document.querySelectorAll("[data-tab-panel]")];
 
@@ -165,6 +166,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         currentProfile = result;
         const user = result.user;
         const profile = result.profile || {};
+        if (adminLink) {
+            adminLink.hidden = !user.is_staff;
+        }
 
         profileForm.pseudo.value = user.pseudo || "";
         profileForm.email.value = user.email || "";

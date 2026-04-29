@@ -1,5 +1,7 @@
 import hashlib
+import json
 import secrets
+from io import BytesIO
 from datetime import datetime, timedelta
 
 from django.conf import settings
@@ -10,6 +12,7 @@ from django.core.validators import validate_email
 from django.shortcuts import render
 from django.utils import timezone
 from django.db import transaction
+from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.decorators import permission_classes
@@ -46,6 +49,28 @@ from .serializers import (
 )
 
 User = get_user_model()
+RESERVATION_START_GRACE_MINUTES = getattr(settings, "RESERVATION_START_GRACE_MINUTES", 15)
+DEFAULT_SESSION_MAX_MINUTES = getattr(settings, "CHARGING_SESSION_MAX_MINUTES", 240)
+
+
+def _schema(
+    summary,
+    request=None,
+    responses=OpenApiTypes.OBJECT,
+    parameters=None,
+    tags=None,
+    operation_id=None,
+    methods=None,
+):
+    return extend_schema(
+        summary=summary,
+        request=request,
+        responses=responses,
+        parameters=parameters,
+        tags=tags or ["API"],
+        operation_id=operation_id,
+        methods=methods,
+    )
 
 
 def _serialize_user(user):
@@ -82,12 +107,19 @@ def _as_bool(value):
 def _serialize_reservation(reservation):
     return {
         "id": str(reservation.id_reservation),
+        "id_reservation": str(reservation.id_reservation),
         "reference_code": reservation.reference_code,
+        "utilisateur": str(reservation.utilisateur_id) if reservation.utilisateur_id else None,
+        "utilisateur_pseudo": reservation.utilisateur.pseudo if reservation.utilisateur else "-",
         "station": reservation.emplacement.station.nom,
+        "station_nom": reservation.emplacement.station.nom,
         "emplacement": reservation.emplacement.numero,
+        "emplacement_numero": reservation.emplacement.numero,
         "date_debut": reservation.date_debut.isoformat(),
         "date_fin": reservation.date_fin.isoformat(),
         "statut": reservation.statut,
+        "auth_mode": reservation.auth_choice,
+        "can_cancel": _reservation_can_be_cancelled(reservation),
     }
 
 
@@ -100,6 +132,18 @@ def _serialize_session(session):
         "end_time": session.end_time.isoformat() if session.end_time else None,
         "status": "active" if session.end_time is None else "closed",
     }
+
+
+def _reservation_can_be_cancelled(reservation):
+    return reservation.statut not in {"annulee", "terminee"} and reservation.date_debut > timezone.now()
+
+
+def _cancel_reservation(reservation):
+    if not _reservation_can_be_cancelled(reservation):
+        return False
+    reservation.statut = "annulee"
+    reservation.save(update_fields=["statut"])
+    return True
 
 
 def _serialize_station(station):
@@ -201,6 +245,110 @@ def _generate_access_secret(prefix):
     return f"{prefix}-{secrets.token_urlsafe(18)}"
 
 
+def _mask_secret(secret):
+    if not secret:
+        return ""
+    return f"****{secret[-4:]}"
+
+
+def _build_qr_payload(reservation_code, token):
+    return json.dumps(
+        {
+            "v": 1,
+            "type": "reservation_access",
+            "reservation": reservation_code,
+            "token": token,
+        },
+        separators=(",", ":"),
+    )
+
+
+def _parse_qr_payload(raw_value):
+    value = (raw_value or "").strip()
+    if not value:
+        return None
+
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError:
+        payload = None
+
+    if isinstance(payload, dict) and payload.get("type") == "reservation_access":
+        reservation_code = str(payload.get("reservation") or "").strip().upper()
+        token = str(payload.get("token") or "").strip()
+        if reservation_code and token:
+            return {"reservation_code": reservation_code, "token": token}
+
+    if value.startswith("MVCHARGE|"):
+        parts = value.split("|", 3)
+        if len(parts) == 4 and parts[1] == "v1":
+            return {"reservation_code": parts[2].strip().upper(), "token": parts[3].strip()}
+
+    return None
+
+
+def _build_qr_svg(payload):
+    try:
+        import qrcode
+        from qrcode.image.svg import SvgPathImage
+    except ImportError:
+        return None
+
+    qr = qrcode.QRCode(
+        error_correction=qrcode.constants.ERROR_CORRECT_H,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(payload)
+    qr.make(fit=True)
+
+    image = qr.make_image(image_factory=SvgPathImage)
+    buffer = BytesIO()
+    image.save(buffer)
+    svg = buffer.getvalue().decode("utf-8")
+    if svg.startswith("<?xml"):
+        svg = svg.split("?>", 1)[1].lstrip()
+    pictogram = """
+<svg x="41%" y="41%" width="18%" height="18%" viewBox="0 0 64 64" role="img" aria-label="Acces securise Metropole Verte">
+  <rect x="2" y="2" width="60" height="60" rx="12" fill="#ffffff"/>
+  <path d="M32 9c-9 9-15 18-15 27 0 10 7 17 15 17s15-7 15-17C47 27 41 18 32 9Z" fill="#1f8f55"/>
+  <path d="M22 36c8-1 15-6 21-17-1 16-8 26-21 30" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round"/>
+</svg>
+"""
+    return svg.replace("</svg>", f"{pictogram}</svg>")
+
+
+def _temporary_auth_metadata(auth_mode, expiration, reservation_code, display_value):
+    metadata = {
+        "version": 1,
+        "secret_storage": "sha256",
+        "token_hint": display_value,
+        "expires_at": expiration.isoformat(),
+    }
+    if auth_mode == "qr":
+        metadata.update(
+            {
+                "payload_type": "reservation_access",
+                "payload_encoding": "json",
+                "reservation_code": reservation_code,
+            }
+        )
+    return metadata
+
+
+def _build_access_payload(auth_mode, access_value, auth_method, expiration):
+    payload = {
+        "mode": auth_mode,
+        "value": access_value,
+        "display_value": auth_method.display_value if auth_method else "",
+        "expires_at": expiration.isoformat(),
+    }
+    if auth_mode == "qr":
+        payload["qr_svg"] = _build_qr_svg(access_value)
+        payload["format"] = "reservation_access_v1"
+    return payload
+
+
 def _ensure_rfid_auth(user, auth_value):
     if not auth_value:
         raise ValueError("auth_value est obligatoire pour RFID.")
@@ -239,17 +387,61 @@ def _get_saved_rfid_auth(user):
     )
 
 
-def _create_temporary_auth(user, auth_mode):
+def _create_temporary_auth(user, auth_mode, expiration, reservation_code):
     type_auth = _get_type_auth(auth_mode)
     clear_value = _generate_access_secret(auth_mode.upper())
+    display_value = _mask_secret(clear_value)
     auth_method = Authentification.objects.create(
         utilisateur=user,
         type_auth=type_auth,
         hash_valeur=_hash_secret(clear_value),
-        display_value=clear_value,
-        expiration=timezone.now() + timedelta(hours=24),
+        display_value=display_value,
+        metadata=_temporary_auth_metadata(auth_mode, expiration, reservation_code, display_value),
+        expiration=expiration,
     )
+    if auth_mode == "qr":
+        return auth_method, _build_qr_payload(reservation_code, clear_value)
     return auth_method, clear_value
+
+
+def _refresh_temporary_auth(reservation):
+    auth_mode = reservation.auth_choice
+    auth_method = reservation.authentification
+    if auth_method is None:
+        auth_method = Authentification(
+            utilisateur=reservation.utilisateur,
+            type_auth=_get_type_auth(auth_mode),
+        )
+
+    clear_value = _generate_access_secret(auth_mode.upper())
+    display_value = _mask_secret(clear_value)
+    auth_method.type_auth = _get_type_auth(auth_mode)
+    auth_method.hash_valeur = _hash_secret(clear_value)
+    auth_method.display_value = display_value
+    auth_method.metadata = _temporary_auth_metadata(
+        auth_mode,
+        reservation.date_fin,
+        reservation.reference_code,
+        display_value,
+    )
+    auth_method.expiration = reservation.date_fin
+    auth_method.is_active = True
+    auth_method.save()
+
+    if reservation.authentification_id != auth_method.id_auth:
+        reservation.authentification = auth_method
+        reservation.save(update_fields=["authentification"])
+
+    if auth_mode == "qr":
+        return auth_method, _build_qr_payload(reservation.reference_code, clear_value)
+    return auth_method, clear_value
+
+
+def _get_reservation_session(reservation):
+    try:
+        return reservation.session
+    except ChargingSession.DoesNotExist:
+        return None
 
 
 def _reservation_overlaps(emplacement, date_debut, date_fin):
@@ -299,6 +491,14 @@ def signup(request):
     )
 
 
+@_schema(
+    "Verifier la disponibilite d'un pseudo ou d'un email",
+    parameters=[
+        OpenApiParameter("pseudo", OpenApiTypes.STR, OpenApiParameter.QUERY),
+        OpenApiParameter("email", OpenApiTypes.STR, OpenApiParameter.QUERY),
+    ],
+    tags=["Authentification"],
+)
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def register_availability(request):
@@ -333,6 +533,7 @@ def register_availability(request):
     return Response(response)
 
 
+@_schema("Creer un compte utilisateur", request=RegisterSerializer, tags=["Authentification"])
 @api_view(["POST"])
 def register(request):
     serializer = RegisterSerializer(data=request.data)
@@ -372,6 +573,7 @@ def login_view(request):
     )
 
 
+@_schema("Connecter un utilisateur", request=OpenApiTypes.OBJECT, tags=["Authentification"])
 @api_view(["POST"])
 def login(request):
     identifiant = (
@@ -400,6 +602,7 @@ def login(request):
     return Response({"error": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
 
 
+@_schema("Lire le profil de l'utilisateur connecte", tags=["Compte"])
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def me(request):
@@ -414,6 +617,7 @@ def me(request):
     )
 
 
+@_schema("Lire, modifier ou supprimer le profil", request=ProfileSerializer, tags=["Compte"])
 @api_view(["GET", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
 def profile(request):
@@ -456,6 +660,7 @@ def profile(request):
     return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
 
+@_schema("Changer le mot de passe", request=PasswordChangeSerializer, tags=["Compte"])
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def change_password(request):
@@ -474,6 +679,7 @@ def change_password(request):
     return Response({"message": "Mot de passe mis a jour"})
 
 
+@_schema("Exporter les donnees du compte", tags=["Compte"])
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def export_account(request):
@@ -517,6 +723,7 @@ def export_account(request):
     return Response(payload)
 
 
+@_schema("Lire le tableau de bord utilisateur", tags=["Tableau de bord"])
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def dashboard(request):
@@ -535,8 +742,10 @@ def dashboard(request):
     active_session = sessions_qs.filter(end_time__isnull=True).first()
 
     past_sessions = sessions_qs.filter(end_time__isnull=False)
-    upcoming_reservations = reservations_qs.filter(date_debut__gte=timezone.now())
-    recent_reservations = reservations_qs[:5]
+    now = timezone.now()
+    upcoming_reservations = reservations_qs.filter(date_debut__gte=now).exclude(statut="annulee")
+    archived_reservations = reservations_qs.filter(date_debut__lt=now) | reservations_qs.filter(statut="annulee")
+    recent_reservations = archived_reservations.distinct().order_by("-date_debut")[:5]
 
     return Response(
         {
@@ -565,6 +774,7 @@ def dashboard(request):
     )
 
 
+@_schema("Lire la synthese administrateur", tags=["Administration"])
 @api_view(["GET"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_overview(request):
@@ -576,7 +786,11 @@ def admin_overview(request):
                 "stations_total": Station.objects.count(),
                 "emplacements_total": Emplacement.objects.count(),
                 "reservations_total": Reservation.objects.count(),
+                "reservations_upcoming": Reservation.objects.filter(date_debut__gte=timezone.now()).exclude(statut="annulee").count(),
+                "reservations_cancelled": Reservation.objects.filter(statut="annulee").count(),
                 "sessions_total": ChargingSession.objects.count(),
+                "sessions_active": ChargingSession.objects.filter(end_time__isnull=True).count(),
+                "sessions_archived": ChargingSession.objects.filter(end_time__isnull=False).count(),
             },
             "recent_users": [
                 _serialize_user(user)
@@ -594,6 +808,62 @@ def admin_overview(request):
     )
 
 
+@_schema("Lister les reservations administrateur", tags=["Administration"])
+@api_view(["GET"])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_reservations(request):
+    reservations_qs = (
+        Reservation.objects.select_related(
+            "utilisateur",
+            "emplacement",
+            "emplacement__station",
+            "authentification",
+            "authentification__type_auth",
+        )
+        .order_by("-date_debut")
+    )
+    now = timezone.now()
+    upcoming = reservations_qs.filter(date_fin__gte=now).exclude(statut="annulee")
+    archived = reservations_qs.filter(date_fin__lt=now) | reservations_qs.filter(statut="annulee")
+    return Response(
+        {
+            "upcoming": [ReservationSerializer(reservation).data for reservation in upcoming],
+            "archived": [ReservationSerializer(reservation).data for reservation in archived.distinct()],
+        }
+    )
+
+
+@_schema("Lister les sessions de recharge administrateur", tags=["Administration"])
+@api_view(["GET"])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_sessions(request):
+    sessions_qs = (
+        ChargingSession.objects.select_related(
+            "reservation",
+            "reservation__utilisateur",
+            "emplacement",
+            "emplacement__station",
+        )
+        .order_by("-start_time")
+    )
+    active = sessions_qs.filter(end_time__isnull=True)
+    archived = sessions_qs.filter(end_time__isnull=False)
+    return Response(
+        {
+            "active": [_serialize_session(session) | {
+                "utilisateur_pseudo": session.reservation.utilisateur.pseudo if session.reservation.utilisateur else "-",
+                "reference_code": session.reservation.reference_code,
+            } for session in active],
+            "archived": [_serialize_session(session) | {
+                "utilisateur_pseudo": session.reservation.utilisateur.pseudo if session.reservation.utilisateur else "-",
+                "reference_code": session.reservation.reference_code,
+            } for session in archived],
+        }
+    )
+
+
+@_schema("Lister les utilisateurs administrateur", tags=["Administration"], operation_id="admin_users_list", methods=["GET"])
+@_schema("Creer un utilisateur administrateur", request=AdminUserUpdateSerializer, tags=["Administration"], operation_id="admin_users_create", methods=["POST"])
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_users(request):
@@ -643,6 +913,9 @@ def admin_users(request):
     return Response(AdminUserSerializer(user).data, status=status.HTTP_201_CREATED)
 
 
+@_schema("Lire un utilisateur", tags=["Administration"], operation_id="admin_user_retrieve", methods=["GET"])
+@_schema("Modifier un utilisateur", request=AdminUserUpdateSerializer, tags=["Administration"], operation_id="admin_user_update", methods=["PATCH"])
+@_schema("Supprimer un utilisateur", responses={204: None}, tags=["Administration"], operation_id="admin_user_delete", methods=["DELETE"])
 @api_view(["GET", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_user_detail(request, user_id):
@@ -665,6 +938,8 @@ def admin_user_detail(request, user_id):
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+@_schema("Lister les stations", tags=["Administration"], operation_id="admin_stations_list", methods=["GET"])
+@_schema("Creer une station", request=StationSerializer, tags=["Administration"], operation_id="admin_station_create", methods=["POST"])
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_stations(request):
@@ -678,6 +953,9 @@ def admin_stations(request):
     return Response(StationSerializer(station).data, status=status.HTTP_201_CREATED)
 
 
+@_schema("Lire une station", tags=["Administration"], operation_id="admin_station_retrieve", methods=["GET"])
+@_schema("Modifier une station", request=StationSerializer, tags=["Administration"], operation_id="admin_station_update", methods=["PATCH"])
+@_schema("Supprimer une station", responses={204: None}, tags=["Administration"], operation_id="admin_station_delete", methods=["DELETE"])
 @api_view(["GET", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_station_detail(request, station_id):
@@ -699,6 +977,8 @@ def admin_station_detail(request, station_id):
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+@_schema("Lister les emplacements", tags=["Administration"], operation_id="admin_emplacements_list", methods=["GET"])
+@_schema("Creer un emplacement", request=EmplacementSerializer, tags=["Administration"], operation_id="admin_emplacement_create", methods=["POST"])
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_emplacements(request):
@@ -712,6 +992,9 @@ def admin_emplacements(request):
     return Response(EmplacementSerializer(emplacement).data, status=status.HTTP_201_CREATED)
 
 
+@_schema("Lire un emplacement", tags=["Administration"], operation_id="admin_emplacement_retrieve", methods=["GET"])
+@_schema("Modifier un emplacement", request=EmplacementSerializer, tags=["Administration"], operation_id="admin_emplacement_update", methods=["PATCH"])
+@_schema("Supprimer un emplacement", responses={204: None}, tags=["Administration"], operation_id="admin_emplacement_delete", methods=["DELETE"])
 @api_view(["GET", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_emplacement_detail(request, emplacement_id):
@@ -747,6 +1030,7 @@ def contact(request):
     )
 
 
+@_schema("Lister les moyens d'authentification", tags=["Compte"])
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def auth_methods(request):
@@ -762,6 +1046,7 @@ def auth_methods(request):
     return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
 
+@_schema("Creer un moyen d'authentification", request=OpenApiTypes.OBJECT, tags=["Compte"])
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def create_auth_method(request):
@@ -789,6 +1074,7 @@ def create_auth_method(request):
     )
 
 
+@_schema("Supprimer un moyen d'authentification", responses={204: None}, tags=["Compte"])
 @api_view(["DELETE"])
 @permission_classes([IsAuthenticated])
 def delete_auth_method(request, auth_id):
@@ -804,6 +1090,7 @@ def delete_auth_method(request, auth_id):
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+@_schema("Lister l'historique d'authentification", tags=["Compte"])
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def auth_history(request):
@@ -841,6 +1128,15 @@ def auth_history(request):
     return Response({"results": history})
 
 
+@_schema(
+    "Lister les emplacements disponibles pour une reservation",
+    parameters=[
+        OpenApiParameter("station", OpenApiTypes.UUID, OpenApiParameter.QUERY, required=True),
+        OpenApiParameter("date_debut", OpenApiTypes.DATETIME, OpenApiParameter.QUERY, required=True),
+        OpenApiParameter("date_fin", OpenApiTypes.DATETIME, OpenApiParameter.QUERY, required=True),
+    ],
+    tags=["Reservations"],
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def reservation_availability(request):
@@ -868,7 +1164,7 @@ def reservation_availability(request):
 
     if (date_fin_dt - date_debut_dt) != timedelta(minutes=30):
         return Response(
-            {"detail": "Une réservation dure exactement 30 minutes."},
+            {"detail": "Une reservation bloque un emplacement pendant exactement 30 minutes."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -890,6 +1186,7 @@ def reservation_availability(request):
     )
 
 
+@_schema("Lister le catalogue des stations", tags=["Stations"])
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def stations_catalog(request):
@@ -910,6 +1207,7 @@ def stations_catalog(request):
     )
 
 
+@_schema("Lister ou creer des reservations", request=ReservationCreateSerializer, tags=["Reservations"])
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def reservations(request):
@@ -933,7 +1231,7 @@ def reservations(request):
 
     if (data["date_fin"] - data["date_debut"]) != timedelta(minutes=30):
         return Response(
-            {"detail": "Une réservation dure exactement 30 minutes."},
+            {"detail": "Une reservation bloque un emplacement pendant exactement 30 minutes."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -957,6 +1255,7 @@ def reservations(request):
     auth_mode = data["auth_mode"].lower()
     auth_method = None
     clear_value = None
+    reservation_code = _generate_reservation_code()
     if auth_mode == "rfid":
         auth_method = _get_saved_rfid_auth(request.user)
         if auth_method is None:
@@ -965,12 +1264,17 @@ def reservations(request):
                 status=status.HTTP_400_BAD_REQUEST,
             )
     else:
-        auth_method, clear_value = _create_temporary_auth(request.user, auth_mode)
+        auth_method, clear_value = _create_temporary_auth(
+            request.user,
+            auth_mode,
+            data["date_fin"],
+            reservation_code,
+        )
 
     reservation = Reservation.objects.create(
         utilisateur=request.user,
         emplacement=emplacement,
-        reference_code=_generate_reservation_code(),
+        reference_code=reservation_code,
         authentification=auth_method,
         auth_choice=auth_mode,
         date_debut=data["date_debut"],
@@ -983,14 +1287,102 @@ def reservations(request):
         "reservation": ReservationSerializer(reservation).data,
     }
     if clear_value:
-        response["access_payload"] = {
-            "mode": auth_mode,
-            "value": clear_value,
-        }
+        response["access_payload"] = _build_access_payload(
+            auth_mode,
+            clear_value,
+            auth_method,
+            data["date_fin"],
+        )
     response["reservation_code"] = reservation.reference_code
     return Response(response, status=status.HTTP_201_CREATED)
 
 
+@_schema("Annuler une reservation", tags=["Reservations"])
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def cancel_reservation(request, reservation_id):
+    try:
+        reservation = Reservation.objects.select_related("utilisateur", "emplacement", "emplacement__station").get(
+            id_reservation=reservation_id,
+            utilisateur=request.user,
+        )
+    except Reservation.DoesNotExist:
+        return Response({"detail": "Reservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    if not _cancel_reservation(reservation):
+        return Response(
+            {"detail": "Cette reservation ne peut plus etre annulee."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Response(ReservationSerializer(reservation).data)
+
+
+@_schema("Regenerer l'acces temporaire d'une reservation", tags=["Reservations"])
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def reservation_access_payload(request, reservation_id):
+    try:
+        reservation = Reservation.objects.select_related(
+            "utilisateur",
+            "emplacement",
+            "emplacement__station",
+            "authentification",
+            "authentification__type_auth",
+        ).get(
+            id_reservation=reservation_id,
+            utilisateur=request.user,
+        )
+    except Reservation.DoesNotExist:
+        return Response({"detail": "Reservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    if reservation.auth_choice not in {"qr", "code"}:
+        return Response(
+            {"detail": "Cette reservation utilise un badge RFID."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if reservation.statut in {"annulee", "terminee"} or reservation.date_fin < timezone.now():
+        return Response(
+            {"detail": "L'acces temporaire ne peut plus etre regenere pour cette reservation."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    auth_method, access_value = _refresh_temporary_auth(reservation)
+    return Response(
+        {
+            "reservation_code": reservation.reference_code,
+            "access_payload": _build_access_payload(
+                reservation.auth_choice,
+                access_value,
+                auth_method,
+                reservation.date_fin,
+            ),
+        }
+    )
+
+
+@_schema("Annuler une reservation en administration", tags=["Administration"])
+@api_view(["POST"])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_cancel_reservation(request, reservation_id):
+    try:
+        reservation = Reservation.objects.select_related("utilisateur", "emplacement", "emplacement__station").get(
+            id_reservation=reservation_id,
+        )
+    except Reservation.DoesNotExist:
+        return Response({"detail": "Reservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    if not _cancel_reservation(reservation):
+        return Response(
+            {"detail": "Cette reservation ne peut plus etre annulee."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Response(ReservationSerializer(reservation).data)
+
+
+@_schema("Lister les maintenances du technicien connecte", tags=["Technicien"])
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def technician_maintenances(request):
@@ -1009,6 +1401,8 @@ def technician_maintenances(request):
     return Response({"results": [TechnicianMaintenanceSerializer(maintenance).data for maintenance in maintenances]})
 
 
+@_schema("Lister les techniciens", tags=["Administration"], operation_id="admin_technicians_list", methods=["GET"])
+@_schema("Creer un technicien", request=TechnicianSerializer, tags=["Administration"], operation_id="admin_technician_create", methods=["POST"])
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_technicians(request):
@@ -1035,6 +1429,9 @@ def admin_technicians(request):
     return Response(TechnicianSerializer(technician).data, status=status.HTTP_201_CREATED)
 
 
+@_schema("Lire un technicien", tags=["Administration"], operation_id="admin_technician_retrieve", methods=["GET"])
+@_schema("Modifier un technicien", request=TechnicianSerializer, tags=["Administration"], operation_id="admin_technician_update", methods=["PATCH"])
+@_schema("Supprimer un technicien", responses={204: None}, tags=["Administration"], operation_id="admin_technician_delete", methods=["DELETE"])
 @api_view(["GET", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_technician_detail(request, technician_id):
@@ -1070,6 +1467,8 @@ def admin_technician_detail(request, technician_id):
     return Response(TechnicianSerializer(technician).data)
 
 
+@_schema("Lister les maintenances", tags=["Administration"], operation_id="admin_maintenances_list", methods=["GET"])
+@_schema("Creer une maintenance", request=MaintenanceAdminSerializer, tags=["Administration"], operation_id="admin_maintenance_create", methods=["POST"])
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_maintenances(request):
@@ -1083,6 +1482,9 @@ def admin_maintenances(request):
     return Response(MaintenanceAdminSerializer(maintenance).data, status=status.HTTP_201_CREATED)
 
 
+@_schema("Lire une maintenance", tags=["Administration"], operation_id="admin_maintenance_retrieve", methods=["GET"])
+@_schema("Modifier une maintenance", request=MaintenanceAdminSerializer, tags=["Administration"], operation_id="admin_maintenance_update", methods=["PATCH"])
+@_schema("Supprimer une maintenance", responses={204: None}, tags=["Administration"], operation_id="admin_maintenance_delete", methods=["DELETE"])
 @api_view(["GET", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_maintenance_detail(request, maintenance_id):
@@ -1105,6 +1507,7 @@ def admin_maintenance_detail(request, maintenance_id):
     return Response(MaintenanceAdminSerializer(maintenance).data)
 
 
+@_schema("Authentifier un acces depuis le terminal", request=OpenApiTypes.OBJECT, tags=["Terminal"])
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def terminal_authenticate(request):
@@ -1112,11 +1515,22 @@ def terminal_authenticate(request):
     reservation_code = (request.data.get("reservation_code") or "").strip().upper()
     auth_mode = (request.data.get("auth_mode") or "").strip().lower()
     auth_value = (request.data.get("auth_value") or "").strip()
+    parsed_qr = _parse_qr_payload(auth_value)
+    if parsed_qr:
+        reservation_code = reservation_code or parsed_qr["reservation_code"]
+        auth_mode = auth_mode or "qr"
+        auth_value = parsed_qr["token"]
+    now = timezone.now()
 
     if not (reservation_id or reservation_code) or not auth_mode or not auth_value:
         return Response({"detail": "reservation_code (ou reservation_id), auth_mode et auth_value sont obligatoires."}, status=status.HTTP_400_BAD_REQUEST)
 
-    reservation_qs = Reservation.objects.select_related("emplacement", "authentification", "authentification__type_auth")
+    reservation_qs = Reservation.objects.select_related(
+        "emplacement",
+        "authentification",
+        "authentification__type_auth",
+        "session",
+    )
     if reservation_code:
         reservation = reservation_qs.filter(reference_code=reservation_code).first()
     else:
@@ -1124,11 +1538,18 @@ def terminal_authenticate(request):
     if reservation is None:
         return Response({"detail": "Reservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
-    if reservation.date_debut - timedelta(minutes=15) > timezone.now():
+    if reservation.statut == "annulee":
+        return Response({"detail": "La reservation est annulee."}, status=status.HTTP_400_BAD_REQUEST)
+
+    session = _get_reservation_session(reservation)
+    session_is_active = session is not None and session.end_time is None
+    start_grace = timedelta(minutes=RESERVATION_START_GRACE_MINUTES)
+
+    if reservation.date_debut - start_grace > now and not session_is_active:
         return Response({"detail": "La reservation n'a pas encore commence."}, status=status.HTTP_400_BAD_REQUEST)
 
-    if reservation.date_fin < timezone.now():
-        return Response({"detail": "La réservation est expirée."}, status=status.HTTP_400_BAD_REQUEST)
+    if reservation.date_fin < now and not session_is_active:
+        return Response({"detail": "La fenetre de reservation est expiree."}, status=status.HTTP_400_BAD_REQUEST)
 
     expected_mode = reservation.auth_choice
     if expected_mode != auth_mode:
@@ -1138,22 +1559,39 @@ def terminal_authenticate(request):
     if auth_method is None:
         return Response({"detail": "Aucun moyen d'authentification associe a cette reservation."}, status=status.HTTP_400_BAD_REQUEST)
 
+    if auth_method.expiration and auth_method.expiration < now and not session_is_active:
+        return Response({"detail": "Le moyen d'authentification est expire."}, status=status.HTTP_400_BAD_REQUEST)
+
     provided_hash = _hash_secret(auth_value)
     if provided_hash != auth_method.hash_valeur:
         return Response({"detail": "Authentification refusee."}, status=status.HTTP_401_UNAUTHORIZED)
 
-    session, _created = ChargingSession.objects.get_or_create(
+    session, created = ChargingSession.objects.get_or_create(
         reservation=reservation,
         defaults={
             "emplacement": reservation.emplacement,
-            "start_time": timezone.now(),
+            "start_time": now,
         },
     )
+    if reservation.statut != "active":
+        reservation.statut = "active"
+        reservation.save(update_fields=["statut"])
+
+    if auth_mode in {"qr", "code"}:
+        auth_method.expiration = session.start_time + timedelta(minutes=DEFAULT_SESSION_MAX_MINUTES)
+        auth_method.metadata = {
+            **(auth_method.metadata or {}),
+            "session_started_at": session.start_time.isoformat(),
+            "session_max_minutes": DEFAULT_SESSION_MAX_MINUTES,
+        }
+        auth_method.save(update_fields=["expiration", "metadata"])
 
     return Response(
         {
             "message": "Authentification reussie.",
+            "session_created": created,
             "session": _serialize_session(session),
+            "auth_expiration": auth_method.expiration.isoformat() if auth_method.expiration else None,
         }
     )
 

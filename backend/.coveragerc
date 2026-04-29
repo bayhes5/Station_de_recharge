@@ -1,0 +1,10 @@
+[run]
+source = api
+omit =
+    */migrations/*
+    */tests/*
+    */management/commands/*
+
+[report]
+show_missing = True
+skip_covered = True

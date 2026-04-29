@@ -4,10 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Cache-Control" content="no-store">
-    <title>Réserver un emplacement</title>
-    <link rel="stylesheet" href="css/auth.css?v=reservation-rfid-2">
-    <script defer src="js/api.js?v=reservation-rfid-2"></script>
-    <script defer src="js/reservation.js?v=reservation-rfid-2"></script>
+    <title>R&eacute;server un emplacement</title>
+    <link rel="stylesheet" href="css/auth.css?v=reservation-qr-secure-1">
+    <script defer src="js/api.js?v=reservation-qr-secure-1"></script>
+    <script defer src="js/reservation.js?v=reservation-qr-secure-1"></script>
 </head>
 <body>
     <a class="skip-link" href="#contenu">Aller au contenu</a>
@@ -16,8 +16,8 @@
             <header class="page-header">
                 <div>
                     <p class="eyebrow">Station de recharge</p>
-                    <h1 id="reservation-title">Nouvelle réservation</h1>
-                    <p class="lead">Choisissez une station, un horaire de début et le mode d’accès utilisé au démarrage de la charge.</p>
+                    <h1 id="reservation-title">Nouvelle r&eacute;servation</h1>
+                    <p class="lead">Choisissez une station, un horaire de d&eacute;but et le mode d&rsquo;acc&egrave;s utilis&eacute; au d&eacute;marrage de la charge.</p>
                 </div>
                 <div class="header-actions">
                     <a class="btn btn-secondary" href="/dashboard.html">Tableau de bord</a>
@@ -29,7 +29,7 @@
 
             <div class="dashboard-grid">
                 <section class="dashboard-panel">
-                    <p class="panel-title">Détails de réservation</p>
+                    <p class="panel-title">D&eacute;tails de r&eacute;servation</p>
                     <form id="reservation-form" class="account-form">
                         <div class="form-grid">
                             <div class="field">
@@ -43,11 +43,11 @@
                         </div>
                         <div class="form-grid">
                             <div class="field">
-                                <label for="reservation-start">Début de session</label>
+                                <label for="reservation-start">D&eacute;but de r&eacute;servation</label>
                                 <input id="reservation-start" name="date_debut" type="datetime-local" step="1800" required>
                             </div>
                             <div class="field readonly-field">
-                                <label>Fin de session</label>
+                                <label>Fin de fen&ecirc;tre</label>
                                 <output id="reservation-end-display">-</output>
                             </div>
                         </div>
@@ -62,20 +62,20 @@
                             </div>
                         </div>
                         <p class="helper">
-                            Chaque réservation dure exactement 30 minutes. Les modes QR et code temporaire sont générés automatiquement.
+                            La r&eacute;servation bloque l&rsquo;emplacement pendant 30 minutes. Le QR code ou le code temporaire est g&eacute;n&eacute;r&eacute; &agrave; la r&eacute;servation, puis prolong&eacute; uniquement au d&eacute;marrage de la charge.
                         </p>
-                        <button class="btn btn-primary" type="submit">Créer la réservation</button>
+                        <button class="btn btn-primary" type="submit">Cr&eacute;er la r&eacute;servation</button>
                     </form>
                 </section>
 
                 <aside class="dashboard-panel">
-                    <p class="panel-title">Disponibilités</p>
-                    <div id="availability-box" class="empty-state">Sélectionnez une station et une heure de début.</div>
+                    <p class="panel-title">Disponibilit&eacute;s</p>
+                    <div id="availability-box" class="empty-state">S&eacute;lectionnez une station et une heure de d&eacute;but.</div>
                 </aside>
             </div>
 
             <section class="dashboard-panel section-block">
-                <p class="panel-title">Mes réservations</p>
+                <p class="panel-title">Mes r&eacute;servations</p>
                 <div id="reservations-list" class="stacked-list"></div>
             </section>
         </section>
