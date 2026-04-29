@@ -70,6 +70,20 @@ function createDataTable(container, columns, rows, emptyMessage) {
     container.appendChild(tableWrap);
 }
 
+function normalizeSearchValue(value) {
+    return String(value ?? "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim();
+}
+
+function collectSearchText(parts) {
+    return parts
+        .filter((part) => part !== null && part !== undefined && part !== "")
+        .join(" ");
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
     const AUTO_REFRESH_MS = 30000;
     const status = document.getElementById("admin-status");
@@ -86,6 +100,102 @@ document.addEventListener("DOMContentLoaded", async () => {
     let archivedSessions = [];
     let currentAdminId = null;
     let isLoading = false;
+    const searchState = {
+        users: "",
+        stations: "",
+        emplacements: "",
+        technicians: "",
+        maintenances: "",
+        upcomingReservations: "",
+        archivedReservations: "",
+        activeSessions: "",
+        archivedSessions: "",
+    };
+
+    const searchTextByTable = {
+        users: (user) => collectSearchText([
+            user.pseudo,
+            user.email,
+            user.nom,
+            user.telephone,
+        ]),
+        stations: (station) => collectSearchText([
+            station.nom,
+            station.localisation_text,
+            station.latitude,
+            station.longitude,
+            station.statut,
+        ]),
+        emplacements: (emplacement) => collectSearchText([
+            emplacement.station_nom,
+            emplacement.numero,
+            emplacement.statut,
+            emplacement.lock_state,
+        ]),
+        technicians: (technician) => collectSearchText([
+            technician.nom,
+            technician.email,
+            technician.telephone,
+            technician.utilisateur_pseudo,
+        ]),
+        maintenances: (maintenance) => collectSearchText([
+            maintenance.station_nom,
+            maintenance.technicien_nom,
+            maintenance.type,
+            maintenance.description,
+            maintenance.status,
+            formatDateTime(maintenance.date_planifiee),
+            formatDateTime(maintenance.date_realisee),
+        ]),
+        upcomingReservations: reservationSearchText,
+        archivedReservations: reservationSearchText,
+        activeSessions: sessionSearchText,
+        archivedSessions: sessionSearchText,
+    };
+
+    function reservationSearchText(reservation) {
+        return collectSearchText([
+            reservation.reference_code,
+            reservation.utilisateur_pseudo,
+            reservation.station_nom,
+            reservation.emplacement_numero,
+            reservation.emplacement,
+            reservation.auth_mode,
+            reservation.statut,
+            formatDateTime(reservation.date_debut),
+            formatDateTime(reservation.date_fin),
+        ]);
+    }
+
+    function sessionSearchText(session) {
+        return collectSearchText([
+            session.utilisateur_pseudo,
+            session.reference_code,
+            session.station,
+            session.emplacement,
+            session.status === "active" ? "en cours active" : "archivee archivée",
+            formatDateTime(session.start_time),
+            formatDateTime(session.end_time),
+        ]);
+    }
+
+    function filterRows(tableKey, rows) {
+        const query = normalizeSearchValue(searchState[tableKey]);
+        if (!query) return rows;
+
+        const terms = query.split(/\s+/).filter(Boolean);
+        const getSearchText = searchTextByTable[tableKey] || ((row) => JSON.stringify(row));
+        return rows.filter((row) => {
+            const haystack = normalizeSearchValue(getSearchText(row));
+            return terms.every((term) => haystack.includes(term));
+        });
+    }
+
+    function emptyMessageFor(tableKey, defaultMessage) {
+        const query = (searchState[tableKey] || "").trim();
+        if (!query) return defaultMessage;
+        return `Aucun résultat pour « ${query} ».`;
+    }
 
     function setAdminTab(name, pushHash = true) {
         document.querySelectorAll("[data-admin-tab]").forEach((button) => {
@@ -186,8 +296,8 @@ document.addEventListener("DOMContentLoaded", async () => {
                     }),
                 },
             ],
-            users,
-            "Aucun utilisateur."
+            filterRows("users", users),
+            emptyMessageFor("users", "Aucun utilisateur.")
         );
     }
 
@@ -214,8 +324,8 @@ document.addEventListener("DOMContentLoaded", async () => {
                     }),
                 },
             ],
-            stations,
-            "Aucune station."
+            filterRows("stations", stations),
+            emptyMessageFor("stations", "Aucune station.")
         );
     }
 
@@ -241,8 +351,8 @@ document.addEventListener("DOMContentLoaded", async () => {
                     }),
                 },
             ],
-            emplacements,
-            "Aucun emplacement."
+            filterRows("emplacements", emplacements),
+            emptyMessageFor("emplacements", "Aucun emplacement.")
         );
     }
 
@@ -268,8 +378,8 @@ document.addEventListener("DOMContentLoaded", async () => {
                     }),
                 },
             ],
-            technicians,
-            "Aucun technicien."
+            filterRows("technicians", technicians),
+            emptyMessageFor("technicians", "Aucun technicien.")
         );
     }
 
@@ -297,12 +407,12 @@ document.addEventListener("DOMContentLoaded", async () => {
                     }),
                 },
             ],
-            maintenances,
-            "Aucune maintenance."
+            filterRows("maintenances", maintenances),
+            emptyMessageFor("maintenances", "Aucune maintenance.")
         );
     }
 
-    function renderReservations(containerId, rows, emptyMessage) {
+    function renderReservations(containerId, rows, emptyMessage, searchKey) {
         createDataTable(
             document.getElementById(containerId),
             [
@@ -320,12 +430,12 @@ document.addEventListener("DOMContentLoaded", async () => {
                     render: renderCancelAction,
                 },
             ],
-            rows,
-            emptyMessage
+            filterRows(searchKey, rows),
+            emptyMessageFor(searchKey, emptyMessage)
         );
     }
 
-    function renderSessions(containerId, rows, emptyMessage) {
+    function renderSessions(containerId, rows, emptyMessage, searchKey) {
         createDataTable(
             document.getElementById(containerId),
             [
@@ -337,9 +447,21 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Fin", render: (session) => formatDateTime(session.end_time) },
                 { label: "Statut", render: (session) => session.status === "active" ? "En cours" : "Archivée" },
             ],
-            rows,
-            emptyMessage
+            filterRows(searchKey, rows),
+            emptyMessageFor(searchKey, emptyMessage)
         );
+    }
+
+    function renderAllTables() {
+        renderUsers();
+        renderStations();
+        renderEmplacements();
+        renderTechnicians();
+        renderMaintenances();
+        renderReservations("admin-upcoming-reservations", upcomingReservations, "Aucune réservation à venir.", "upcomingReservations");
+        renderReservations("admin-archived-reservations", archivedReservations, "Aucune réservation archivée.", "archivedReservations");
+        renderSessions("admin-active-sessions", activeSessions, "Aucune session en cours.", "activeSessions");
+        renderSessions("admin-archived-sessions", archivedSessions, "Aucune session archivée.", "archivedSessions");
     }
 
     async function loadAll() {
@@ -393,15 +515,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             activeSessions = adminSessions.active || [];
             archivedSessions = adminSessions.archived || [];
 
-            renderUsers();
-            renderStations();
-            renderEmplacements();
-            renderTechnicians();
-            renderMaintenances();
-            renderReservations("admin-upcoming-reservations", upcomingReservations, "Aucune réservation à venir.");
-            renderReservations("admin-archived-reservations", archivedReservations, "Aucune réservation archivée.");
-            renderSessions("admin-active-sessions", activeSessions, "Aucune session en cours.");
-            renderSessions("admin-archived-sessions", archivedSessions, "Aucune session archivée.");
+            renderAllTables();
 
             setStatus(
                 optionalDataFailed
@@ -413,6 +527,13 @@ document.addEventListener("DOMContentLoaded", async () => {
             isLoading = false;
         }
     }
+
+    document.querySelectorAll("[data-admin-search]").forEach((input) => {
+        input.addEventListener("input", () => {
+            searchState[input.dataset.adminSearch] = input.value;
+            renderAllTables();
+        });
+    });
 
     document.querySelectorAll("[data-admin-tab]").forEach((button) => {
         button.addEventListener("click", () => setAdminTab(button.dataset.adminTab));

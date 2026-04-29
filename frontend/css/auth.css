@@ -859,6 +859,14 @@ h2 {
     background: var(--surface);
 }
 
+.table-toolbar-actions {
+    display: flex;
+    align-items: end;
+    justify-content: flex-end;
+    gap: 10px;
+    min-width: min(100%, 520px);
+}
+
 .table-toolbar .btn {
     flex: 0 0 auto;
 }
@@ -867,6 +875,43 @@ h2 {
     margin: 4px 0 0;
     color: var(--muted);
     font-size: 0.92rem;
+}
+
+.search-field {
+    display: grid;
+    gap: 6px;
+    min-width: 240px;
+    max-width: 340px;
+    flex: 1 1 240px;
+}
+
+.search-field span {
+    color: var(--muted);
+    font-size: 0.76rem;
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.search-field input {
+    width: 100%;
+    min-height: 38px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    padding: 8px 12px;
+    background: var(--surface);
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.search-field input::placeholder {
+    color: #98a2b3;
+}
+
+.search-field input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(8, 127, 140, 0.14);
 }
 
 .table-host {
@@ -1059,6 +1104,10 @@ th.actions-column {
     background: var(--surface);
 }
 
+.reservation-access-host:not(:empty) {
+    margin-top: 12px;
+}
+
 .qr-access-card strong {
     color: var(--text);
 }
@@ -1117,6 +1166,22 @@ input[type="checkbox"] {
 
     .page-header {
         flex-direction: column;
+    }
+
+    .table-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .table-toolbar-actions {
+        align-items: stretch;
+        justify-content: flex-start;
+        min-width: 0;
+    }
+
+    .search-field {
+        max-width: none;
+        min-width: 0;
     }
 
     .header-actions {

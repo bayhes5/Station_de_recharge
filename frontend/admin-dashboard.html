@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Cache-Control" content="no-store">
     <title>Administration | M&eacute;tropole Verte</title>
-    <link rel="stylesheet" href="css/auth.css?v=admin-data-view-2">
-    <script defer src="js/api.js?v=admin-data-view-2"></script>
-    <script defer src="js/admin-dashboard.js?v=admin-data-view-2"></script>
+    <link rel="stylesheet" href="css/auth.css?v=admin-search-1">
+    <script defer src="js/api.js?v=admin-search-1"></script>
+    <script defer src="js/admin-dashboard.js?v=admin-search-1"></script>
 </head>
 <body>
     <a class="skip-link" href="#contenu">Aller au contenu</a>
@@ -78,7 +78,13 @@
                             <p class="panel-title">Utilisateurs</p>
                             <p class="table-caption">Comptes, r&ocirc;les et statut d&rsquo;acc&egrave;s.</p>
                         </div>
-                        <a class="btn btn-primary compact" href="/admin-form.html?resource=user">Ajouter un utilisateur</a>
+                        <div class="table-toolbar-actions">
+                            <label class="search-field">
+                                <span>Rechercher</span>
+                                <input type="search" data-admin-search="users" placeholder="Pseudo, nom, e-mail, téléphone..." autocomplete="off">
+                            </label>
+                            <a class="btn btn-primary compact" href="/admin-form.html?resource=user">Ajouter un utilisateur</a>
+                        </div>
                     </div>
                     <div id="users-list" class="table-host"></div>
                 </section>
@@ -91,7 +97,13 @@
                             <p class="panel-title">Stations</p>
                             <p class="table-caption">Localisation, coordonn&eacute;es et statut des stations.</p>
                         </div>
-                        <a class="btn btn-primary compact" href="/admin-form.html?resource=station">Ajouter une station</a>
+                        <div class="table-toolbar-actions">
+                            <label class="search-field">
+                                <span>Rechercher</span>
+                                <input type="search" data-admin-search="stations" placeholder="Nom, localisation, statut..." autocomplete="off">
+                            </label>
+                            <a class="btn btn-primary compact" href="/admin-form.html?resource=station">Ajouter une station</a>
+                        </div>
                     </div>
                     <div id="stations-list" class="table-host"></div>
                 </section>
@@ -102,7 +114,13 @@
                             <p class="panel-title">Emplacements</p>
                             <p class="table-caption">Places disponibles, &eacute;tat et serrure associ&eacute;e.</p>
                         </div>
-                        <a class="btn btn-primary compact" href="/admin-form.html?resource=emplacement">Ajouter un emplacement</a>
+                        <div class="table-toolbar-actions">
+                            <label class="search-field">
+                                <span>Rechercher</span>
+                                <input type="search" data-admin-search="emplacements" placeholder="Station, numéro, état..." autocomplete="off">
+                            </label>
+                            <a class="btn btn-primary compact" href="/admin-form.html?resource=emplacement">Ajouter un emplacement</a>
+                        </div>
                     </div>
                     <div id="emplacements-list" class="table-host"></div>
                 </section>
@@ -115,6 +133,10 @@
                             <p class="panel-title">R&eacute;servations &agrave; venir</p>
                             <p class="table-caption">R&eacute;servations confirm&eacute;es ou en attente, annulables avant le d&eacute;but.</p>
                         </div>
+                        <label class="search-field">
+                            <span>Rechercher</span>
+                            <input type="search" data-admin-search="upcomingReservations" placeholder="Pseudo, code, station..." autocomplete="off">
+                        </label>
                     </div>
                     <div id="admin-upcoming-reservations" class="table-host"></div>
                 </section>
@@ -125,6 +147,10 @@
                             <p class="panel-title">R&eacute;servations archiv&eacute;es</p>
                             <p class="table-caption">R&eacute;servations pass&eacute;es ou annul&eacute;es.</p>
                         </div>
+                        <label class="search-field">
+                            <span>Rechercher</span>
+                            <input type="search" data-admin-search="archivedReservations" placeholder="Pseudo, code, statut..." autocomplete="off">
+                        </label>
                     </div>
                     <div id="admin-archived-reservations" class="table-host"></div>
                 </section>
@@ -137,6 +163,10 @@
                             <p class="panel-title">Sessions en cours</p>
                             <p class="table-caption">Charges actives ouvertes sur une r&eacute;servation.</p>
                         </div>
+                        <label class="search-field">
+                            <span>Rechercher</span>
+                            <input type="search" data-admin-search="activeSessions" placeholder="Pseudo, code, station..." autocomplete="off">
+                        </label>
                     </div>
                     <div id="admin-active-sessions" class="table-host"></div>
                 </section>
@@ -147,6 +177,10 @@
                             <p class="panel-title">Sessions archiv&eacute;es</p>
                             <p class="table-caption">Historique des charges termin&eacute;es.</p>
                         </div>
+                        <label class="search-field">
+                            <span>Rechercher</span>
+                            <input type="search" data-admin-search="archivedSessions" placeholder="Pseudo, code, station..." autocomplete="off">
+                        </label>
                     </div>
                     <div id="admin-archived-sessions" class="table-host"></div>
                 </section>
@@ -159,7 +193,13 @@
                             <p class="panel-title">Techniciens</p>
                             <p class="table-caption">Techniciens et comptes utilisateurs li&eacute;s.</p>
                         </div>
-                        <a class="btn btn-primary compact" href="/admin-form.html?resource=technician">Ajouter un technicien</a>
+                        <div class="table-toolbar-actions">
+                            <label class="search-field">
+                                <span>Rechercher</span>
+                                <input type="search" data-admin-search="technicians" placeholder="Nom, e-mail, utilisateur..." autocomplete="off">
+                            </label>
+                            <a class="btn btn-primary compact" href="/admin-form.html?resource=technician">Ajouter un technicien</a>
+                        </div>
                     </div>
                     <div id="technicians-list" class="table-host"></div>
                 </section>
@@ -170,7 +210,13 @@
                             <p class="panel-title">Maintenances</p>
                             <p class="table-caption">Planification, statut et historique des interventions.</p>
                         </div>
-                        <a class="btn btn-primary compact" href="/admin-form.html?resource=maintenance">Ajouter une maintenance</a>
+                        <div class="table-toolbar-actions">
+                            <label class="search-field">
+                                <span>Rechercher</span>
+                                <input type="search" data-admin-search="maintenances" placeholder="Station, technicien, type..." autocomplete="off">
+                            </label>
+                            <a class="btn btn-primary compact" href="/admin-form.html?resource=maintenance">Ajouter une maintenance</a>
+                        </div>
                     </div>
                     <div id="maintenances-list" class="table-host"></div>
                 </section>

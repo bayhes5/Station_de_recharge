@@ -257,6 +257,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     async function showReservationAccess(reservation) {
+        window.location.href = "/dashboard.html#reservations";
+        return;
+        /*
         try {
             const result = await window.AuthAPI.getReservationAccessPayload(reservation.id_reservation);
             availabilityBox.innerHTML = "";
@@ -270,6 +273,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             status.classList.add("error");
             status.textContent = error.message || "Impossible de générer l'accès temporaire.";
         }
+        */
     }
 
     async function loadSavedRfid() {
@@ -281,6 +285,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     async function loadReservations() {
+        if (!reservationsList) return;
         const result = await window.AuthAPI.getReservations();
         renderReservations(reservationsList, result.results || [], cancelReservation, showReservationAccess);
     }
@@ -378,16 +383,17 @@ document.addEventListener("DOMContentLoaded", async () => {
         };
 
         try {
-            const result = await window.AuthAPI.createReservation(payload);
-            status.textContent = "Réservation créée avec succès.";
-            availabilityBox.innerHTML = "";
-            appendAccessPayload(availabilityBox, result);
+            await window.AuthAPI.createReservation(payload);
+            status.textContent = "Réservation créée avec succès. Retrouvez le code ou le QR dans l’onglet Réservations du tableau de bord.";
             form.reset();
             startInput.value = toLocalInputValue(new Date());
             configureAuthOptions();
             updateEndDisplay();
             await loadReservations();
             await refreshAvailability();
+            window.setTimeout(() => {
+                window.location.href = "/dashboard.html#reservations";
+            }, 900);
         } catch (error) {
             status.classList.add("error");
             status.textContent = error.message || "Erreur lors de la création de la réservation.";

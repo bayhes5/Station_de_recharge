@@ -2,7 +2,7 @@ Station de recharge
 ====================
 
 Cette documentation rassemble les notes techniques du backend Django, de l'API REST,
-du frontend statique et des composants embarques du prototype.
+du frontend statique et des composants embarqués du prototype.
 
 .. toctree::
    :maxdepth: 2
@@ -16,7 +16,7 @@ du frontend statique et des composants embarques du prototype.
 Premiers objectifs
 ------------------
 
-* garder une documentation versionnee avec le code ;
+* garder une documentation versionnée avec le code ;
 * publier une documentation API interactive avec drf-spectacular ;
 * documenter progressivement les modules Django avec Sphinx autodoc ;
-* fournir des commandes simples pour regenerer la documentation.
+* fournir des commandes simples pour régénérer la documentation.

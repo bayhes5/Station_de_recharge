@@ -6,13 +6,13 @@ La documentation API interactive est fournie par drf-spectacular.
 Endpoints locaux
 ----------------
 
-Une fois le backend demarre :
+Une fois le backend démarré :
 
-* Schema OpenAPI brut : ``http://localhost:8000/api/schema/``
+* Schéma OpenAPI brut : ``http://localhost:8000/api/schema/``
 * Swagger UI : ``http://localhost:8000/api/docs/``
 * Redoc : ``http://localhost:8000/api/redoc/``
 
-Generer un fichier OpenAPI
+Générer un fichier OpenAPI
 --------------------------
 
 Depuis le conteneur backend :
@@ -21,12 +21,12 @@ Depuis le conteneur backend :
 
    docker compose exec backend python manage.py spectacular --file schema.yml
 
-Depuis un environnement Python local place dans ``backend/`` :
+Depuis un environnement Python local placé dans ``backend/`` :
 
 .. code-block:: bash
 
    python manage.py spectacular --file schema.yml
 
-Les vues fonctionnelles DRF peuvent ensuite etre enrichies avec
-``@extend_schema`` pour preciser les requetes, reponses, exemples et tags quand
-l'inference automatique ne suffit pas.
+Les vues fonctionnelles DRF peuvent ensuite être enrichies avec
+``@extend_schema`` pour préciser les requêtes, réponses, exemples et tags quand
+l'inférence automatique ne suffit pas.

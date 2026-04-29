@@ -1,7 +1,7 @@
-Reference backend
+Référence backend
 =================
 
-Modeles
+Modèles
 -------
 
 .. automodule:: api.models

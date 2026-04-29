@@ -1,7 +1,7 @@
-Developpement
+Développement
 =============
 
-Installer les dependances de documentation
+Installer les dépendances de documentation
 ------------------------------------------
 
 Depuis la racine du projet :
@@ -26,9 +26,9 @@ Sous Linux/macOS :
 
    make -C docs html
 
-La sortie HTML est generee dans ``docs/build/html/``.
+La sortie HTML est générée dans ``docs/build/html/``.
 
-Verifier le schema API
+Vérifier le schéma API
 ----------------------
 
 .. code-block:: bash
@@ -38,20 +38,30 @@ Verifier le schema API
 Lancer les tests
 ----------------
 
-Installer les dependances de developpement :
+Les tests pytest sont exécutés automatiquement pendant le build de l'image
+backend. Si un test échoue, ``docker compose up -d --build`` s'arrête avant de
+lancer les services.
+
+Installer les dépendances de développement :
 
 .. code-block:: powershell
 
    .\.venv\Scripts\python.exe -m pip install -r backend\requirements-dev.txt
 
-Executer la suite pytest :
+Exécuter la suite pytest :
 
 .. code-block:: powershell
 
    cd backend
    ..\.venv\Scripts\python.exe -m pytest
 
-Executer les tests avec couverture :
+Relancer uniquement le build backend et donc les tests :
+
+.. code-block:: bash
+
+   docker compose build backend
+
+Exécuter les tests avec couverture :
 
 .. code-block:: powershell
 
@@ -59,4 +69,4 @@ Executer les tests avec couverture :
    ..\.venv\Scripts\python.exe -m pytest --cov=api --cov-report=term-missing
 
 La configuration pytest utilise ``config.test_settings`` et une base SQLite de
-test, afin de ne pas dependre de PostgreSQL pendant les tests unitaires.
+test, afin de ne pas dépendre de PostgreSQL pendant les tests unitaires.
