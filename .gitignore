@@ -13,3 +13,4 @@ backend/test*.sqlite3
 backend/schema.yml
 docs/build/
 sbom/
+sbom-source/

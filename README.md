@@ -310,16 +310,50 @@ Ou avec Syft via Docker:
 .\scripts\generate-sbom.ps1 -Target backend-image -UseDockerSyft
 ```
 
+Generation locale du SBOM, du rapport de vulnerabilites Grype et d'un brouillon
+OpenVEX:
+
+```powershell
+.\scripts\generate-sbom.ps1 -Target backend-image -UseDockerSyft -AnalyzeVulnerabilities -UseDockerGrype
+```
+
+Les rapports Grype sont generes dans `sbom/`:
+
+- `station-de-recharge.vulnerabilities.json`: rapport machine lisible
+- `station-de-recharge.vulnerabilities.sarif`: rapport compatible GitHub Code
+  Scanning
+- `station-de-recharge.openvex.json`: brouillon OpenVEX, genere seulement si des
+  vulnerabilites sont trouvees
+
+Le brouillon OpenVEX utilise le statut `under_investigation`. Une declaration VEX
+officielle doit etre revue avant d'etre placee dans `security/vex.openvex.json`.
+Si ce fichier existe, le scan Grype l'applique automatiquement.
+
+Pour visualiser les resultats plus clairement dans l'IDE, generer un rapport
+Markdown synthetique:
+
+```powershell
+.\scripts\summarize-vulnerabilities.ps1
+```
+
+Le rapport est ecrit dans `sbom/station-de-recharge.vulnerability-report.md`.
+
 Installer Syft sous Windows:
 
 ```powershell
 winget install Anchore.Syft
 ```
 
-Un workflow GitHub Actions genere aussi un SBOM CycloneDX et un SBOM SPDX de
-l'image backend a chaque push, pull request ou lancement manuel. Le SBOM est un
-inventaire: pour en tirer une valeur securite, il doit etre associe a des scans
-de vulnerabilites et a des dependances versionnees.
+Installer Grype sous Windows:
+
+```powershell
+winget install Anchore.Grype
+```
+
+Un workflow GitHub Actions genere aussi un SBOM CycloneDX, un SBOM SPDX, des
+rapports de vulnerabilites Grype et un brouillon OpenVEX de l'image backend a
+chaque push, pull request ou lancement manuel. Le SARIF est envoye a GitHub Code
+Scanning quand les permissions du depot le permettent.
 
 ## Kiosque Raspberry
 
