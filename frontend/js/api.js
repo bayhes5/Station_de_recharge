@@ -1,4 +1,4 @@
-const API_BASE_URL = window.__API_BASE_URL__ || "http://localhost:8000/api";
+const API_BASE_URL = window.__API_BASE_URL__ || import.meta.env?.VITE_API_BASE_URL || "http://localhost:8000/api";
 const ACCESS_TOKEN_KEY = "station_access_token";
 const REFRESH_TOKEN_KEY = "station_refresh_token";
 

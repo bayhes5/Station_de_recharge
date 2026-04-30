@@ -10,11 +10,15 @@ Le dossier ``backend/`` contient la configuration Django, les modèles, les
 serializers, les vues API et les commandes de bootstrap. L'API REST est exposée
 sous ``/api/`` et utilise des jetons JWT.
 
-Frontend statique
------------------
+Frontend Vite
+-------------
 
-Le dossier ``frontend/`` contient les pages HTML, CSS et JavaScript servies par
-Nginx. Ces pages consomment l'API Django.
+Le dossier ``frontend/`` contient une application Vite multi-pages. Chaque page
+HTML charge un module d'entrée sous ``frontend/src/pages/`` qui regroupe le
+client API commun et le script métier de la page.
+
+En développement, le service Docker ``frontend`` expose le serveur Vite sur le
+port ``5173``. Les pages consomment l'API Django exposée sur ``8000``.
 
 Réservation
 -----------

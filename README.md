@@ -5,7 +5,7 @@ Prototype de station de recharge pour vélos électriques.
 Le projet rassemble:
 
 - un backend Django avec API REST et pages serveur
-- un frontend statique servi par Nginx
+- un frontend Vite servi en développement par le serveur Vite
 - une interface kiosque Raspberry Pi
 - une base PostgreSQL pour les données de développement
 
@@ -21,7 +21,7 @@ docker compose up -d --build
 3. Ouvrir les interfaces utiles:
 
 - `http://localhost:8000` pour le backend Django et les pages serveur
-- `http://localhost:8080` pour le frontend statique
+- `http://localhost:5173` pour le frontend Vite
 - `http://localhost:9000` pour le kiosque Raspberry
 
 ## Déploiement depuis un clone Git
@@ -82,7 +82,7 @@ Cette commande démarre:
 
 - PostgreSQL sur le port `5432`
 - Django sur le port `8000`
-- le frontend Nginx sur le port `8080`
+- le frontend Vite sur le port `5173`
 - le kiosque Raspberry sur le port `9000`
 
 Au démarrage, le backend applique les migrations Django, crée ou met à jour le superuser, puis initialise les données de démo.
@@ -105,7 +105,7 @@ docker compose logs -f db
 Ouvrir ensuite:
 
 - `http://localhost:8000` pour le backend Django
-- `http://localhost:8080` pour le frontend
+- `http://localhost:5173` pour le frontend
 - `http://localhost:9000` pour le kiosque Raspberry
 
 Sur une autre machine du réseau, remplacer `localhost` par l'adresse IP ou le nom de domaine du serveur.
@@ -130,6 +130,28 @@ Lancer une commande Django dans le conteneur backend:
 docker compose exec backend python manage.py <commande>
 ```
 
+Suivre le serveur Vite:
+
+```bash
+docker compose logs -f frontend
+```
+
+Lancer le frontend sans Docker, si Node.js est installe:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Construire les assets frontend de production:
+
+```bash
+cd frontend
+npm ci
+npm run build
+```
+
 Supprimer aussi la base PostgreSQL locale et repartir de zéro:
 
 ```bash
@@ -141,7 +163,7 @@ Attention: `docker compose down -v` supprime le volume `postgres_data` et donc l
 ## Composants
 
 - `backend/`: application Django, modèle de données, API, templates et commandes de bootstrap
-- `frontend/`: pages statiques pour l'inscription, la connexion, le dashboard et les vues métier
+- `frontend/`: application Vite multi-pages pour l'inscription, la connexion, le dashboard et les vues métier
 - `raspberry/app/`: mini serveur HTTP pour simuler l'interface kiosque locale
 - `esp32/`: prototype firmware / logique embarquée pour les ESP32 affectés aux emplacements
 
@@ -205,6 +227,7 @@ Documentation:
 - `/api/docs/` documentation interactive Swagger UI
 - `/api/redoc/` documentation interactive Redoc
 - `docs/` documentation technique Sphinx
+- `docs/source/technical_choices.rst`: justification des choix techniques du projet
 
 Dépendances:
 
@@ -212,6 +235,7 @@ Dépendances:
 - `backend/requirements.txt`: dépendances backend verrouillées pour Docker
 - `backend/requirements-dev.in`: dépendances directes des tests
 - `backend/requirements-dev.txt`: dépendances de test verrouillées
+- `frontend/package.json`: scripts et dépendances Vite du frontend
 - `docs/requirements.in`: dépendances directes de documentation
 - `docs/requirements.txt`: dépendances de documentation verrouillées
 
@@ -369,5 +393,5 @@ python raspberry/app/main.py
 
 - Le backend utilise PostgreSQL par défaut.
 - Les jetons JWT sont exposés via `SimpleJWT`.
-- Les origines CORS locales incluent `localhost:8080` et `localhost:9000`.
+- Les origines CORS locales incluent `localhost:5173`, `localhost:8080` et `localhost:9000`.
 - Le backend bootstrape les données de démo à chaque démarrage de la stack Docker.
