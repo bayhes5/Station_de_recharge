@@ -4,10 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Cache-Control" content="no-store">
-    <title>R&eacute;server un emplacement</title>
-    <link rel="stylesheet" href="css/auth.css?v=reservation-create-only-1">
-    <script defer src="js/api.js?v=reservation-create-only-1"></script>
-    <script defer src="js/reservation.js?v=reservation-create-only-1"></script>
+    <title>R&eacute;server une station</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="css/auth.css?v=station-map-reservation-2">
+    <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script defer src="js/api.js?v=station-map-reservation-2"></script>
+    <script defer src="js/reservation.js?v=station-map-reservation-2"></script>
 </head>
 <body>
     <a class="skip-link" href="#contenu">Aller au contenu</a>
@@ -17,7 +19,7 @@
                 <div>
                     <p class="eyebrow">Station de recharge</p>
                     <h1 id="reservation-title">Nouvelle r&eacute;servation</h1>
-                    <p class="lead">Choisissez une station, un horaire de d&eacute;but et le mode d&rsquo;acc&egrave;s utilis&eacute; au d&eacute;marrage de la charge.</p>
+                    <p class="lead">Recherchez une station, choisissez un cr&eacute;neau, puis l&rsquo;application attribue automatiquement un emplacement disponible.</p>
                 </div>
                 <div class="header-actions">
                     <a class="btn btn-secondary" href="/dashboard.html">Tableau de bord</a>
@@ -27,19 +29,32 @@
 
             <div id="reservation-status" class="status" aria-live="polite"></div>
 
-            <div class="dashboard-grid">
+            <div class="reservation-layout">
+                <section class="dashboard-panel reservation-map-panel">
+                    <div class="panel-heading">
+                        <div>
+                            <p class="panel-title">Carte des stations</p>
+                            <p class="table-caption">Recherchez une station ou s&eacute;lectionnez un rep&egrave;re sur la carte.</p>
+                        </div>
+                    </div>
+                    <label class="search-field station-search">
+                        <span>Rechercher</span>
+                        <input id="station-search" type="search" placeholder="Nom, ville, adresse..." autocomplete="off">
+                    </label>
+                    <div id="station-map" class="station-map" role="listbox" aria-label="Carte des stations">
+                        <span class="map-placeholder">Chargement de la carte...</span>
+                    </div>
+                    <div id="station-results" class="station-results" aria-label="Stations disponibles"></div>
+                </section>
+
                 <section class="dashboard-panel">
                     <p class="panel-title">D&eacute;tails de r&eacute;servation</p>
                     <form id="reservation-form" class="account-form">
-                        <div class="form-grid">
-                            <div class="field">
-                                <label for="reservation-station">Station</label>
-                                <select id="reservation-station" name="station" required></select>
-                            </div>
-                            <div class="field">
-                                <label for="reservation-emplacement">Emplacement</label>
-                                <select id="reservation-emplacement" name="emplacement" required></select>
-                            </div>
+                        <input id="reservation-station" name="station" type="hidden" required>
+                        <div class="selected-station" id="selected-station-card">
+                            <span class="label">Station s&eacute;lectionn&eacute;e</span>
+                            <strong id="selected-station-name">Aucune station</strong>
+                            <span id="selected-station-location">S&eacute;lectionnez une station sur la carte.</span>
                         </div>
                         <div class="form-grid">
                             <div class="field">
@@ -62,16 +77,16 @@
                             </div>
                         </div>
                         <p class="helper">
-                            La r&eacute;servation bloque l&rsquo;emplacement pendant 30 minutes. Le QR code ou le code temporaire est g&eacute;n&eacute;r&eacute; &agrave; la r&eacute;servation, puis prolong&eacute; uniquement au d&eacute;marrage de la charge.
+                            La r&eacute;servation garantit un emplacement libre dans la station pendant 30 minutes. L&rsquo;emplacement pr&eacute;cis est attribu&eacute; automatiquement et appara&icirc;t dans la confirmation.
                         </p>
                         <button class="btn btn-primary" type="submit">Cr&eacute;er la r&eacute;servation</button>
                     </form>
-                </section>
 
-                <aside class="dashboard-panel">
-                    <p class="panel-title">Disponibilit&eacute;s</p>
-                    <div id="availability-box" class="empty-state">S&eacute;lectionnez une station et une heure de d&eacute;but.</div>
-                </aside>
+                    <div class="section-block section-stack">
+                        <p class="panel-title">Disponibilit&eacute;s</p>
+                        <div id="availability-box" class="empty-state">S&eacute;lectionnez une station et une heure de d&eacute;but.</div>
+                    </div>
+                </section>
             </div>
         </section>
     </main>

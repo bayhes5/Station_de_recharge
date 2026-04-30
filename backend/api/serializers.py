@@ -320,8 +320,8 @@ class ReservationSerializer(serializers.ModelSerializer):
 class ReservationCreateSerializer(serializers.Serializer):
     """Validate reservation creation input from the user-facing API."""
 
-    station = serializers.UUIDField(required=False)
-    emplacement = serializers.UUIDField()
+    station = serializers.UUIDField()
+    emplacement = serializers.UUIDField(required=False)
     date_debut = serializers.DateTimeField()
     date_fin = serializers.DateTimeField(required=False)
     auth_mode = serializers.ChoiceField(choices=("rfid", "qr", "code"))

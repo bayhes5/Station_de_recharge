@@ -22,6 +22,24 @@ function formatDateTime(value) {
     return new Date(value).toLocaleString("fr-FR");
 }
 
+function normalizeSearchValue(value) {
+    return String(value ?? "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim();
+}
+
+function stationSearchText(station) {
+    return [
+        station.nom,
+        station.localisation_text,
+        station.latitude,
+        station.longitude,
+        station.statut,
+    ].filter(Boolean).join(" ");
+}
+
 function renderReservations(container, reservations, onCancel, onAccess) {
     container.innerHTML = "";
 
@@ -83,7 +101,9 @@ function renderReservations(container, reservations, onCancel, onAccess) {
     });
 }
 
-function renderAvailability(container, station, emplacements) {
+function renderAvailability(container, station, availability) {
+    return renderStationAvailability(container, station, availability);
+
     if (!station) {
         container.className = "empty-state";
         container.textContent = "Sélectionnez une station pour voir les places disponibles.";
@@ -110,6 +130,43 @@ function renderAvailability(container, station, emplacements) {
         item.appendChild(meta);
         container.appendChild(item);
     });
+}
+
+function renderStationAvailability(container, station, availability) {
+    if (!station) {
+        container.className = "empty-state";
+        container.textContent = "Selectionnez une station pour voir les disponibilites.";
+        return;
+    }
+
+    const availableCount = Number(availability?.available_count ?? 0);
+    const totalCount = Number(availability?.total_count ?? 0);
+
+    if (!availableCount) {
+        container.className = "empty-state";
+        container.textContent = "Aucun emplacement disponible dans cette station sur cette plage.";
+        return;
+    }
+
+    container.className = "stacked-list";
+    container.innerHTML = "";
+
+    const item = document.createElement("article");
+    item.className = "list-item";
+
+    const title = document.createElement("strong");
+    title.textContent = availableCount === 1
+        ? "1 emplacement disponible"
+        : `${availableCount} emplacements disponibles`;
+
+    const meta = document.createElement("p");
+    meta.textContent = totalCount
+        ? `${station.nom} dispose de ${totalCount} emplacement${totalCount > 1 ? "s" : ""}. L'application attribuera automatiquement une place libre.`
+        : "L'application attribuera automatiquement une place libre.";
+
+    item.appendChild(title);
+    item.appendChild(meta);
+    container.appendChild(item);
 }
 
 function appendAccessPayload(container, result) {
@@ -159,8 +216,12 @@ function appendAccessPayload(container, result) {
 document.addEventListener("DOMContentLoaded", async () => {
     const status = document.getElementById("reservation-status");
     const form = document.getElementById("reservation-form");
-    const stationSelect = document.getElementById("reservation-station");
-    const emplacementSelect = document.getElementById("reservation-emplacement");
+    const stationInput = document.getElementById("reservation-station");
+    const stationSearch = document.getElementById("station-search");
+    const stationMap = document.getElementById("station-map");
+    const stationResults = document.getElementById("station-results");
+    const selectedStationName = document.getElementById("selected-station-name");
+    const selectedStationLocation = document.getElementById("selected-station-location");
     const startInput = document.getElementById("reservation-start");
     const endDisplay = document.getElementById("reservation-end-display");
     const authModeSelect = document.getElementById("reservation-auth-mode");
@@ -180,6 +241,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     let stations = [];
     let savedRfidValue = "";
+    let selectedStation = null;
+    let leafletMap = null;
+    let leafletMarkers = [];
 
     function roundToHalfHour(date, stepMinutes = 30) {
         const rounded = new Date(date);
@@ -241,6 +305,166 @@ document.addEventListener("DOMContentLoaded", async () => {
         authValueInput.value = isRfid ? savedRfidValue : "";
     }
 
+    function getFilteredStations() {
+        const query = normalizeSearchValue(stationSearch.value);
+        if (!query) return stations;
+
+        const terms = query.split(/\s+/).filter(Boolean);
+        return stations.filter((station) => {
+            const haystack = normalizeSearchValue(stationSearchText(station));
+            return terms.every((term) => haystack.includes(term));
+        });
+    }
+
+    function getMapPosition(station, axis, fallbackIndex) {
+        const numericValues = stations
+            .map((item) => Number(axis === "x" ? item.longitude : item.latitude))
+            .filter((value) => Number.isFinite(value));
+        const value = Number(axis === "x" ? station.longitude : station.latitude);
+        if (!Number.isFinite(value) || !numericValues.length) {
+            return 18 + ((fallbackIndex * 23) % 64);
+        }
+
+        const min = Math.min(...numericValues);
+        const max = Math.max(...numericValues);
+        if (min === max) return 50;
+
+        const ratio = (value - min) / (max - min);
+        const normalized = axis === "x" ? ratio : 1 - ratio;
+        return 10 + normalized * 80;
+    }
+
+    function selectStation(station) {
+        selectedStation = station;
+        stationInput.value = station?.id_station || "";
+        selectedStationName.textContent = station?.nom || "Aucune station";
+        selectedStationLocation.textContent = station?.localisation_text || "SÃ©lectionnez une station sur la carte.";
+        renderStationPicker();
+        refreshAvailability();
+    }
+
+    function canUseLeaflet() {
+        return Boolean(window.L && typeof window.L.map === "function");
+    }
+
+    function getStationCoordinates(station) {
+        const latitude = Number(station.latitude);
+        const longitude = Number(station.longitude);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+            return null;
+        }
+        return [latitude, longitude];
+    }
+
+    function clearLeafletMarkers() {
+        leafletMarkers.forEach((marker) => marker.remove());
+        leafletMarkers = [];
+    }
+
+    function renderLeafletMap(filteredStations) {
+        const stationsWithCoordinates = filteredStations
+            .map((station) => ({ station, coordinates: getStationCoordinates(station) }))
+            .filter((entry) => entry.coordinates);
+
+        if (!canUseLeaflet() || !stationsWithCoordinates.length) {
+            return false;
+        }
+
+        stationMap.classList.add("leaflet-station-map");
+
+        if (!leafletMap) {
+            leafletMap = window.L.map(stationMap, {
+                scrollWheelZoom: false,
+            });
+            window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                attribution: "&copy; OpenStreetMap contributors",
+            }).addTo(leafletMap);
+        }
+
+        clearLeafletMarkers();
+        const bounds = [];
+        stationsWithCoordinates.forEach(({ station, coordinates }) => {
+            const marker = window.L.marker(coordinates)
+                .addTo(leafletMap)
+                .bindPopup(`<strong>${station.nom}</strong><br>${station.localisation_text || ""}`);
+            marker.on("click", () => selectStation(station));
+            leafletMarkers.push(marker);
+            bounds.push(coordinates);
+        });
+
+        if (bounds.length === 1) {
+            leafletMap.setView(bounds[0], 14);
+        } else {
+            leafletMap.fitBounds(bounds, { padding: [28, 28] });
+        }
+
+        window.setTimeout(() => leafletMap.invalidateSize(), 0);
+        return true;
+    }
+
+    function renderFallbackMap(filteredStations) {
+        stationMap.classList.remove("leaflet-station-map");
+        stationMap.innerHTML = "";
+
+        filteredStations.forEach((station, index) => {
+            const isSelected = selectedStation?.id_station === station.id_station;
+
+            const pin = document.createElement("button");
+            pin.type = "button";
+            pin.className = `station-pin${isSelected ? " active" : ""}`;
+            pin.style.left = `${getMapPosition(station, "x", index)}%`;
+            pin.style.top = `${getMapPosition(station, "y", index)}%`;
+            pin.setAttribute("aria-label", `Selectionner ${station.nom}`);
+            pin.textContent = String(index + 1);
+            pin.addEventListener("click", () => selectStation(station));
+            stationMap.appendChild(pin);
+        });
+    }
+
+    function renderStationPicker() {
+        const filteredStations = getFilteredStations();
+        const useLeafletMap = renderLeafletMap(filteredStations);
+        if (!useLeafletMap && !leafletMap) {
+            stationMap.innerHTML = "";
+        }
+        stationResults.innerHTML = "";
+
+        if (!filteredStations.length) {
+            stationResults.className = "empty-state";
+            stationResults.textContent = "Aucune station ne correspond Ã  la recherche.";
+            return;
+        }
+
+        stationResults.className = "station-results";
+
+        filteredStations.forEach((station, index) => {
+            const isSelected = selectedStation?.id_station === station.id_station;
+
+            const pin = document.createElement("button");
+            pin.type = "button";
+            pin.className = `station-pin${isSelected ? " active" : ""}`;
+            pin.style.left = `${getMapPosition(station, "x", index)}%`;
+            pin.style.top = `${getMapPosition(station, "y", index)}%`;
+            pin.setAttribute("aria-label", `SÃ©lectionner ${station.nom}`);
+            pin.textContent = String(index + 1);
+            pin.addEventListener("click", () => selectStation(station));
+            stationMap.appendChild(pin);
+            if (useLeafletMap) {
+                pin.remove();
+            }
+
+            const item = document.createElement("button");
+            item.type = "button";
+            item.className = `station-result${isSelected ? " active" : ""}`;
+            item.innerHTML = `
+                <strong>${station.nom}</strong>
+                <span>${station.localisation_text || "Localisation non renseignÃ©e"}</span>
+            `;
+            item.addEventListener("click", () => selectStation(station));
+            stationResults.appendChild(item);
+        });
+    }
+
     async function cancelReservation(reservation) {
         if (!window.confirm(`Annuler la réservation ${reservation.reference_code || ""} ?`)) return;
 
@@ -293,24 +517,20 @@ document.addEventListener("DOMContentLoaded", async () => {
     async function loadStations() {
         const result = await window.AuthAPI.getStations();
         stations = result.results || [];
-        stationSelect.innerHTML = "";
-
-        stations.forEach((station) => {
-            const option = document.createElement("option");
-            option.value = station.id_station;
-            option.textContent = `${station.nom} - ${station.localisation_text}`;
-            stationSelect.appendChild(option);
-        });
+        renderStationPicker();
+        if (stations.length) {
+            selectStation(stations[0]);
+        }
     }
 
     async function refreshAvailability() {
-        const stationId = stationSelect.value;
+        const stationId = stationInput.value;
         const start = getStartDate();
         const end = getEndDate();
         updateEndDisplay();
 
         if (!stationId || !start || !end) {
-            renderAvailability(availabilityBox, null, []);
+            renderStationAvailability(availabilityBox, selectedStation, null);
             return;
         }
 
@@ -320,14 +540,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 date_debut: dateToIso(start),
                 date_fin: dateToIso(end),
             });
-            renderAvailability(availabilityBox, result.station, result.available_emplacements || []);
-            emplacementSelect.innerHTML = "";
-            (result.available_emplacements || []).forEach((emplacement) => {
-                const option = document.createElement("option");
-                option.value = emplacement.id_emplacement;
-                option.textContent = `Emplacement ${emplacement.numero}`;
-                emplacementSelect.appendChild(option);
-            });
+            renderStationAvailability(availabilityBox, result.station, result);
         } catch (error) {
             availabilityBox.className = "empty-state";
             availabilityBox.textContent = error.message || "Impossible de charger les disponibilités.";
@@ -347,7 +560,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         return;
     }
 
-    stationSelect.addEventListener("change", refreshAvailability);
+    stationSearch.addEventListener("input", renderStationPicker);
     startInput.addEventListener("change", refreshAvailability);
     authModeSelect.addEventListener("change", updateAuthFieldVisibility);
 
@@ -366,6 +579,13 @@ document.addEventListener("DOMContentLoaded", async () => {
             return;
         }
 
+        if (!stationInput.value) {
+            status.classList.add("error");
+            status.textContent = "Choisissez une station sur la carte.";
+            submitButton.disabled = false;
+            return;
+        }
+
         if (authModeSelect.value === "rfid" && !savedRfidValue) {
             status.classList.add("error");
             status.textContent = "Ajoutez d’abord un badge RFID dans votre profil.";
@@ -374,8 +594,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
 
         const payload = {
-            station: stationSelect.value,
-            emplacement: emplacementSelect.value,
+            station: stationInput.value,
             date_debut: dateToIso(start),
             date_fin: dateToIso(end),
             auth_mode: authModeSelect.value,
@@ -386,6 +605,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             await window.AuthAPI.createReservation(payload);
             status.textContent = "Réservation créée avec succès. Retrouvez le code ou le QR dans l’onglet Réservations du tableau de bord.";
             form.reset();
+            stationInput.value = selectedStation?.id_station || "";
             startInput.value = toLocalInputValue(new Date());
             configureAuthOptions();
             updateEndDisplay();

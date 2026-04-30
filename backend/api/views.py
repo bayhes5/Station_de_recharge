@@ -523,6 +523,16 @@ def _reservation_overlaps(emplacement, date_debut, date_fin):
     ).exists()
 
 
+def _available_emplacements(station, date_debut, date_fin):
+    """Return available charging bays for a station and reservation window."""
+    emplacements = Emplacement.objects.filter(station=station).order_by("numero")
+    return [
+        emplacement
+        for emplacement in emplacements
+        if not _reservation_overlaps(emplacement, date_debut, date_fin)
+    ]
+
+
 def _round_to_thirty_minutes(dt):
     """Return whether a datetime is aligned to a 30-minute boundary."""
     if dt.minute % 30 != 0 or dt.second != 0 or dt.microsecond != 0:
@@ -1291,16 +1301,18 @@ def reservation_availability(request):
     if not station:
         return Response({"detail": "Station introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
-    emplacements = Emplacement.objects.filter(station=station).order_by("numero")
-    available = []
-    for emplacement in emplacements:
-        if not _reservation_overlaps(emplacement, date_debut_dt, date_fin_dt):
-            available.append(_serialize_emplacement(emplacement))
+    available_emplacements = _available_emplacements(station, date_debut_dt, date_fin_dt)
 
     return Response(
         {
             "station": _serialize_station(station),
-            "available_emplacements": available,
+            "available_count": len(available_emplacements),
+            "total_count": station.emplacements.count(),
+            "available": bool(available_emplacements),
+            "available_emplacements": [
+                _serialize_emplacement(emplacement)
+                for emplacement in available_emplacements
+            ],
         }
     )
 
@@ -1356,66 +1368,79 @@ def reservations(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    emplacement = Emplacement.objects.select_related("station").filter(id_emplacement=data["emplacement"]).first()
-    if not emplacement:
-        return Response({"detail": "Emplacement introuvable."}, status=status.HTTP_404_NOT_FOUND)
+    with transaction.atomic():
+        station = Station.objects.select_for_update().filter(id_station=data["station"]).first()
+        if not station:
+            return Response({"detail": "Station introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
-    station_id = data.get("station")
-    if station_id and str(emplacement.station_id) != str(station_id):
-        return Response(
-            {"detail": "L'emplacement ne correspond pas a la station choisie."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+        requested_emplacement_id = data.get("emplacement")
+        if requested_emplacement_id:
+            emplacement = Emplacement.objects.select_related("station").filter(
+                id_emplacement=requested_emplacement_id,
+                station=station,
+            ).first()
+            if not emplacement:
+                return Response(
+                    {"detail": "L'emplacement ne correspond pas a la station choisie."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if _reservation_overlaps(emplacement, data["date_debut"], data["date_fin"]):
+                return Response(
+                    {"detail": "Cet emplacement n'est pas disponible sur cette plage horaire."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+        else:
+            available_emplacements = _available_emplacements(station, data["date_debut"], data["date_fin"])
+            if not available_emplacements:
+                return Response(
+                    {"detail": "Aucun emplacement disponible dans cette station sur ce creneau."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            emplacement = available_emplacements[0]
 
-    if _reservation_overlaps(emplacement, data["date_debut"], data["date_fin"]):
-        return Response(
-            {"detail": "Cet emplacement n'est pas disponible sur cette plage horaire."},
-            status=status.HTTP_409_CONFLICT,
-        )
-
-    auth_mode = data["auth_mode"].lower()
-    auth_method = None
-    clear_value = None
-    reservation_code = _generate_reservation_code()
-    if auth_mode == "rfid":
-        auth_method = _get_saved_rfid_auth(request.user)
-        if auth_method is None:
-            return Response(
-                {"auth_value": "Ajoute d'abord un badge RFID dans ton profil."},
-                status=status.HTTP_400_BAD_REQUEST,
+        auth_mode = data["auth_mode"].lower()
+        auth_method = None
+        clear_value = None
+        reservation_code = _generate_reservation_code()
+        if auth_mode == "rfid":
+            auth_method = _get_saved_rfid_auth(request.user)
+            if auth_method is None:
+                return Response(
+                    {"auth_value": "Ajoute d'abord un badge RFID dans ton profil."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            auth_method, clear_value = _create_temporary_auth(
+                request.user,
+                auth_mode,
+                data["date_fin"],
+                reservation_code,
             )
-    else:
-        auth_method, clear_value = _create_temporary_auth(
-            request.user,
-            auth_mode,
-            data["date_fin"],
-            reservation_code,
+
+        reservation = Reservation.objects.create(
+            utilisateur=request.user,
+            emplacement=emplacement,
+            reference_code=reservation_code,
+            authentification=auth_method,
+            auth_choice=auth_mode,
+            date_debut=data["date_debut"],
+            date_fin=data["date_fin"],
+            statut="confirmee",
         )
 
-    reservation = Reservation.objects.create(
-        utilisateur=request.user,
-        emplacement=emplacement,
-        reference_code=reservation_code,
-        authentification=auth_method,
-        auth_choice=auth_mode,
-        date_debut=data["date_debut"],
-        date_fin=data["date_fin"],
-        statut="confirmee",
-    )
-
-    response = {
-        "message": "Reservation creee.",
-        "reservation": ReservationSerializer(reservation).data,
-    }
-    if clear_value:
-        response["access_payload"] = _build_access_payload(
-            auth_mode,
-            clear_value,
-            auth_method,
-            data["date_fin"],
-        )
-    response["reservation_code"] = reservation.reference_code
-    return Response(response, status=status.HTTP_201_CREATED)
+        response = {
+            "message": "Reservation creee.",
+            "reservation": ReservationSerializer(reservation).data,
+        }
+        if clear_value:
+            response["access_payload"] = _build_access_payload(
+                auth_mode,
+                clear_value,
+                auth_method,
+                data["date_fin"],
+            )
+        response["reservation_code"] = reservation.reference_code
+        return Response(response, status=status.HTTP_201_CREATED)
 
 
 @_schema("Annuler une reservation", tags=["Reservations"])

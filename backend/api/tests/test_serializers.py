@@ -55,6 +55,7 @@ def test_reservation_create_serializer_forces_thirty_minute_duration():
     start = timezone.now().replace(minute=0, second=0, microsecond=0) + timedelta(days=1)
     serializer = ReservationCreateSerializer(
         data={
+            "station": "d063e73a-8f91-4a0a-8a78-dad5e60fb4c1",
             "emplacement": "f63c316b-476f-4d5a-b811-cf4e05ca2b51",
             "date_debut": start.isoformat(),
             "auth_mode": "qr",
