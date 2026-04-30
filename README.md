@@ -206,19 +206,19 @@ Documentation:
 - `/api/redoc/` documentation interactive Redoc
 - `docs/` documentation technique Sphinx
 
-Dependances:
+Dépendances:
 
-- `backend/requirements.in`: dependances directes du backend
-- `backend/requirements.txt`: dependances backend verrouillees pour Docker
-- `backend/requirements-dev.in`: dependances directes des tests
-- `backend/requirements-dev.txt`: dependances de test verrouillees
-- `docs/requirements.in`: dependances directes de documentation
-- `docs/requirements.txt`: dependances de documentation verrouillees
+- `backend/requirements.in`: dépendances directes du backend
+- `backend/requirements.txt`: dépendances backend verrouillées pour Docker
+- `backend/requirements-dev.in`: dépendances directes des tests
+- `backend/requirements-dev.txt`: dépendances de test verrouillées
+- `docs/requirements.in`: dépendances directes de documentation
+- `docs/requirements.txt`: dépendances de documentation verrouillées
 
-Les fichiers `.txt` sont ceux installes par Docker et par les commandes locales.
-Les fichiers `.in` servent de source lisible quand il faut mettre a jour les
-dependances. Apres une mise a jour, reconstruire l'image backend pour verifier
-que les tests passent avec les versions verrouillees.
+Les fichiers `.txt` sont ceux installés par Docker et par les commandes locales.
+Les fichiers `.in` servent de source lisible quand il faut mettre à jour les
+dépendances. Après une mise à jour, reconstruire l'image backend pour vérifier
+que les tests passent avec les versions verrouillées.
 
 Tests:
 
@@ -272,33 +272,33 @@ Le seuil Interrogate est fixé à `100`: une nouvelle classe ou fonction suivie
 par l'audit doit donc recevoir une docstring. Ruff active aussi les règles `D`
 pour contrôler la présence et le style des docstrings publiques.
 
-## SBOM et securite supply chain
+## SBOM et sécurité supply chain
 
-Le projet peut generer un SBOM (Software Bill of Materials) avec Syft, en deux
+Le projet peut générer un SBOM (Software Bill of Materials) avec Syft, en deux
 formats:
 
-- CycloneDX JSON: pratique pour les outils de securite applicative
-- SPDX JSON: pratique pour la conformite et les audits de licences
+- CycloneDX JSON: pratique pour les outils de sécurité applicative
+- SPDX JSON: pratique pour la conformité et les audits de licences
 
-Les fichiers generes localement sont places dans `sbom/`, qui est ignore par Git.
-Ils doivent etre regeneres a chaque build ou release plutot que maintenus a la
-main dans le depot.
+Les fichiers générés localement sont placés dans `sbom/`, qui est ignoré par Git.
+Ils doivent être régénérés à chaque build ou release plutôt que maintenus à la
+main dans le dépôt.
 
-Generation locale depuis les sources:
+Génération locale depuis les sources:
 
 ```powershell
 .\scripts\generate-sbom.ps1
 ```
 
-Si `syft` n'est pas installe localement mais que Docker est disponible:
+Si `syft` n'est pas installé localement mais que Docker est disponible:
 
 ```powershell
 .\scripts\generate-sbom.ps1 -UseDockerSyft
 ```
 
-Generation locale depuis l'image backend construite, plus representative des
-versions reellement installees. Cette commande necessite Docker demarre et Syft
-installe localement:
+Génération locale depuis l'image backend construite, plus représentative des
+versions réellement installées. Cette commande nécessite Docker démarré et Syft
+installé localement:
 
 ```powershell
 .\scripts\generate-sbom.ps1 -Target backend-image
@@ -310,33 +310,33 @@ Ou avec Syft via Docker:
 .\scripts\generate-sbom.ps1 -Target backend-image -UseDockerSyft
 ```
 
-Generation locale du SBOM, du rapport de vulnerabilites Grype et d'un brouillon
+Génération locale du SBOM, du rapport de vulnérabilités Grype et d'un brouillon
 OpenVEX:
 
 ```powershell
 .\scripts\generate-sbom.ps1 -Target backend-image -UseDockerSyft -AnalyzeVulnerabilities -UseDockerGrype
 ```
 
-Les rapports Grype sont generes dans `sbom/`:
+Les rapports Grype sont générés dans `sbom/`:
 
 - `station-de-recharge.vulnerabilities.json`: rapport machine lisible
 - `station-de-recharge.vulnerabilities.sarif`: rapport compatible GitHub Code
   Scanning
-- `station-de-recharge.openvex.json`: brouillon OpenVEX, genere seulement si des
-  vulnerabilites sont trouvees
+- `station-de-recharge.openvex.json`: brouillon OpenVEX, généré seulement si des
+  vulnérabilités sont trouvées
 
-Le brouillon OpenVEX utilise le statut `under_investigation`. Une declaration VEX
-officielle doit etre revue avant d'etre placee dans `security/vex.openvex.json`.
+Le brouillon OpenVEX utilise le statut `under_investigation`. Une déclaration VEX
+officielle doit être revue avant d'être placée dans `security/vex.openvex.json`.
 Si ce fichier existe, le scan Grype l'applique automatiquement.
 
-Pour visualiser les resultats plus clairement dans l'IDE, generer un rapport
-Markdown synthetique:
+Pour visualiser les résultats plus clairement dans l'IDE, générer un rapport
+Markdown synthétique:
 
 ```powershell
 .\scripts\summarize-vulnerabilities.ps1
 ```
 
-Le rapport est ecrit dans `sbom/station-de-recharge.vulnerability-report.md`.
+Le rapport est écrit dans `sbom/station-de-recharge.vulnerability-report.md`.
 
 Installer Syft sous Windows:
 
@@ -350,10 +350,10 @@ Installer Grype sous Windows:
 winget install Anchore.Grype
 ```
 
-Un workflow GitHub Actions genere aussi un SBOM CycloneDX, un SBOM SPDX, des
-rapports de vulnerabilites Grype et un brouillon OpenVEX de l'image backend a
-chaque push, pull request ou lancement manuel. Le SARIF est envoye a GitHub Code
-Scanning quand les permissions du depot le permettent.
+Un workflow GitHub Actions génère aussi un SBOM CycloneDX, un SBOM SPDX, des
+rapports de vulnérabilités Grype et un brouillon OpenVEX de l'image backend à
+chaque push, pull request ou lancement manuel. Le SARIF est envoyé à GitHub Code
+Scanning quand les permissions du dépôt le permettent.
 
 ## Kiosque Raspberry
 
