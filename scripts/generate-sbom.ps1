@@ -21,6 +21,23 @@ $SpdxPath = Join-Path $OutputDir "$ProjectName.spdx.json"
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
+function Use-HttpsCycloneDxSchema {
+    if (-not (Test-Path $CycloneDxPath)) {
+        return
+    }
+
+    $Content = Get-Content -Raw -Path $CycloneDxPath
+    $UpdatedContent = $Content.Replace(
+        '"$schema": "http://cyclonedx.org/schema/',
+        '"$schema": "https://cyclonedx.org/schema/'
+    )
+
+    if ($UpdatedContent -ne $Content) {
+        $Utf8NoBom = New-Object System.Text.UTF8Encoding $false
+        [System.IO.File]::WriteAllText((Resolve-Path $CycloneDxPath), $UpdatedContent, $Utf8NoBom)
+    }
+}
+
 function Invoke-LocalSyft {
     param(
         [string]$Source,
@@ -98,3 +115,5 @@ else {
 Write-Host "SBOM generated:"
 Write-Host " - $CycloneDxPath"
 Write-Host " - $SpdxPath"
+
+Use-HttpsCycloneDxSchema
