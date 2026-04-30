@@ -28,6 +28,17 @@ Sous Linux/macOS :
 
 La sortie HTML est générée dans ``docs/build/html/``.
 
+Ce qui est automatique
+----------------------
+
+La référence backend est alimentée par Sphinx autodoc à partir des docstrings
+des modules Python, et le schéma OpenAPI est généré par drf-spectacular à partir
+des vues DRF et des serializers.
+
+Les pages narratives, comme ``architecture.rst`` ou les notes de flux métier,
+ne sont pas réécrites automatiquement : elles doivent être maintenues dans le
+dépôt quand le comportement produit change.
+
 Vérifier le schéma API
 ----------------------
 

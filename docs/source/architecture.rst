@@ -16,6 +16,18 @@ Frontend statique
 Le dossier ``frontend/`` contient les pages HTML, CSS et JavaScript servies par
 Nginx. Ces pages consomment l'API Django.
 
+Réservation
+-----------
+
+Le flux utilisateur de réservation sélectionne une station sur une carte, puis
+un créneau de début. L'utilisateur ne choisit pas directement l'emplacement :
+le backend vérifie les disponibilités de la station sur la fenêtre de 30 minutes
+et attribue automatiquement un emplacement libre au moment de la création.
+
+Les emplacements restent des objets métier côté backend. Ils portent la
+réservation effective, les sessions de charge et le rattachement aux devices
+ESP32.
+
 Kiosque Raspberry
 -----------------
 
