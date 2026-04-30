@@ -26,6 +26,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const debounceTimers = {};
 
+    function initializePasswordToggles() {
+        document.querySelectorAll("[data-password-toggle]").forEach((button) => {
+            button.addEventListener("click", () => {
+                const input = document.getElementById(button.dataset.passwordToggle);
+                const shouldShow = input.type === "password";
+                input.type = shouldShow ? "text" : "password";
+                button.setAttribute("aria-pressed", String(shouldShow));
+                button.setAttribute(
+                    "aria-label",
+                    shouldShow ? "Masquer le mot de passe" : "Afficher le mot de passe"
+                );
+                button.classList.toggle("is-visible", shouldShow);
+                input.focus();
+            });
+        });
+    }
+
     function setStatus(message = "", type = "") {
         status.className = `status${type ? ` ${type}` : ""}`;
         status.textContent = message;
@@ -159,6 +176,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     fields.password.addEventListener("input", validatePassword);
     fields.passwordConfirm.addEventListener("input", validatePasswordConfirm);
+    initializePasswordToggles();
 
     form.addEventListener("submit", async (event) => {
         event.preventDefault();

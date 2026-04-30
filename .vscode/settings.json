@@ -4,6 +4,10 @@
   "autoDocstring.includeExtendedSummary": true,
   "autoDocstring.includeName": false,
   "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}\\backend",
+    "${workspaceFolder}\\.venv\\Lib\\site-packages"
+  ],
   "python.testing.pytestArgs": [
     "backend/api/tests"
   ],

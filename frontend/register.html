@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inscription | Station de recharge</title>
-    <link rel="stylesheet" href="css/auth.css">
+    <link rel="stylesheet" href="css/auth.css?v=password-toggle-3">
     <script defer src="js/api.js"></script>
-    <script defer src="js/register.js"></script>
+    <script defer src="js/register.js?v=password-toggle-3"></script>
 </head>
 <body>
     <a class="skip-link" href="#contenu">Aller au contenu</a>
@@ -43,7 +43,21 @@
 
                     <div class="field" data-field="password">
                         <label for="password">Mot de passe</label>
-                        <input id="password" name="password" type="password" autocomplete="new-password" required aria-describedby="password-feedback password-rules">
+                        <div class="password-control">
+                            <input id="password" name="password" type="password" autocomplete="new-password" required aria-describedby="password-feedback password-rules">
+                            <button class="password-toggle" type="button" aria-label="Afficher le mot de passe" aria-pressed="false" data-password-toggle="password">
+                                <svg class="password-icon password-icon-eye" aria-hidden="true" viewBox="0 0 24 24">
+                                    <path d="M2.06 12.35a1 1 0 0 1 0-.7C3.7 7.42 7.82 4.5 12 4.5s8.3 2.92 9.94 7.15a1 1 0 0 1 0 .7C20.3 16.58 16.18 19.5 12 19.5s-8.3-2.92-9.94-7.15Z"></path>
+                                    <circle cx="12" cy="12" r="3"></circle>
+                                </svg>
+                                <svg class="password-icon password-icon-eye-off" aria-hidden="true" viewBox="0 0 24 24">
+                                    <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c4.18 0 8.3 2.92 9.94 7.15a1 1 0 0 1 0 .7 11.64 11.64 0 0 1-2.53 3.74"></path>
+                                    <path d="M6.2 6.2a11.74 11.74 0 0 0-4.14 5.45 1 1 0 0 0 0 .7C3.7 16.58 7.82 19.5 12 19.5a10.6 10.6 0 0 0 4.8-1.2"></path>
+                                    <path d="M9.88 9.88A3 3 0 0 0 14.12 14.12"></path>
+                                    <path d="M3 3l18 18"></path>
+                                </svg>
+                            </button>
+                        </div>
                         <p id="password-feedback" class="field-feedback" aria-live="polite"></p>
                         <ul id="password-rules" class="password-rules" aria-label="Règles du mot de passe">
                             <li data-rule="length">12 caractères minimum</li>
@@ -57,7 +71,21 @@
 
                     <div class="field" data-field="passwordConfirm">
                         <label for="password-confirm">Confirmation</label>
-                        <input id="password-confirm" name="passwordConfirm" type="password" autocomplete="new-password" required aria-describedby="password-confirm-feedback">
+                        <div class="password-control">
+                            <input id="password-confirm" name="passwordConfirm" type="password" autocomplete="new-password" required aria-describedby="password-confirm-feedback">
+                            <button class="password-toggle" type="button" aria-label="Afficher la confirmation" aria-pressed="false" data-password-toggle="password-confirm">
+                                <svg class="password-icon password-icon-eye" aria-hidden="true" viewBox="0 0 24 24">
+                                    <path d="M2.06 12.35a1 1 0 0 1 0-.7C3.7 7.42 7.82 4.5 12 4.5s8.3 2.92 9.94 7.15a1 1 0 0 1 0 .7C20.3 16.58 16.18 19.5 12 19.5s-8.3-2.92-9.94-7.15Z"></path>
+                                    <circle cx="12" cy="12" r="3"></circle>
+                                </svg>
+                                <svg class="password-icon password-icon-eye-off" aria-hidden="true" viewBox="0 0 24 24">
+                                    <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c4.18 0 8.3 2.92 9.94 7.15a1 1 0 0 1 0 .7 11.64 11.64 0 0 1-2.53 3.74"></path>
+                                    <path d="M6.2 6.2a11.74 11.74 0 0 0-4.14 5.45 1 1 0 0 0 0 .7C3.7 16.58 7.82 19.5 12 19.5a10.6 10.6 0 0 0 4.8-1.2"></path>
+                                    <path d="M9.88 9.88A3 3 0 0 0 14.12 14.12"></path>
+                                    <path d="M3 3l18 18"></path>
+                                </svg>
+                            </button>
+                        </div>
                         <p id="password-confirm-feedback" class="field-feedback" aria-live="polite"></p>
                     </div>
 

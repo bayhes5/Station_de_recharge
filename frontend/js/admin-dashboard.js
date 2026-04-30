@@ -88,6 +88,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const AUTO_REFRESH_MS = 30000;
     const status = document.getElementById("admin-status");
     const logoutBtn = document.getElementById("logout-admin");
+    const passwordResetDialog = createPasswordResetDialog();
 
     let users = [];
     let stations = [];
@@ -217,14 +218,94 @@ document.addEventListener("DOMContentLoaded", async () => {
         status.textContent = message;
     }
 
+    function createPasswordResetDialog() {
+        const backdrop = document.createElement("div");
+        backdrop.className = "modal-backdrop";
+        backdrop.hidden = true;
+        backdrop.innerHTML = `
+            <section class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-password-title">
+                <div class="modal-heading">
+                    <div>
+                        <p class="eyebrow">Administration</p>
+                        <h2 id="reset-password-title">Mot de passe temporaire</h2>
+                    </div>
+                    <button class="modal-close" type="button" aria-label="Fermer">×</button>
+                </div>
+                <div class="account-form">
+                    <p id="reset-password-user" class="helper"></p>
+                    <p class="helper">Copiez ce mot de passe maintenant. Il ne sera plus affiché après fermeture.</p>
+                    <div class="generated-password-box">
+                        <code id="generated-password-value"></code>
+                    </div>
+                    <p id="reset-password-status" class="field-feedback" aria-live="polite"></p>
+                    <div class="cta-row">
+                        <button class="btn btn-primary" type="button" data-copy-password>Copier</button>
+                        <button class="btn btn-secondary" type="button" data-reset-cancel>Fermer</button>
+                    </div>
+                </div>
+            </section>
+        `;
+
+        document.body.appendChild(backdrop);
+
+        const statusElement = backdrop.querySelector("#reset-password-status");
+        const userElement = backdrop.querySelector("#reset-password-user");
+        const passwordElement = backdrop.querySelector("#generated-password-value");
+        let generatedPassword = "";
+
+        function close() {
+            generatedPassword = "";
+            passwordElement.textContent = "";
+            statusElement.textContent = "";
+            statusElement.className = "field-feedback";
+            backdrop.hidden = true;
+        }
+
+        function setDialogStatus(message, isError = false) {
+            statusElement.textContent = message;
+            statusElement.className = `field-feedback${isError ? " invalid" : " valid"}`;
+        }
+
+        backdrop.querySelector(".modal-close").addEventListener("click", close);
+        backdrop.querySelector("[data-reset-cancel]").addEventListener("click", close);
+        backdrop.querySelector("[data-copy-password]").addEventListener("click", async () => {
+            if (!generatedPassword) return;
+
+            try {
+                await navigator.clipboard.writeText(generatedPassword);
+                setDialogStatus("Mot de passe copié.");
+            } catch (_error) {
+                setDialogStatus("Copie automatique impossible. Sélectionnez le mot de passe manuellement.", true);
+            }
+        });
+        backdrop.addEventListener("click", (event) => {
+            if (event.target === backdrop) {
+                close();
+            }
+        });
+
+        return {
+            show(user, password) {
+                generatedPassword = password;
+                userElement.textContent = `Utilisateur : ${user.pseudo} (${user.email})`;
+                passwordElement.textContent = password;
+                statusElement.textContent = "";
+                statusElement.className = "field-feedback";
+                backdrop.hidden = false;
+                backdrop.querySelector("[data-copy-password]").focus();
+            },
+        };
+    }
+
     function editHref(resource, id) {
         return `/admin-form.html?resource=${resource}&id=${id}`;
     }
 
-    function renderActions({ resource, id, label, onDelete }) {
+    function renderActions({ resource, id, label, onDelete, extraActions = [] }) {
         const actions = document.createElement("div");
         actions.className = "table-actions";
         actions.appendChild(createActionLink("Modifier", editHref(resource, id)));
+        extraActions.forEach((action) => actions.appendChild(action));
         actions.appendChild(createActionButton("Supprimer", onDelete, "danger-action"));
         actions.setAttribute("aria-label", `Actions ${label}`);
         return actions;
@@ -257,6 +338,24 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     }
 
+    async function resetUserPassword(user, triggerButton) {
+        const confirmed = window.confirm(
+            `Générer un nouveau mot de passe temporaire pour ${user.pseudo} ?`
+        );
+        if (!confirmed) return;
+
+        triggerButton.disabled = true;
+        try {
+            const result = await window.AuthAPI.resetAdminUserPassword(user.id_user);
+            passwordResetDialog.show(user, result.temporary_password);
+            setStatus(`Mot de passe temporaire généré pour ${user.pseudo}.`);
+        } catch (error) {
+            setStatus(error.message || "Réinitialisation impossible.", true);
+        } finally {
+            triggerButton.disabled = false;
+        }
+    }
+
     function renderUsers() {
         createDataTable(
             document.getElementById("users-list"),
@@ -283,6 +382,9 @@ document.addEventListener("DOMContentLoaded", async () => {
                         resource: "user",
                         id: user.id_user,
                         label: user.pseudo,
+                        extraActions: [
+                            createActionButton("Réinitialiser", (event) => resetUserPassword(user, event.currentTarget)),
+                        ],
                         onDelete: async () => {
                             if (String(user.id_user) === String(currentAdminId)) {
                                 setStatus("Vous ne pouvez pas supprimer votre propre compte depuis cet \u00e9cran.", true);

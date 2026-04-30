@@ -1,12 +1,14 @@
 import hashlib
 import json
 import secrets
+import string
 from io import BytesIO
 from datetime import datetime, timedelta
 
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password as validate_django_password
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.shortcuts import render
@@ -51,6 +53,8 @@ from .serializers import (
 User = get_user_model()
 RESERVATION_START_GRACE_MINUTES = getattr(settings, "RESERVATION_START_GRACE_MINUTES", 15)
 DEFAULT_SESSION_MAX_MINUTES = getattr(settings, "CHARGING_SESSION_MAX_MINUTES", 240)
+ADMIN_TEMPORARY_PASSWORD_LENGTH = 16
+ADMIN_TEMPORARY_PASSWORD_SPECIALS = "!@#$%&*-_?"
 
 
 def _schema(
@@ -106,6 +110,42 @@ def _as_bool(value):
     if value is None:
         return False
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _shuffle_secret(characters):
+    """Shuffle password characters with the system random source."""
+    shuffled = list(characters)
+    for index in range(len(shuffled) - 1, 0, -1):
+        swap_index = secrets.randbelow(index + 1)
+        shuffled[index], shuffled[swap_index] = shuffled[swap_index], shuffled[index]
+    return "".join(shuffled)
+
+
+def _generate_temporary_password(user):
+    """Generate a password that satisfies Django and project complexity rules."""
+    alphabet = string.ascii_letters + string.digits + ADMIN_TEMPORARY_PASSWORD_SPECIALS
+
+    for _attempt in range(100):
+        required_characters = [
+            secrets.choice(string.ascii_lowercase),
+            secrets.choice(string.ascii_uppercase),
+            secrets.choice(string.digits),
+            secrets.choice(ADMIN_TEMPORARY_PASSWORD_SPECIALS),
+        ]
+        remaining_length = ADMIN_TEMPORARY_PASSWORD_LENGTH - len(required_characters)
+        password = _shuffle_secret(
+            required_characters
+            + [secrets.choice(alphabet) for _index in range(remaining_length)]
+        )
+
+        try:
+            validate_django_password(password, user=user)
+        except ValidationError:
+            continue
+
+        return password
+
+    raise RuntimeError("Impossible de generer un mot de passe temporaire conforme.")
 
 
 def _serialize_reservation(reservation):
@@ -984,6 +1024,27 @@ def admin_user_detail(request, user_id):
 
     user.delete()
     return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@_schema("Generer un mot de passe temporaire utilisateur", tags=["Administration"])
+@api_view(["POST"])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_reset_user_password(request, user_id):
+    """Generate and set a new temporary password for a user."""
+    try:
+        user = User.objects.get(id_user=user_id)
+    except User.DoesNotExist:
+        return Response({"detail": "Utilisateur introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    temporary_password = _generate_temporary_password(user)
+    user.set_password(temporary_password)
+    user.save(update_fields=["password"])
+    return Response(
+        {
+            "message": "Mot de passe temporaire genere.",
+            "temporary_password": temporary_password,
+        }
+    )
 
 
 @_schema("Lister les stations", tags=["Administration"], operation_id="admin_stations_list", methods=["GET"])

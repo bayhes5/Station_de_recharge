@@ -445,6 +445,59 @@ h2 {
     gap: 7px;
 }
 
+.password-control {
+    position: relative;
+}
+
+.password-control input {
+    padding-right: 52px;
+}
+
+.password-toggle {
+    position: absolute;
+    top: 50%;
+    right: 6px;
+    width: 38px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface-soft);
+    color: var(--primary-strong);
+    cursor: pointer;
+    transform: translateY(-50%);
+}
+
+.password-toggle:hover,
+.password-toggle:focus-visible {
+    color: var(--primary-strong);
+    background: var(--primary-soft);
+    border-color: rgba(8, 127, 140, 0.18);
+}
+
+.password-icon {
+    width: 21px;
+    height: 21px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.password-icon-eye-off {
+    display: none;
+}
+
+.password-toggle.is-visible .password-icon-eye {
+    display: none;
+}
+
+.password-toggle.is-visible .password-icon-eye-off {
+    display: block;
+}
+
 .field label {
     font-size: 0.94rem;
     font-weight: 700;
@@ -1022,7 +1075,7 @@ h2 {
     position: sticky;
     right: 0;
     z-index: 1;
-    min-width: 190px;
+    min-width: 320px;
     background: var(--surface);
     box-shadow: -10px 0 18px rgba(22, 34, 51, 0.05);
 }
@@ -1030,6 +1083,74 @@ h2 {
 th.actions-column {
     z-index: 2;
     background: var(--surface-muted);
+}
+
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    padding: 18px;
+    background: rgba(23, 32, 46, 0.52);
+}
+
+.modal-dialog {
+    width: min(100%, 520px);
+    padding: 24px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+}
+
+.modal-heading {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: flex-start;
+    margin-bottom: 18px;
+}
+
+.modal-heading h2 {
+    font-size: 1.45rem;
+}
+
+.modal-close {
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 1.35rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.modal-close:hover {
+    color: var(--primary-strong);
+    border-color: var(--primary);
+    background: var(--primary-soft);
+}
+
+.generated-password-box {
+    padding: 14px 16px;
+    border: 1px solid rgba(8, 127, 140, 0.24);
+    border-radius: var(--radius);
+    background: var(--primary-soft);
+}
+
+.generated-password-box code {
+    display: block;
+    color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    font-size: 1.08rem;
+    font-weight: 800;
+    overflow-wrap: anywhere;
+    user-select: all;
 }
 
 .admin-form-shell {

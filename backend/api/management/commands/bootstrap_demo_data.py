@@ -4,13 +4,13 @@ from datetime import timedelta
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from api.models import Emplacement, Maintenance, ProfilUtilisateur, Station, Technicien, Utilisateur
+from api.models import Device, Emplacement, Maintenance, ProfilUtilisateur, Station, Technicien, Utilisateur
 
 
 class Command(BaseCommand):
     """Seed local development data for stations, bays and technicians."""
 
-    help = "Create demo station, emplacement, technician and maintenance for local development."
+    help = "Create demo station, emplacements, ESP32 devices, technician and maintenance for local development."
 
     def handle(self, *args, **options):
         """Create or update deterministic demo records from environment values."""
@@ -19,7 +19,8 @@ class Command(BaseCommand):
         latitude = float(os.environ.get("DEMO_STATION_LATITUDE", "48.8566"))
         longitude = float(os.environ.get("DEMO_STATION_LONGITUDE", "2.3522"))
         station_status = os.environ.get("DEMO_STATION_STATUS", "active")
-        emplacements_count = int(os.environ.get("DEMO_EMPLACEMENTS_COUNT", "2"))
+        emplacements_count = int(os.environ.get("DEMO_EMPLACEMENTS_COUNT", "3"))
+        esp32_firmware_version = os.environ.get("DEMO_ESP32_FIRMWARE_VERSION", "prototype")
 
         tech_pseudo = os.environ.get("DEMO_TECH_PSEUDO", "tech")
         tech_email = os.environ.get("DEMO_TECH_EMAIL", "tech@station.local")
@@ -55,6 +56,18 @@ class Command(BaseCommand):
             emplacement.statut = "disponible"
             emplacement.lock_state = "verrouille"
             emplacement.save()
+            device, _ = Device.objects.get_or_create(
+                emplacement=emplacement,
+                defaults={
+                    "type_device": "ESP32",
+                    "firmware_version": esp32_firmware_version,
+                    "status": "online",
+                },
+            )
+            device.type_device = "ESP32"
+            device.firmware_version = esp32_firmware_version
+            device.status = "online"
+            device.save(update_fields=["type_device", "firmware_version", "status"])
 
         user = Utilisateur.objects.filter(pseudo=tech_pseudo).first()
         if user is None:

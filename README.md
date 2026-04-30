@@ -143,7 +143,7 @@ Attention: `docker compose down -v` supprime le volume `postgres_data` et donc l
 - `backend/`: application Django, modèle de données, API, templates et commandes de bootstrap
 - `frontend/`: pages statiques pour l'inscription, la connexion, le dashboard et les vues métier
 - `raspberry/app/`: mini serveur HTTP pour simuler l'interface kiosque locale
-- `esp32/`: prototype firmware / logique embarquée pour un emplacement
+- `esp32/`: prototype firmware / logique embarquée pour les ESP32 affectés aux emplacements
 
 ## Variables d'environnement
 
@@ -155,14 +155,15 @@ Le fichier `.env.example` couvre les variables principales:
 - `FRONTEND_BASE_URL`, `CORS_ALLOWED_ORIGINS`
 - `SIMPLE_JWT_ACCESS_MINUTES`, `SIMPLE_JWT_REFRESH_DAYS`
 - `ADMIN_PSEUDO`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`
-- `DEMO_STATION_*`, `DEMO_TECH_*`
+- `DEMO_STATION_*`, `DEMO_EMPLACEMENTS_COUNT`, `DEMO_ESP32_FIRMWARE_VERSION`, `DEMO_TECH_*`
 
 ## Données de démo
 
 Au démarrage du backend dans Docker:
 
 - le superuser local est créé ou mis à jour automatiquement
-- une station de démo est créée avec ses emplacements
+- une station de démo est créée avec 3 emplacements par défaut
+- un device `ESP32` est associé à chaque emplacement de démo
 - un technicien de démo est créé automatiquement
 - une maintenance de démonstration est ajoutée
 

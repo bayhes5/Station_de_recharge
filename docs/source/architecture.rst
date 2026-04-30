@@ -26,4 +26,5 @@ ESP32
 -----
 
 Le dossier ``esp32/`` contient le prototype de logique embarquée pour un
-emplacement de recharge.
+emplacement de recharge. En configuration de démonstration, le backend crée
+trois emplacements et associe un device ``ESP32`` à chacun d'eux.

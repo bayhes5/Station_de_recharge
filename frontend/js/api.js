@@ -368,6 +368,12 @@ async function deleteAdminUser(id) {
     });
 }
 
+async function resetAdminUserPassword(id) {
+    return doRequest(`/admin/users/${id}/reset-password/`, {
+        method: "POST",
+    });
+}
+
 async function getAdminStations() {
     return doRequest("/admin/stations/", {
         method: "GET",
@@ -555,6 +561,7 @@ window.AuthAPI = {
     createAdminUser,
     updateAdminUser,
     deleteAdminUser,
+    resetAdminUserPassword,
     getAdminStations,
     createAdminStation,
     updateAdminStation,
