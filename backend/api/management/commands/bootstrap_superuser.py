@@ -6,9 +6,12 @@ from api.models import Utilisateur
 
 
 class Command(BaseCommand):
+    """Create or refresh the default administrator from environment variables."""
+
     help = "Create or update the default Django superuser for local development."
 
     def handle(self, *args, **options):
+        """Upsert the configured administrator account for local deployments."""
         pseudo = os.environ.get("ADMIN_PSEUDO", "admin")
         email = os.environ.get("ADMIN_EMAIL", "admin@station.local")
         password = os.environ.get("ADMIN_PASSWORD", "Admin123!")

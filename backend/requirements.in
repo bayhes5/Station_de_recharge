@@ -1,0 +1,7 @@
+django
+djangorestframework
+psycopg2-binary
+django-cors-headers
+djangorestframework-simplejwt
+drf-spectacular
+qrcode[pil]

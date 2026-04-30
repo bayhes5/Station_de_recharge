@@ -62,6 +62,7 @@ def _schema(
     operation_id=None,
     methods=None,
 ):
+    """Build a reusable drf-spectacular schema decorator for API views."""
     return extend_schema(
         summary=summary,
         request=request,
@@ -74,6 +75,7 @@ def _schema(
 
 
 def _serialize_user(user):
+    """Return the account payload shared by authentication and profile views."""
     profile = getattr(user, "profil", None)
     return {
         "id": str(user.id_user),
@@ -89,6 +91,7 @@ def _serialize_user(user):
 
 
 def _get_or_create_profile(user):
+    """Return the profile for a user, creating the default record when absent."""
     profile, _created = ProfilUtilisateur.objects.get_or_create(
         utilisateur=user,
         defaults={"nom": user.pseudo, "telephone": ""},
@@ -97,6 +100,7 @@ def _get_or_create_profile(user):
 
 
 def _as_bool(value):
+    """Coerce form-like boolean values from API payloads."""
     if isinstance(value, bool):
         return value
     if value is None:
@@ -105,6 +109,7 @@ def _as_bool(value):
 
 
 def _serialize_reservation(reservation):
+    """Return a frontend-friendly reservation representation."""
     return {
         "id": str(reservation.id_reservation),
         "id_reservation": str(reservation.id_reservation),
@@ -124,6 +129,7 @@ def _serialize_reservation(reservation):
 
 
 def _serialize_session(session):
+    """Return a compact representation of a charging session."""
     return {
         "id": str(session.id_session),
         "station": session.emplacement.station.nom,
@@ -135,10 +141,12 @@ def _serialize_session(session):
 
 
 def _reservation_can_be_cancelled(reservation):
+    """Return whether a reservation is still cancellable."""
     return reservation.statut not in {"annulee", "terminee"} and reservation.date_debut > timezone.now()
 
 
 def _cancel_reservation(reservation):
+    """Cancel a reservation when business rules still allow it."""
     if not _reservation_can_be_cancelled(reservation):
         return False
     reservation.statut = "annulee"
@@ -147,6 +155,7 @@ def _cancel_reservation(reservation):
 
 
 def _serialize_station(station):
+    """Return public station fields used by catalog and admin screens."""
     return {
         "id_station": str(station.id_station),
         "nom": station.nom,
@@ -158,6 +167,7 @@ def _serialize_station(station):
 
 
 def _serialize_emplacement(emplacement):
+    """Return charging bay details with the parent station label."""
     return {
         "id_emplacement": str(emplacement.id_emplacement),
         "station": str(emplacement.station_id),
@@ -169,6 +179,7 @@ def _serialize_emplacement(emplacement):
 
 
 def _serialize_auth_method(method):
+    """Return a safe authentication method payload without secret material."""
     return {
         "id_auth": str(method.id_auth),
         "type_auth": str(method.type_auth_id),
@@ -179,6 +190,7 @@ def _serialize_auth_method(method):
 
 
 def _serialize_maintenance(maintenance):
+    """Return maintenance data used by technician and admin dashboards."""
     return {
         "id_maintenance": str(maintenance.id_maintenance),
         "station": str(maintenance.station_id),
@@ -193,6 +205,7 @@ def _serialize_maintenance(maintenance):
 
 
 def _serialize_technician(technician):
+    """Return technician profile data with optional linked account metadata."""
     return {
         "id_technicien": str(technician.id_technicien),
         "utilisateur": str(technician.utilisateur_id) if technician.utilisateur_id else None,
@@ -204,6 +217,7 @@ def _serialize_technician(technician):
 
 
 def _user_is_technician(user):
+    """Return whether the user has an associated technician profile."""
     if user is None or not getattr(user, "is_authenticated", False):
         return False
     if hasattr(user, "_technician_profile_cache"):
@@ -214,6 +228,7 @@ def _user_is_technician(user):
 
 
 def _generate_reservation_code():
+    """Generate a short unique reservation reference code."""
     alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
     for _ in range(20):
         code = "".join(secrets.choice(alphabet) for _ in range(8))
@@ -223,6 +238,7 @@ def _generate_reservation_code():
 
 
 def _get_type_auth(libelle):
+    """Return the normalized authentication type record for a mode label."""
     normalized = (libelle or "").strip().lower()
     mapping = {
         "rfid": "RFID",
@@ -238,20 +254,24 @@ def _get_type_auth(libelle):
 
 
 def _hash_secret(secret):
+    """Hash an access secret before persisting it."""
     return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
 
 def _generate_access_secret(prefix):
+    """Generate an opaque temporary access secret with a readable prefix."""
     return f"{prefix}-{secrets.token_urlsafe(18)}"
 
 
 def _mask_secret(secret):
+    """Return a display-safe hint for a secret value."""
     if not secret:
         return ""
     return f"****{secret[-4:]}"
 
 
 def _build_qr_payload(reservation_code, token):
+    """Encode reservation access data into the QR payload format."""
     return json.dumps(
         {
             "v": 1,
@@ -264,6 +284,7 @@ def _build_qr_payload(reservation_code, token):
 
 
 def _parse_qr_payload(raw_value):
+    """Parse supported QR payload formats into reservation code and token."""
     value = (raw_value or "").strip()
     if not value:
         return None
@@ -288,6 +309,7 @@ def _parse_qr_payload(raw_value):
 
 
 def _build_qr_svg(payload):
+    """Render a QR code SVG for a reservation access payload."""
     try:
         import qrcode
         from qrcode.image.svg import SvgPathImage
@@ -319,6 +341,7 @@ def _build_qr_svg(payload):
 
 
 def _temporary_auth_metadata(auth_mode, expiration, reservation_code, display_value):
+    """Build metadata stored alongside a generated temporary credential."""
     metadata = {
         "version": 1,
         "secret_storage": "sha256",
@@ -337,6 +360,7 @@ def _temporary_auth_metadata(auth_mode, expiration, reservation_code, display_va
 
 
 def _build_access_payload(auth_mode, access_value, auth_method, expiration):
+    """Return the one-time access payload shown after reservation creation."""
     payload = {
         "mode": auth_mode,
         "value": access_value,
@@ -350,6 +374,7 @@ def _build_access_payload(auth_mode, access_value, auth_method, expiration):
 
 
 def _ensure_rfid_auth(user, auth_value):
+    """Create or refresh the saved RFID credential for a user."""
     if not auth_value:
         raise ValueError("auth_value est obligatoire pour RFID.")
 
@@ -374,6 +399,7 @@ def _ensure_rfid_auth(user, auth_value):
 
 
 def _get_saved_rfid_auth(user):
+    """Return the latest active saved RFID credential for a user."""
     type_auth = _get_type_auth("RFID")
     return (
         Authentification.objects.filter(
@@ -388,6 +414,7 @@ def _get_saved_rfid_auth(user):
 
 
 def _create_temporary_auth(user, auth_mode, expiration, reservation_code):
+    """Create a temporary QR or code credential for a reservation."""
     type_auth = _get_type_auth(auth_mode)
     clear_value = _generate_access_secret(auth_mode.upper())
     display_value = _mask_secret(clear_value)
@@ -405,6 +432,7 @@ def _create_temporary_auth(user, auth_mode, expiration, reservation_code):
 
 
 def _refresh_temporary_auth(reservation):
+    """Rotate the temporary credential attached to a reservation."""
     auth_mode = reservation.auth_choice
     auth_method = reservation.authentification
     if auth_method is None:
@@ -438,6 +466,7 @@ def _refresh_temporary_auth(reservation):
 
 
 def _get_reservation_session(reservation):
+    """Return the charging session linked to a reservation when it exists."""
     try:
         return reservation.session
     except ChargingSession.DoesNotExist:
@@ -445,6 +474,7 @@ def _get_reservation_session(reservation):
 
 
 def _reservation_overlaps(emplacement, date_debut, date_fin):
+    """Return whether a charging bay is already booked in a time window."""
     return Reservation.objects.filter(
         emplacement=emplacement,
         date_debut__lt=date_fin,
@@ -454,16 +484,19 @@ def _reservation_overlaps(emplacement, date_debut, date_fin):
 
 
 def _round_to_thirty_minutes(dt):
+    """Return whether a datetime is aligned to a 30-minute boundary."""
     if dt.minute % 30 != 0 or dt.second != 0 or dt.microsecond != 0:
         return False
     return True
 
 
 def _duration_is_valid(date_debut, date_fin):
+    """Return whether the requested reservation duration is exactly 30 minutes."""
     return (date_fin - date_debut) == timedelta(minutes=30)
 
 
 def home(request):
+    """Render the backend landing page with links to the frontend."""
     return render(
         request,
         "api/home.html",
@@ -474,6 +507,7 @@ def home(request):
 
 
 def signup(request):
+    """Render the signup bridge page that redirects users to the frontend."""
     return render(
         request,
         "api/auth_page.html",
@@ -502,6 +536,7 @@ def signup(request):
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def register_availability(request):
+    """Report whether a pseudo or email can be used for registration."""
     pseudo = (request.query_params.get("pseudo") or "").strip()
     email = (request.query_params.get("email") or "").strip()
     response = {}
@@ -536,6 +571,7 @@ def register_availability(request):
 @_schema("Creer un compte utilisateur", request=RegisterSerializer, tags=["Authentification"])
 @api_view(["POST"])
 def register(request):
+    """Create a user account and return an authenticated JWT session."""
     serializer = RegisterSerializer(data=request.data)
 
     if serializer.is_valid():
@@ -556,6 +592,7 @@ def register(request):
 
 
 def login_view(request):
+    """Render the login bridge page that redirects users to the frontend."""
     return render(
         request,
         "api/auth_page.html",
@@ -576,6 +613,7 @@ def login_view(request):
 @_schema("Connecter un utilisateur", request=OpenApiTypes.OBJECT, tags=["Authentification"])
 @api_view(["POST"])
 def login(request):
+    """Authenticate a user and issue access and refresh tokens."""
     identifiant = (
         request.data.get("identifiant")
         or request.data.get("username")
@@ -606,6 +644,7 @@ def login(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def me(request):
+    """Return the current authenticated user's profile summary."""
     profile = _get_or_create_profile(request.user)
     return Response(
         {
@@ -621,6 +660,7 @@ def me(request):
 @api_view(["GET", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
 def profile(request):
+    """Read, update or delete the authenticated user's account profile."""
     user = request.user
     profile = _get_or_create_profile(user)
 
@@ -664,6 +704,7 @@ def profile(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def change_password(request):
+    """Change the authenticated user's password after current-password check."""
     serializer = PasswordChangeSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
 
@@ -683,6 +724,7 @@ def change_password(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def export_account(request):
+    """Export the authenticated user's account, reservations and audit history."""
     user = request.user
     profile = _get_or_create_profile(user)
     reservations = user.reservations.select_related("emplacement", "emplacement__station").order_by("-date_debut")
@@ -727,6 +769,7 @@ def export_account(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def dashboard(request):
+    """Return the authenticated user's dashboard metrics and recent activity."""
     sessions_qs = (
         ChargingSession.objects.filter(reservation__utilisateur=request.user)
         .select_related("reservation", "emplacement", "emplacement__station")
@@ -778,6 +821,7 @@ def dashboard(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_overview(request):
+    """Return aggregate administration metrics and recent records."""
     return Response(
         {
             "stats": {
@@ -812,6 +856,7 @@ def admin_overview(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_reservations(request):
+    """Return upcoming and archived reservations for administrators."""
     reservations_qs = (
         Reservation.objects.select_related(
             "utilisateur",
@@ -837,6 +882,7 @@ def admin_reservations(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_sessions(request):
+    """Return active and archived charging sessions for administrators."""
     sessions_qs = (
         ChargingSession.objects.select_related(
             "reservation",
@@ -867,6 +913,7 @@ def admin_sessions(request):
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_users(request):
+    """List users or create a user from the administration API."""
     if request.method == "GET":
         users = User.objects.select_related("profil", "technicien_profile").order_by("-date_joined")
         return Response(
@@ -919,6 +966,7 @@ def admin_users(request):
 @api_view(["GET", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_user_detail(request, user_id):
+    """Retrieve, update or delete one user from the administration API."""
     try:
         user = User.objects.select_related("profil", "technicien_profile").get(id_user=user_id)
     except User.DoesNotExist:
@@ -943,6 +991,7 @@ def admin_user_detail(request, user_id):
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_stations(request):
+    """List stations or create a station from the administration API."""
     if request.method == "GET":
         stations = Station.objects.order_by("nom")
         return Response({"results": [StationSerializer(station).data for station in stations]})
@@ -959,6 +1008,7 @@ def admin_stations(request):
 @api_view(["GET", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_station_detail(request, station_id):
+    """Retrieve, update or delete one station from the administration API."""
     try:
         station = Station.objects.get(id_station=station_id)
     except Station.DoesNotExist:
@@ -982,6 +1032,7 @@ def admin_station_detail(request, station_id):
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_emplacements(request):
+    """List charging bays or create one from the administration API."""
     if request.method == "GET":
         emplacements = Emplacement.objects.select_related("station").order_by("station__nom", "numero")
         return Response({"results": [EmplacementSerializer(emplacement).data for emplacement in emplacements]})
@@ -998,6 +1049,7 @@ def admin_emplacements(request):
 @api_view(["GET", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_emplacement_detail(request, emplacement_id):
+    """Retrieve, update or delete one charging bay from the admin API."""
     try:
         emplacement = Emplacement.objects.select_related("station").get(id_emplacement=emplacement_id)
     except Emplacement.DoesNotExist:
@@ -1017,6 +1069,7 @@ def admin_emplacement_detail(request, emplacement_id):
 
 
 def contact(request):
+    """Render the informational contact page."""
     return render(
         request,
         "api/simple_page.html",
@@ -1034,6 +1087,7 @@ def contact(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def auth_methods(request):
+    """List saved RFID authentication methods for the authenticated user."""
     if request.method == "GET":
         methods = (
             Authentification.objects.filter(utilisateur=request.user, type_auth__libelle="RFID", is_active=True)
@@ -1050,6 +1104,7 @@ def auth_methods(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def create_auth_method(request):
+    """Create or refresh a saved RFID authentication method for the user."""
     auth_mode = (request.data.get("auth_mode") or request.data.get("type") or "").strip().lower()
     auth_value = (request.data.get("auth_value") or request.data.get("value") or "").strip()
 
@@ -1078,6 +1133,7 @@ def create_auth_method(request):
 @api_view(["DELETE"])
 @permission_classes([IsAuthenticated])
 def delete_auth_method(request, auth_id):
+    """Delete a saved RFID authentication method owned by the user."""
     deleted, _detail = Authentification.objects.filter(
         id_auth=auth_id,
         utilisateur=request.user,
@@ -1094,6 +1150,7 @@ def delete_auth_method(request, auth_id):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def auth_history(request):
+    """Return the reservation authentication history for the user."""
     reservations_qs = (
         Reservation.objects.filter(utilisateur=request.user)
         .select_related(
@@ -1140,6 +1197,7 @@ def auth_history(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def reservation_availability(request):
+    """List charging bays available for one station and time slot."""
     station_id = request.query_params.get("station")
     date_debut = request.query_params.get("date_debut")
     date_fin = request.query_params.get("date_fin")
@@ -1190,6 +1248,7 @@ def reservation_availability(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def stations_catalog(request):
+    """Return stations with their charging bays for reservation screens."""
     stations = Station.objects.prefetch_related("emplacements").order_by("nom")
     return Response(
         {
@@ -1211,6 +1270,7 @@ def stations_catalog(request):
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def reservations(request):
+    """List user reservations or create a new reservation with access data."""
     if request.method == "GET":
         queryset = (
             Reservation.objects.filter(utilisateur=request.user)
@@ -1301,6 +1361,7 @@ def reservations(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def cancel_reservation(request, reservation_id):
+    """Cancel one reservation owned by the authenticated user."""
     try:
         reservation = Reservation.objects.select_related("utilisateur", "emplacement", "emplacement__station").get(
             id_reservation=reservation_id,
@@ -1322,6 +1383,7 @@ def cancel_reservation(request, reservation_id):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def reservation_access_payload(request, reservation_id):
+    """Regenerate temporary QR or code access for an active reservation."""
     try:
         reservation = Reservation.objects.select_related(
             "utilisateur",
@@ -1366,6 +1428,7 @@ def reservation_access_payload(request, reservation_id):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_cancel_reservation(request, reservation_id):
+    """Cancel any cancellable reservation from the administration API."""
     try:
         reservation = Reservation.objects.select_related("utilisateur", "emplacement", "emplacement__station").get(
             id_reservation=reservation_id,
@@ -1386,6 +1449,7 @@ def admin_cancel_reservation(request, reservation_id):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def technician_maintenances(request):
+    """List maintenance interventions assigned to the current technician."""
     technicien = getattr(request.user, "technicien_profile", None)
     if technicien is None:
         return Response(
@@ -1406,6 +1470,7 @@ def technician_maintenances(request):
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_technicians(request):
+    """List technicians or create a technician from the administration API."""
     if request.method == "GET":
         technicians = Technicien.objects.select_related("utilisateur").order_by("nom")
         return Response({"results": [TechnicianSerializer(technician).data for technician in technicians]})
@@ -1435,6 +1500,7 @@ def admin_technicians(request):
 @api_view(["GET", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_technician_detail(request, technician_id):
+    """Retrieve, update or delete one technician from the admin API."""
     try:
         technician = Technicien.objects.select_related("utilisateur").get(id_technicien=technician_id)
     except Technicien.DoesNotExist:
@@ -1472,6 +1538,7 @@ def admin_technician_detail(request, technician_id):
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_maintenances(request):
+    """List maintenance records or create one from the admin API."""
     if request.method == "GET":
         maintenances = Maintenance.objects.select_related("station", "technicien").order_by("-date_planifiee")
         return Response({"results": [MaintenanceAdminSerializer(maintenance).data for maintenance in maintenances]})
@@ -1488,6 +1555,7 @@ def admin_maintenances(request):
 @api_view(["GET", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_maintenance_detail(request, maintenance_id):
+    """Retrieve, update or delete one maintenance record from the admin API."""
     try:
         maintenance = Maintenance.objects.select_related("station", "technicien").get(id_maintenance=maintenance_id)
     except Maintenance.DoesNotExist:
@@ -1511,6 +1579,7 @@ def admin_maintenance_detail(request, maintenance_id):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def terminal_authenticate(request):
+    """Validate terminal access credentials and open a charging session."""
     reservation_id = request.data.get("reservation_id")
     reservation_code = (request.data.get("reservation_code") or "").strip().upper()
     auth_mode = (request.data.get("auth_mode") or "").strip().lower()
@@ -1597,6 +1666,7 @@ def terminal_authenticate(request):
 
 
 def privacy(request):
+    """Render the privacy policy page."""
     return render(
         request,
         "api/simple_page.html",

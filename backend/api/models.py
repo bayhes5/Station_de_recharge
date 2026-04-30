@@ -8,12 +8,16 @@ from django.utils import timezone
 
 
 class UtilisateurManager(BaseUserManager):
+    """Create and look up users with the pseudo as the login identifier."""
+
     use_in_migrations = True
 
     def get_by_natural_key(self, pseudo):
+        """Return the user matching Django's configured natural key."""
         return self.get(pseudo=pseudo)
 
     def create_user(self, pseudo, email, password=None, **extra_fields):
+        """Create a regular user with normalized email and hashed password."""
         if not pseudo:
             raise ValueError("Le pseudo est obligatoire.")
         if not email:
@@ -26,6 +30,7 @@ class UtilisateurManager(BaseUserManager):
         return user
 
     def create_superuser(self, pseudo, email, password=None, **extra_fields):
+        """Create an administrator account with all required staff flags."""
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         extra_fields.setdefault("is_active", True)
@@ -39,6 +44,8 @@ class UtilisateurManager(BaseUserManager):
 
 
 class Utilisateur(AbstractBaseUser, PermissionsMixin):
+    """Represent an application account authenticated by pseudo and email."""
+
     id_user = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     pseudo = models.CharField(max_length=100, unique=True)
     email = models.EmailField(unique=True)
@@ -59,10 +66,13 @@ class Utilisateur(AbstractBaseUser, PermissionsMixin):
         db_table = "utilisateur"
 
     def __str__(self):
+        """Return the pseudo used to identify the account in admin screens."""
         return self.pseudo
 
 
 class ProfilUtilisateur(models.Model):
+    """Store personal profile details that extend the authentication account."""
+
     id_profil = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     utilisateur = models.OneToOneField(
         Utilisateur,
@@ -77,10 +87,13 @@ class ProfilUtilisateur(models.Model):
         db_table = "profil_utilisateur"
 
     def __str__(self):
+        """Return the profile display name."""
         return self.nom
 
 
 class Role(models.Model):
+    """Describe an application role that can be assigned to users."""
+
     id_role = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     nom = models.CharField(max_length=50, unique=True)
     description = models.TextField(blank=True)
@@ -89,10 +102,13 @@ class Role(models.Model):
         db_table = "role"
 
     def __str__(self):
+        """Return the role label."""
         return self.nom
 
 
 class UtilisateurRole(models.Model):
+    """Link a user to a role with the assignment timestamp."""
+
     utilisateur = models.ForeignKey(
         Utilisateur,
         on_delete=models.CASCADE,
@@ -106,10 +122,13 @@ class UtilisateurRole(models.Model):
         unique_together = ("utilisateur", "role")
 
     def __str__(self):
+        """Return a readable user-role assignment label."""
         return f"{self.utilisateur} - {self.role}"
 
 
 class Consentement(models.Model):
+    """Record a user's consent state for a specific policy or data use."""
+
     id_consentement = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
@@ -130,6 +149,8 @@ class Consentement(models.Model):
 
 
 class JournalSecurite(models.Model):
+    """Store security audit events associated with user activity."""
+
     id_log = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     utilisateur = models.ForeignKey(
         Utilisateur,
@@ -149,6 +170,8 @@ class JournalSecurite(models.Model):
 
 
 class TypeAuth(models.Model):
+    """Define a supported authentication method and its assurance level."""
+
     id_type = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     libelle = models.CharField(max_length=50, unique=True)
     factor_level = models.PositiveSmallIntegerField()
@@ -157,10 +180,13 @@ class TypeAuth(models.Model):
         db_table = "type_auth"
 
     def __str__(self):
+        """Return the authentication method label."""
         return self.libelle
 
 
 class Authentification(models.Model):
+    """Store a reusable or temporary credential linked to a user."""
+
     id_auth = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     utilisateur = models.ForeignKey(
         Utilisateur,
@@ -186,6 +212,8 @@ class Authentification(models.Model):
 
 
 class Station(models.Model):
+    """Represent a physical charging station and its public location data."""
+
     id_station = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     nom = models.CharField(max_length=100)
     localisation_text = models.CharField(max_length=255, db_column="localisation")
@@ -198,10 +226,13 @@ class Station(models.Model):
         db_table = "station"
 
     def __str__(self):
+        """Return the station name."""
         return self.nom
 
 
 class Emplacement(models.Model):
+    """Represent a numbered charging bay within a station."""
+
     id_emplacement = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
@@ -222,10 +253,13 @@ class Emplacement(models.Model):
         unique_together = ("station", "numero")
 
     def __str__(self):
+        """Return a readable station and bay identifier."""
         return f"{self.station.nom} - {self.numero}"
 
 
 class Reservation(models.Model):
+    """Reserve a charging bay for one user and one authentication method."""
+
     id_reservation = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
@@ -270,6 +304,8 @@ class Reservation(models.Model):
 
 
 class Session(models.Model):
+    """Track the effective charging session opened from a reservation."""
+
     id_session = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     reservation = models.OneToOneField(
         Reservation,
@@ -300,6 +336,8 @@ class Session(models.Model):
 
 
 class SessionTelemetry(models.Model):
+    """Store electrical telemetry samples collected during a charging session."""
+
     id_telemetry = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
@@ -321,6 +359,8 @@ class SessionTelemetry(models.Model):
 
 
 class Device(models.Model):
+    """Describe the embedded device installed on a charging bay."""
+
     id_device = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     emplacement = models.OneToOneField(
         Emplacement,
@@ -343,6 +383,8 @@ class Device(models.Model):
 
 
 class Capteur(models.Model):
+    """Represent a sensor attached to an embedded charging device."""
+
     id_capteur = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     device = models.ForeignKey(
         Device,
@@ -360,6 +402,8 @@ class Capteur(models.Model):
 
 
 class CapteurData(models.Model):
+    """Store one timestamped value produced by a sensor."""
+
     id_data = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     capteur = models.ForeignKey(
         Capteur,
@@ -378,6 +422,8 @@ class CapteurData(models.Model):
 
 
 class Alerte(models.Model):
+    """Capture an operational alert raised from telemetry or a session."""
+
     id_alerte = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     data = models.ForeignKey(
         CapteurData,
@@ -406,6 +452,8 @@ class Alerte(models.Model):
 
 
 class Technicien(models.Model):
+    """Represent a maintenance technician optionally linked to a user account."""
+
     id_technicien = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_column="id_tech")
     utilisateur = models.OneToOneField(
         Utilisateur,
@@ -423,10 +471,13 @@ class Technicien(models.Model):
         db_table = "technicien"
 
     def __str__(self):
+        """Return the technician display name."""
         return self.nom
 
 
 class Maintenance(models.Model):
+    """Plan and track a maintenance intervention on a station."""
+
     id_maintenance = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,

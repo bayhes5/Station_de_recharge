@@ -1,0 +1,16 @@
+exclude:
+  - "./.git/**"
+  - "./.venv/**"
+  - "./docs/build/**"
+  - "./sbom/**"
+  - "./backend/test*.sqlite3"
+
+file:
+  metadata:
+    selection: "owned-by-package"
+
+format:
+  pretty: true
+
+license:
+  content: "none"

@@ -70,3 +70,35 @@ Exécuter les tests avec couverture :
 
 La configuration pytest utilise ``config.test_settings`` et une base SQLite de
 test, afin de ne pas dépendre de PostgreSQL pendant les tests unitaires.
+
+Contrôler les docstrings
+------------------------
+
+Le backend configure Ruff et Interrogate dans ``backend/pyproject.toml``.
+Ruff contrôle la qualité des docstrings existantes, tandis qu'Interrogate
+mesure les docstrings manquantes. Les docstrings utilisent le style Google, qui
+est repris par Sphinx grâce à ``sphinx.ext.napoleon``.
+
+Installer les dépendances de développement :
+
+.. code-block:: powershell
+
+   .\.venv\Scripts\python.exe -m pip install -r backend\requirements-dev.txt
+
+Vérifier le style des docstrings :
+
+.. code-block:: powershell
+
+   cd backend
+   ..\.venv\Scripts\python.exe -m ruff check .
+
+Mesurer la couverture documentaire :
+
+.. code-block:: powershell
+
+   cd backend
+   ..\.venv\Scripts\python.exe -m interrogate api
+
+Le seuil Interrogate est fixé à ``100`` : une nouvelle classe ou fonction suivie
+par l'audit doit donc recevoir une docstring. Ruff active aussi les règles ``D``
+pour contrôler la présence et le style des docstrings publiques.

@@ -1,0 +1,40 @@
+name: Generate SBOM
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-image-sbom:
+    name: Backend image SBOM
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build backend image
+        run: docker build -t station-de-recharge-backend:sbom ./backend
+
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@v0.24.0
+        with:
+          image: station-de-recharge-backend:sbom
+          format: cyclonedx-json
+          artifact-name: station-de-recharge-backend.cdx.json
+          upload-release-assets: false
+
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@v0.24.0
+        with:
+          image: station-de-recharge-backend:sbom
+          format: spdx-json
+          artifact-name: station-de-recharge-backend.spdx.json
+          upload-release-assets: false

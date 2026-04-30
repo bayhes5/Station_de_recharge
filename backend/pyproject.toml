@@ -1,0 +1,49 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+extend-exclude = [
+    "api/migrations",
+    "api/tests",
+    "minimal_project",
+    "pytest-cache-files-*",
+    "station",
+]
+
+[tool.ruff.lint]
+select = ["D"]
+ignore = [
+    "D100", # Module docstrings are noisy in Django apps.
+    "D104", # Package docstrings add little value here.
+    "D106", # Django Meta classes are documented through their parent models.
+    "D417", # Keep parameter docs progressive while the project is being documented.
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"manage.py" = ["D"]
+"config/*.py" = ["D"]
+
+[tool.interrogate]
+ignore-init-module = true
+ignore-magic = true
+ignore-private = true
+ignore-property-decorators = true
+ignore-nested-functions = true
+ignore-nested-classes = true
+ignore-setters = true
+ignore-overloaded-functions = true
+ignore-module = true
+fail-under = 100
+exclude = [
+    "api/migrations",
+    "api/tests",
+    "minimal_project",
+    "pytest-cache-files-*",
+    "station",
+]
+style = "google"
+verbose = 1
+quiet = false
+omit-covered-files = false

@@ -23,6 +23,8 @@ User = get_user_model()
 
 
 class RegisterSerializer(serializers.ModelSerializer):
+    """Validate and create accounts from the public registration endpoint."""
+
     telephone = serializers.CharField(write_only=True, required=False, allow_blank=True)
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
 
@@ -35,17 +37,20 @@ class RegisterSerializer(serializers.ModelSerializer):
         }
 
     def validate_pseudo(self, value):
+        """Normalize and ensure pseudo uniqueness."""
         if User.objects.filter(pseudo__iexact=value.strip()).exists():
             raise serializers.ValidationError("Ce pseudo est déjà utilisé.")
         return value.strip()
 
     def validate_email(self, value):
+        """Normalize and ensure email uniqueness."""
         normalized = User.objects.normalize_email(value.strip())
         if User.objects.filter(email__iexact=normalized).exists():
             raise serializers.ValidationError("Cette adresse email est déjà utilisée.")
         return normalized
 
     def validate_password(self, value):
+        """Apply the project's password complexity rules."""
         pseudo = (self.initial_data.get("pseudo") or "").strip().lower()
         email = (self.initial_data.get("email") or "").strip().lower()
         email_name = email.split("@", 1)[0] if "@" in email else ""
@@ -72,6 +77,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
+        """Create a user account and its profile in one transaction."""
         password = validated_data.pop("password")
         telephone = validated_data.pop("telephone", "")
         user = self.Meta.model.objects.create_user(password=password, **validated_data)
@@ -84,6 +90,8 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 
 class ProfileSerializer(serializers.ModelSerializer):
+    """Serialize editable account and profile fields for the current user."""
+
     nom = serializers.CharField(max_length=255, required=False, allow_blank=True)
     telephone = serializers.CharField(max_length=20, required=False, allow_blank=True)
 
@@ -98,6 +106,7 @@ class ProfileSerializer(serializers.ModelSerializer):
         }
 
     def update(self, instance, validated_data):
+        """Update the user and synchronize the linked profile fields."""
         profile_name = validated_data.pop("nom", None)
         telephone = validated_data.pop("telephone", None)
         for attr, value in validated_data.items():
@@ -123,6 +132,8 @@ class ProfileSerializer(serializers.ModelSerializer):
 
 
 class AdminUserUpdateSerializer(ProfileSerializer):
+    """Expose administrative user fields while reusing profile synchronization."""
+
     class Meta(ProfileSerializer.Meta):
         fields = (
             "id_user",
@@ -144,6 +155,7 @@ class AdminUserUpdateSerializer(ProfileSerializer):
         }
 
     def update(self, instance, validated_data):
+        """Update user flags and profile fields from the admin API."""
         profile_name = validated_data.pop("nom", None)
         telephone = validated_data.pop("telephone", None)
         for attr, value in validated_data.items():
@@ -169,17 +181,22 @@ class AdminUserUpdateSerializer(ProfileSerializer):
 
 
 class PasswordChangeSerializer(serializers.Serializer):
+    """Validate the payload used to change an authenticated user's password."""
+
     current_password = serializers.CharField(write_only=True)
     new_password = serializers.CharField(write_only=True, validators=[validate_password])
     confirm_password = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
+        """Ensure the new password and confirmation match."""
         if attrs["new_password"] != attrs["confirm_password"]:
             raise serializers.ValidationError({"confirm_password": "Les mots de passe ne correspondent pas."})
         return attrs
 
 
 class AdminUserSerializer(serializers.ModelSerializer):
+    """Serialize user records for administrative list and detail views."""
+
     nom = serializers.SerializerMethodField()
     telephone = serializers.SerializerMethodField()
     is_technician = serializers.SerializerMethodField()
@@ -202,22 +219,29 @@ class AdminUserSerializer(serializers.ModelSerializer):
         )
 
     def get_nom(self, obj):
+        """Return the display name stored on the related profile."""
         return getattr(getattr(obj, "profil", None), "nom", "")
 
     def get_telephone(self, obj):
+        """Return the phone number stored on the related profile."""
         return getattr(getattr(obj, "profil", None), "telephone", "")
 
     def get_is_technician(self, obj):
+        """Return whether the user is linked to a technician profile."""
         return hasattr(obj, "technicien_profile")
 
 
 class StationSerializer(serializers.ModelSerializer):
+    """Serialize charging station records for catalog and admin views."""
+
     class Meta:
         model = Station
         fields = ("id_station", "nom", "localisation_text", "latitude", "longitude", "statut")
 
 
 class EmplacementSerializer(serializers.ModelSerializer):
+    """Serialize charging bay records with their station label."""
+
     station_nom = serializers.CharField(source="station.nom", read_only=True)
 
     class Meta:
@@ -229,6 +253,8 @@ class EmplacementSerializer(serializers.ModelSerializer):
 
 
 class AuthMethodSerializer(serializers.ModelSerializer):
+    """Serialize stored authentication methods without exposing raw secrets."""
+
     type_label = serializers.CharField(source="type_auth.libelle", read_only=True)
 
     class Meta:
@@ -250,6 +276,8 @@ class AuthMethodSerializer(serializers.ModelSerializer):
 
 
 class ReservationSerializer(serializers.ModelSerializer):
+    """Serialize reservations with station, bay and authentication metadata."""
+
     station_nom = serializers.CharField(source="emplacement.station.nom", read_only=True)
     emplacement_numero = serializers.IntegerField(source="emplacement.numero", read_only=True)
     utilisateur_pseudo = serializers.CharField(source="utilisateur.pseudo", read_only=True)
@@ -285,10 +313,13 @@ class ReservationSerializer(serializers.ModelSerializer):
         }
 
     def get_can_cancel(self, obj):
+        """Return whether the reservation can still be cancelled by a user."""
         return obj.statut not in {"annulee", "terminee"} and obj.date_debut > timezone.now()
 
 
 class ReservationCreateSerializer(serializers.Serializer):
+    """Validate reservation creation input from the user-facing API."""
+
     station = serializers.UUIDField(required=False)
     emplacement = serializers.UUIDField()
     date_debut = serializers.DateTimeField()
@@ -297,11 +328,14 @@ class ReservationCreateSerializer(serializers.Serializer):
     auth_value = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     def validate(self, attrs):
+        """Force reservations to occupy one fixed 30-minute slot."""
         attrs["date_fin"] = attrs["date_debut"] + timedelta(minutes=30)
         return attrs
 
 
 class TechnicianMaintenanceSerializer(serializers.ModelSerializer):
+    """Serialize maintenance work visible to the assigned technician."""
+
     station_nom = serializers.CharField(source="station.nom", read_only=True)
     emplacement_count = serializers.SerializerMethodField()
 
@@ -325,10 +359,13 @@ class TechnicianMaintenanceSerializer(serializers.ModelSerializer):
         }
 
     def get_emplacement_count(self, obj):
+        """Return the number of charging bays at the maintenance station."""
         return obj.station.emplacements.count()
 
 
 class TechnicianSerializer(serializers.ModelSerializer):
+    """Serialize technician profiles for administrative management."""
+
     utilisateur_pseudo = serializers.CharField(source="utilisateur.pseudo", read_only=True)
 
     class Meta:
@@ -347,6 +384,8 @@ class TechnicianSerializer(serializers.ModelSerializer):
 
 
 class MaintenanceAdminSerializer(serializers.ModelSerializer):
+    """Serialize maintenance records for administrative CRUD endpoints."""
+
     station_nom = serializers.CharField(source="station.nom", read_only=True)
     technicien_nom = serializers.CharField(source="technicien.nom", read_only=True)
 

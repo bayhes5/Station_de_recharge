@@ -1,0 +1,12 @@
+{
+  "autoDocstring.docstringFormat": "google",
+  "autoDocstring.guessTypes": true,
+  "autoDocstring.includeExtendedSummary": true,
+  "autoDocstring.includeName": false,
+  "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+  "python.testing.pytestArgs": [
+    "backend/api/tests"
+  ],
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false
+}

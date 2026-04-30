@@ -5,8 +5,11 @@ pytest-cache-files-*/
 .coverage
 htmlcov/
 .env
-.vscode
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
 db.sqlite3
 backend/test*.sqlite3
 backend/schema.yml
 docs/build/
+sbom/

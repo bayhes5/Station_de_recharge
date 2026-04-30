@@ -4,7 +4,10 @@ from django.db.models import Q
 
 
 class UtilisateurBackend(ModelBackend):
+    """Authenticate users with either their pseudo or email address."""
+
     def authenticate(self, request, identifiant=None, username=None, email=None, password=None, **kwargs):
+        """Return the matching active user when the supplied password is valid."""
         UserModel = get_user_model()
         lookup = (identifiant or username or email or "").strip()
 
@@ -24,6 +27,7 @@ class UtilisateurBackend(ModelBackend):
         return None
 
     def get_user(self, user_id):
+        """Fetch a user by primary key for Django session authentication."""
         UserModel = get_user_model()
 
         try:

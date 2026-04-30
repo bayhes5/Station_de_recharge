@@ -1,0 +1,4 @@
+-r ../backend/requirements.in
+sphinx
+sphinx-rtd-theme
+sphinx-autodoc-typehints

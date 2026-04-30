@@ -27,6 +27,8 @@ from .forms import UtilisateurChangeForm, UtilisateurCreationForm
 
 @admin.register(Utilisateur)
 class UtilisateurAdmin(BaseUserAdmin):
+    """Configure Django admin screens for the custom user model."""
+
     form = UtilisateurChangeForm
     add_form = UtilisateurCreationForm
 
@@ -66,6 +68,7 @@ class UtilisateurAdmin(BaseUserAdmin):
 
     @admin.display(description="Téléphone")
     def profile_telephone(self, obj):
+        """Return the phone number stored on the linked user profile."""
         return getattr(getattr(obj, "profil", None), "telephone", "")
 
 admin.site.register(ProfilUtilisateur)

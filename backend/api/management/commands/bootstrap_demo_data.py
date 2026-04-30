@@ -8,9 +8,12 @@ from api.models import Emplacement, Maintenance, ProfilUtilisateur, Station, Tec
 
 
 class Command(BaseCommand):
+    """Seed local development data for stations, bays and technicians."""
+
     help = "Create demo station, emplacement, technician and maintenance for local development."
 
     def handle(self, *args, **options):
+        """Create or update deterministic demo records from environment values."""
         station_name = os.environ.get("DEMO_STATION_NAME", "Station Demo")
         location_text = os.environ.get("DEMO_STATION_LOCATION", "Centre-ville")
         latitude = float(os.environ.get("DEMO_STATION_LATITUDE", "48.8566"))
