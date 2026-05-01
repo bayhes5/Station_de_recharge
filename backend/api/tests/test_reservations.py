@@ -182,3 +182,57 @@ def test_user_can_cancel_own_future_reservation(authenticated_client, user, stat
     assert response.status_code == status.HTTP_200_OK
     reservation.refresh_from_db()
     assert reservation.statut == "annulee"
+
+
+@pytest.mark.django_db
+def test_access_payload_display_does_not_rotate_code(authenticated_client, station, emplacements, reservation_start):
+    create_response = authenticated_client.post(
+        reverse("api-reservations"),
+        {
+            "station": str(station.id_station),
+            "date_debut": reservation_start.isoformat(),
+            "auth_mode": "code",
+        },
+        format="json",
+    )
+
+    assert create_response.status_code == status.HTTP_201_CREATED
+    reservation_id = create_response.data["reservation"]["id_reservation"]
+    created_value = create_response.data["access_payload"]["value"]
+
+    first_display = authenticated_client.post(
+        reverse("api-reservation-access-payload", kwargs={"reservation_id": reservation_id})
+    )
+    second_display = authenticated_client.post(
+        reverse("api-reservation-access-payload", kwargs={"reservation_id": reservation_id})
+    )
+
+    assert first_display.status_code == status.HTTP_200_OK
+    assert second_display.status_code == status.HTTP_200_OK
+    assert first_display.data["access_payload"]["value"] == created_value
+    assert second_display.data["access_payload"]["value"] == created_value
+
+
+@pytest.mark.django_db
+def test_access_payload_display_does_not_rotate_qr(authenticated_client, station, emplacements, reservation_start):
+    create_response = authenticated_client.post(
+        reverse("api-reservations"),
+        {
+            "station": str(station.id_station),
+            "date_debut": reservation_start.isoformat(),
+            "auth_mode": "qr",
+        },
+        format="json",
+    )
+
+    assert create_response.status_code == status.HTTP_201_CREATED
+    reservation_id = create_response.data["reservation"]["id_reservation"]
+    created_value = create_response.data["access_payload"]["value"]
+
+    display_response = authenticated_client.post(
+        reverse("api-reservation-access-payload", kwargs={"reservation_id": reservation_id})
+    )
+
+    assert display_response.status_code == status.HTTP_200_OK
+    assert display_response.data["access_payload"]["value"] == created_value
+    assert display_response.data["access_payload"]["qr_svg"]

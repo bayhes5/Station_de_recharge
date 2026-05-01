@@ -9,6 +9,11 @@ function fromLocalInputValue(value) {
     return value ? new Date(value).toISOString() : null;
 }
 
+function formatDateTime(value) {
+    if (!value) return "-";
+    return new Date(value).toLocaleString("fr-FR");
+}
+
 function optionLabel(item, fallback = "-") {
     return item || fallback;
 }
@@ -34,6 +39,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     let technicians = [];
     let currentItem = null;
     let passwordResetDialog = null;
+    let authMethods = [];
 
     const configs = {
         user: {
@@ -240,6 +246,132 @@ document.addEventListener("DOMContentLoaded", async () => {
             resetCurrentUserPassword(event.currentTarget);
         });
         form.closest(".admin-edit-panel").after(panel);
+    }
+
+    function renderAuthMethodsPanel() {
+        if (resource !== "user" || !isEdit) return;
+
+        const panel = document.createElement("section");
+        panel.className = "dashboard-panel admin-access-panel";
+        panel.setAttribute("aria-labelledby", "admin-access-title");
+        panel.innerHTML = `
+            <div class="panel-heading admin-access-heading">
+                <div>
+                    <p id="admin-access-title" class="panel-title">Moyens d'acc&egrave;s</p>
+                    <p class="helper">G&eacute;rez les badges RFID sans afficher leur valeur compl&egrave;te. Les QR codes et codes temporaires se g&egrave;rent depuis les r&eacute;servations.</p>
+                </div>
+            </div>
+            <form id="admin-rfid-form" class="admin-inline-form">
+                <div class="field">
+                    <label for="admin-rfid-value">Nouveau badge RFID</label>
+                    <input id="admin-rfid-value" name="auth_value" type="text" placeholder="Valeur du badge" autocomplete="off" required>
+                </div>
+                <button class="btn btn-secondary" type="submit">Associer / remplacer</button>
+            </form>
+            <div id="admin-auth-methods-list" class="stacked-list"></div>
+        `;
+
+        const anchor = document.querySelector(".admin-password-panel") || form.closest(".admin-edit-panel");
+        anchor.after(panel);
+        panel.querySelector("#admin-rfid-form").addEventListener("submit", handleRfidSubmit);
+        renderAuthMethodsList(panel.querySelector("#admin-auth-methods-list"));
+    }
+
+    function renderAuthMethodsList(container = document.getElementById("admin-auth-methods-list")) {
+        if (!container) return;
+        container.innerHTML = "";
+
+        if (!authMethods.length) {
+            const empty = document.createElement("div");
+            empty.className = "empty-state";
+            empty.textContent = "Aucun badge RFID actif. Les QR codes et codes temporaires apparaissent dans l'administration des reservations.";
+            container.appendChild(empty);
+            return;
+        }
+
+        authMethods.forEach((method) => {
+            const item = document.createElement("article");
+            item.className = "list-item admin-access-item";
+
+            const head = document.createElement("div");
+            head.className = "list-item-head";
+
+            const title = document.createElement("strong");
+            title.textContent = method.type_label === "RFID" ? "Badge RFID" : method.type_label;
+
+            const badge = document.createElement("span");
+            badge.className = "badge";
+            badge.textContent = method.is_active ? "Actif" : "Revoque";
+
+            head.appendChild(title);
+            head.appendChild(badge);
+
+            const meta = document.createElement("p");
+            const expiresAt = method.expiration ? formatDateTime(method.expiration) : "sans expiration";
+            meta.textContent = `${method.display_value || "Valeur masquee"} | expire le ${expiresAt}`;
+
+            const actions = document.createElement("div");
+            actions.className = "cta-row compact-row";
+            const revokeButton = document.createElement("button");
+            revokeButton.className = "btn btn-secondary danger-action";
+            revokeButton.type = "button";
+            revokeButton.textContent = "Revoquer";
+            revokeButton.addEventListener("click", () => revokeAuthMethod(method, revokeButton));
+            actions.appendChild(revokeButton);
+
+            item.appendChild(head);
+            item.appendChild(meta);
+            item.appendChild(actions);
+            container.appendChild(item);
+        });
+
+        const temporaryAccessNote = document.createElement("p");
+        temporaryAccessNote.className = "helper";
+        temporaryAccessNote.textContent = "Les QR codes et codes temporaires de cet utilisateur restent visibles et gerables dans l'administration des reservations.";
+        container.appendChild(temporaryAccessNote);
+    }
+
+    async function loadAuthMethods() {
+        if (resource !== "user" || !isEdit) return;
+        const result = await window.AuthAPI.getAdminUserAuthMethods(itemId);
+        authMethods = result.results || [];
+    }
+
+    async function handleRfidSubmit(event) {
+        event.preventDefault();
+        const rfidForm = event.currentTarget;
+        const submit = rfidForm.querySelector('button[type="submit"]');
+        const authValue = rfidForm.auth_value.value.trim();
+        if (!authValue) return;
+
+        submit.disabled = true;
+        try {
+            await window.AuthAPI.createAdminUserRfid(itemId, { auth_value: authValue });
+            rfidForm.reset();
+            await loadAuthMethods();
+            renderAuthMethodsList();
+            setStatus(`Badge RFID associe a ${currentItem.pseudo}.`);
+        } catch (error) {
+            setStatus(error.message || "Impossible d'associer le badge RFID.", true);
+        } finally {
+            submit.disabled = false;
+        }
+    }
+
+    async function revokeAuthMethod(method, triggerButton) {
+        const confirmed = window.confirm(`Revoquer ce badge RFID pour ${currentItem.pseudo} ?`);
+        if (!confirmed) return;
+
+        triggerButton.disabled = true;
+        try {
+            await window.AuthAPI.revokeAdminUserAuthMethod(itemId, method.id_auth);
+            await loadAuthMethods();
+            renderAuthMethodsList();
+            setStatus(`Badge RFID revoque pour ${currentItem.pseudo}.`);
+        } catch (error) {
+            setStatus(error.message || "Impossible de revoquer le badge RFID.", true);
+            triggerButton.disabled = false;
+        }
     }
 
     async function resetCurrentUserPassword(triggerButton) {
@@ -453,8 +585,10 @@ document.addEventListener("DOMContentLoaded", async () => {
         await loadOptionData();
         renderForm();
         await loadCurrentItem();
+        await loadAuthMethods();
         if (currentItem) setFormValues(currentItem);
         renderPasswordResetPanel();
+        renderAuthMethodsPanel();
         setStatus(isEdit ? "Formulaire charg\u00e9." : "Formulaire pr\u00eat.");
     } catch (error) {
         setStatus(error.message || "Impossible de charger le formulaire.", true);

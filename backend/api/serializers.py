@@ -285,6 +285,7 @@ class ReservationSerializer(serializers.ModelSerializer):
     auth_type = serializers.CharField(source="authentification.type_auth.libelle", read_only=True)
     auth_display_value = serializers.CharField(source="authentification.display_value", read_only=True)
     auth_expiration = serializers.DateTimeField(source="authentification.expiration", read_only=True)
+    auth_is_active = serializers.BooleanField(source="authentification.is_active", read_only=True)
     can_cancel = serializers.SerializerMethodField()
 
     class Meta:
@@ -302,6 +303,7 @@ class ReservationSerializer(serializers.ModelSerializer):
             "auth_type",
             "auth_display_value",
             "auth_expiration",
+            "auth_is_active",
             "date_debut",
             "date_fin",
             "statut",

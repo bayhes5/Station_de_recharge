@@ -385,6 +385,37 @@ async function resetAdminUserPassword(id) {
     });
 }
 
+async function getAdminUserAuthMethods(id) {
+    return doRequest(`/admin/users/${id}/auth-methods/`, {
+        method: "GET",
+    });
+}
+
+async function createAdminUserRfid(id, data) {
+    return doRequest(`/admin/users/${id}/auth-methods/`, {
+        method: "POST",
+        body: JSON.stringify(data),
+    });
+}
+
+async function revokeAdminUserAuthMethod(userId, authId) {
+    return doRequest(`/admin/users/${userId}/auth-methods/${authId}/revoke/`, {
+        method: "POST",
+    });
+}
+
+async function regenerateAdminReservationAccess(id) {
+    return doRequest(`/admin/reservations/${id}/access-payload/`, {
+        method: "POST",
+    });
+}
+
+async function revokeAdminReservationAccess(id) {
+    return doRequest(`/admin/reservations/${id}/revoke-access/`, {
+        method: "POST",
+    });
+}
+
 async function getAdminStations(params) {
     return doRequest(withQuery("/admin/stations/", params), {
         method: "GET",
@@ -573,6 +604,11 @@ window.AuthAPI = {
     updateAdminUser,
     deleteAdminUser,
     resetAdminUserPassword,
+    getAdminUserAuthMethods,
+    createAdminUserRfid,
+    revokeAdminUserAuthMethod,
+    regenerateAdminReservationAccess,
+    revokeAdminReservationAccess,
     getAdminStations,
     createAdminStation,
     updateAdminStation,

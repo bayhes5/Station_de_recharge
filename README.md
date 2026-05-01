@@ -238,13 +238,35 @@ API principale:
 - `/api/token/refresh/`
 - `/api/me/`
 - `/api/me/profile/`
+- `/api/me/auth-methods/`
+- `/api/me/auth-history/`
 - `/api/dashboard/`
 - `/api/stations/`
 - `/api/reservations/`
 - `/api/reservations/availability/`
+- `/api/reservations/<id>/access-payload/`
 - `/api/terminal/authenticate/`
 - `/api/technician/maintenances/`
 - `/api/admin/overview/`
+- `/api/admin/users/`
+- `/api/admin/users/<id>/auth-methods/`
+- `/api/admin/users/<id>/auth-methods/<auth_id>/revoke/`
+- `/api/admin/users/<id>/reset-password/`
+- `/api/admin/reservations/`
+- `/api/admin/reservations/<id>/access-payload/`
+- `/api/admin/reservations/<id>/revoke-access/`
+
+Gestion des moyens d'acces:
+
+- un badge RFID est un moyen d'acces persistant rattache a un utilisateur;
+- l'administrateur peut associer, remplacer ou revoquer un badge RFID depuis
+  l'ecran `Modifier` de l'utilisateur, sans afficher la valeur complete du badge;
+- un QR code ou un code temporaire reste rattache a une reservation;
+- l'utilisateur peut afficher ou masquer le QR/code courant sans le regenerer;
+- l'administrateur peut regenerer ou revoquer un QR/code temporaire depuis la
+  table des reservations;
+- les secrets d'acces sont haches cote backend et les actions sensibles sont
+  journalisees dans `JournalSecurite`.
 
 Documentation:
 

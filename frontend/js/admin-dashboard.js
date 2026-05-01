@@ -183,6 +183,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             reservation.emplacement_numero,
             reservation.emplacement,
             reservation.auth_mode,
+            reservation.auth_display_value,
+            reservation.auth_expiration,
             reservation.statut,
             formatDateTime(reservation.date_debut),
             formatDateTime(reservation.date_fin),
@@ -322,19 +324,85 @@ document.addEventListener("DOMContentLoaded", async () => {
         return actions;
     }
 
-    function renderCancelAction(reservation) {
-        const actions = document.createElement("div");
-        actions.className = "table-actions";
+    function canManageTemporaryAccess(reservation) {
+        return ["qr", "code"].includes(reservation.auth_mode)
+            && !["annulee", "terminee"].includes(reservation.statut)
+            && new Date(reservation.date_fin) >= new Date();
+    }
 
-        const button = createActionButton("Annuler", () => deleteAndReload(
+    function renderAccessSummary(reservation) {
+        const summary = document.createElement("div");
+        summary.className = "access-summary";
+
+        const statusBadge = document.createElement("span");
+        statusBadge.className = "badge";
+
+        const detail = document.createElement("small");
+
+        if (!["qr", "code"].includes(reservation.auth_mode)) {
+            statusBadge.textContent = "RFID";
+            detail.textContent = "Badge utilisateur";
+            summary.appendChild(statusBadge);
+            summary.appendChild(detail);
+            return summary;
+        }
+
+        if (reservation.auth_is_active === false) {
+            statusBadge.textContent = "Révoqué";
+            summary.appendChild(statusBadge);
+            return summary;
+        }
+
+        if (reservation.auth_expiration && new Date(reservation.auth_expiration) < new Date()) {
+            statusBadge.textContent = "Expiré";
+            summary.appendChild(statusBadge);
+            return summary;
+        }
+
+        statusBadge.textContent = "Actif";
+        detail.textContent = reservation.auth_expiration
+            ? `Jusqu'à ${formatDateTime(reservation.auth_expiration)}`
+            : "Sans expiration";
+        summary.appendChild(statusBadge);
+        summary.appendChild(detail);
+        return summary;
+    }
+
+    function renderReservationActions(reservation) {
+        const actions = document.createElement("div");
+        actions.className = "table-actions reservation-actions";
+        const manageAccess = canManageTemporaryAccess(reservation);
+
+        if (["qr", "code"].includes(reservation.auth_mode)) {
+            const accessActions = document.createElement("div");
+            accessActions.className = "reservation-action-group";
+
+            const regenerateButton = createActionButton("Régénérer", () => regenerateReservationAccess(reservation));
+            regenerateButton.disabled = !manageAccess;
+            if (!manageAccess) regenerateButton.title = "Accès temporaire non régénérable.";
+            accessActions.appendChild(regenerateButton);
+
+            const revokeButton = createActionButton("Révoquer", () => revokeReservationAccess(reservation), "danger-action");
+            revokeButton.disabled = !manageAccess || reservation.auth_is_active === false;
+            if (revokeButton.disabled) revokeButton.title = "Aucun accès temporaire actif à révoquer.";
+            accessActions.appendChild(revokeButton);
+
+            actions.appendChild(accessActions);
+        }
+
+        const cancelActions = document.createElement("div");
+        cancelActions.className = "reservation-action-group";
+        const cancelButton = createActionButton("Annuler", () => deleteAndReload(
             `Annuler la réservation ${reservation.reference_code || ""} ?`,
             () => window.AuthAPI.cancelAdminReservation(reservation.id_reservation)
         ), "danger-action");
-        button.disabled = !reservation.can_cancel;
+        cancelButton.disabled = !reservation.can_cancel;
         if (!reservation.can_cancel) {
-            button.title = "Cette réservation ne peut plus être annulée.";
+            cancelButton.title = "Cette réservation ne peut plus être annulée.";
         }
-        actions.appendChild(button);
+        cancelActions.appendChild(cancelButton);
+        actions.appendChild(cancelActions);
+
         return actions;
     }
 
@@ -346,6 +414,32 @@ document.addEventListener("DOMContentLoaded", async () => {
             setStatus("Suppression effectu\u00e9e.");
         } catch (error) {
             setStatus(error.message || "Suppression impossible.", true);
+        }
+    }
+
+    async function regenerateReservationAccess(reservation) {
+        const confirmed = window.confirm(`Regenerer l'acces temporaire de la reservation ${reservation.reference_code || ""} ?`);
+        if (!confirmed) return;
+
+        try {
+            await window.AuthAPI.regenerateAdminReservationAccess(reservation.id_reservation);
+            await loadAll();
+            setStatus(`Acces temporaire regenere pour ${reservation.reference_code || "la reservation"}. L'utilisateur verra la nouvelle valeur automatiquement.`);
+        } catch (error) {
+            setStatus(error.message || "Regeneration impossible.", true);
+        }
+    }
+
+    async function revokeReservationAccess(reservation) {
+        const confirmed = window.confirm(`Revoquer l'acces temporaire de la reservation ${reservation.reference_code || ""} ?`);
+        if (!confirmed) return;
+
+        try {
+            await window.AuthAPI.revokeAdminReservationAccess(reservation.id_reservation);
+            await loadAll();
+            setStatus(`Acces temporaire revoque pour ${reservation.reference_code || "la reservation"}.`);
+        } catch (error) {
+            setStatus(error.message || "Revocation impossible.", true);
         }
     }
 
@@ -520,11 +614,12 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Début", render: (reservation) => formatDateTime(reservation.date_debut) },
                 { label: "Fin", render: (reservation) => formatDateTime(reservation.date_fin) },
                 { label: "Mode", render: (reservation) => reservation.auth_mode || "-" },
+                { label: "Accès", className: "access-column", render: renderAccessSummary },
                 { label: "Statut", render: (reservation) => reservation.statut || "-" },
                 {
                     label: "Actions",
-                    className: "actions-column",
-                    render: renderCancelAction,
+                    className: "actions-column reservation-actions-column",
+                    render: renderReservationActions,
                 },
             ],
             filterRows(searchKey, rows),

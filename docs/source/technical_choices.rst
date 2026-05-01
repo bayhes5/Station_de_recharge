@@ -161,6 +161,29 @@ Les secrets ne doivent pas être stockés en clair. Le modèle
 ``Authentification`` porte donc une valeur hachée, des métadonnées, une
 expiration et un état actif.
 
+Le badge RFID est traité comme un moyen d'accès persistant. L'utilisateur peut
+l'enregistrer depuis son profil, et l'administrateur peut l'associer, le
+remplacer ou le révoquer depuis l'écran de modification de l'utilisateur. Côté
+administration, la valeur affichée est toujours masquée afin de ne pas exposer
+le secret physique du badge.
+
+Le QR code et le code temporaire sont volontairement rattachés à une
+réservation, pas au profil utilisateur. Ils peuvent donc être régénérés ou
+révoqués depuis l'administration des réservations. L'utilisateur peut afficher
+ou masquer le QR/code courant sans provoquer de rotation. La valeur temporaire
+est dérivée côté serveur à partir d'un nonce et de ``SECRET_KEY`` : le secret
+clair n'est pas stocké, mais le même accès peut être reconstruit tant qu'il est
+actif.
+
+La révocation est douce : l'enregistrement reste en base avec
+``is_active=False`` et une expiration ramenée à l'instant courant. Le terminal
+refuse explicitement tout moyen d'accès révoqué, ce qui conserve une trace tout
+en empêchant la réutilisation.
+
+Les actions sensibles d'administration, comme la réinitialisation du mot de
+passe, l'association ou la révocation RFID et la régénération ou révocation
+QR/code, alimentent ``JournalSecurite``.
+
 Kiosque Raspberry séparé
 ------------------------
 
@@ -334,6 +357,11 @@ vulnérabilités.
 Les rapports ne remplacent pas une analyse humaine. Une entrée VEX ne doit être
 validée qu'après avoir vérifié si le chemin vulnérable est réellement
 atteignable.
+
+Après une modification des dépendances, de l'image backend ou des surfaces de
+sécurité exposées, les artefacts ``sbom/`` et, si nécessaire, le brouillon
+OpenVEX doivent être régénérés avec ``scripts/generate-sbom.ps1`` puis résumés
+avec ``scripts/summarize-vulnerabilities.ps1``.
 
 Cache HTTP et Varnish
 ---------------------

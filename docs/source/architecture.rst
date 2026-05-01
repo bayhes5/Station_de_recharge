@@ -33,6 +33,19 @@ Les emplacements restent des objets métier côté backend. Ils portent la
 réservation effective, les sessions de charge et le rattachement aux devices
 ESP32.
 
+Moyens d'accès
+--------------
+
+Le backend distingue les badges RFID persistants des accès temporaires. Les
+badges RFID sont rattachés au compte utilisateur et peuvent être gérés depuis le
+profil ou depuis l'écran administrateur de modification d'un utilisateur. La
+valeur complète du badge n'est pas exposée dans l'administration.
+
+Les QR codes et codes temporaires sont rattachés à une réservation. Ils peuvent
+être régénérés ou révoqués depuis l'administration des réservations, tandis que
+le terminal refuse les moyens d'accès expirés ou révoqués. Les actions sensibles
+sont journalisées dans ``JournalSecurite``.
+
 Kiosque Raspberry
 -----------------
 

@@ -80,8 +80,9 @@ function renderReservations(container, reservations, onCancel, onAccess) {
                 const accessButton = document.createElement("button");
                 accessButton.className = "btn btn-secondary";
                 accessButton.type = "button";
-                accessButton.textContent = reservation.auth_mode === "qr" ? "Afficher le QR" : "Afficher le code";
-                accessButton.addEventListener("click", () => onAccess(reservation));
+                accessButton.dataset.accessToggle = reservation.id_reservation;
+                accessButton.textContent = reservation.auth_mode === "qr" ? "+ Afficher le QR" : "+ Afficher le code";
+                accessButton.addEventListener("click", () => onAccess(reservation, item, accessButton));
                 actions.appendChild(accessButton);
             }
 
@@ -97,6 +98,11 @@ function renderReservations(container, reservations, onCancel, onAccess) {
             item.appendChild(actions);
         }
 
+        const accessContainer = document.createElement("div");
+        accessContainer.className = "reservation-access-host";
+        accessContainer.dataset.reservationId = reservation.id_reservation;
+        accessContainer.dataset.accessMode = reservation.auth_mode || "";
+        item.appendChild(accessContainer);
         container.appendChild(item);
     });
 }
@@ -170,6 +176,8 @@ function renderStationAvailability(container, station, availability) {
 }
 
 function appendAccessPayload(container, result) {
+    container.innerHTML = "";
+
     if (result.reservation_code) {
         const reservationLine = document.createElement("div");
         reservationLine.className = "empty-state";
@@ -480,24 +488,56 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     }
 
-    async function showReservationAccess(reservation) {
-        window.location.href = "/dashboard.html#reservations";
-        return;
-        /*
+    async function showReservationAccess(reservation, card, triggerButton) {
+        const accessContainer = card.querySelector(".reservation-access-host");
+        if (!accessContainer) return;
+
+        if (accessContainer.dataset.visible === "true") {
+            accessContainer.innerHTML = "";
+            accessContainer.dataset.visible = "false";
+            if (triggerButton) {
+                triggerButton.textContent = reservation.auth_mode === "qr" ? "+ Afficher le QR" : "+ Afficher le code";
+            }
+            return;
+        }
+
         try {
             const result = await window.AuthAPI.getReservationAccessPayload(reservation.id_reservation);
-            availabilityBox.innerHTML = "";
-            appendAccessPayload(availabilityBox, result);
+            accessContainer.innerHTML = "";
+            appendAccessPayload(accessContainer, result);
+            accessContainer.dataset.visible = "true";
+            if (triggerButton) {
+                triggerButton.textContent = reservation.auth_mode === "qr" ? "- Masquer le QR" : "- Masquer le code";
+            }
             status.classList.remove("error");
-            status.textContent = reservation.auth_mode === "qr"
-                ? "QR code régénéré pour cette réservation."
-                : "Code temporaire régénéré pour cette réservation.";
-            await loadReservations();
+            status.textContent = reservation.auth_mode === "qr" ? "QR code affiché." : "Code temporaire affiché.";
         } catch (error) {
             status.classList.add("error");
-            status.textContent = error.message || "Impossible de générer l'accès temporaire.";
+            status.textContent = error.message || "Impossible d'afficher l'accès temporaire.";
         }
-        */
+    }
+
+    async function refreshVisibleAccesses() {
+        if (document.hidden) return;
+
+        const visibleContainers = document.querySelectorAll(".reservation-access-host[data-visible='true']");
+        for (const accessContainer of visibleContainers) {
+            const reservationId = accessContainer.dataset.reservationId;
+            const accessMode = accessContainer.dataset.accessMode;
+            if (!reservationId || !["qr", "code"].includes(accessMode)) continue;
+
+            try {
+                const result = await window.AuthAPI.getReservationAccessPayload(reservationId);
+                appendAccessPayload(accessContainer, result);
+            } catch (_error) {
+                accessContainer.innerHTML = "";
+                accessContainer.dataset.visible = "false";
+                const toggleButton = document.querySelector(`[data-access-toggle="${reservationId}"]`);
+                if (toggleButton) {
+                    toggleButton.textContent = accessMode === "qr" ? "+ Afficher le QR" : "+ Afficher le code";
+                }
+            }
+        }
     }
 
     async function loadSavedRfid() {
@@ -554,6 +594,10 @@ document.addEventListener("DOMContentLoaded", async () => {
         status.textContent = savedRfidValue
             ? "Badge RFID détecté. Il est sélectionné par défaut pour la réservation."
             : "Aucun badge RFID enregistré. QR code et code temporaire restent disponibles.";
+        window.setInterval(refreshVisibleAccesses, 15000);
+        document.addEventListener("visibilitychange", () => {
+            if (!document.hidden) refreshVisibleAccesses();
+        });
     } catch (_error) {
         status.classList.add("error");
         status.textContent = "Impossible de charger la réservation.";

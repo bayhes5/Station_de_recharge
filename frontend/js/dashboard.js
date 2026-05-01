@@ -102,15 +102,15 @@ function renderReservationCard(reservation, onCancel, onAccess) {
             const accessButton = document.createElement("button");
             accessButton.className = "btn btn-secondary";
             accessButton.type = "button";
-            accessButton.textContent = reservation.auth_mode === "qr" ? "Afficher le QR" : "Afficher le code";
-            accessButton.addEventListener("click", () => onAccess(reservation, item));
+            accessButton.dataset.accessToggle = reservation.id_reservation;
+            accessButton.textContent = reservation.auth_mode === "qr" ? "+ Afficher le QR" : "+ Afficher le code";
+            accessButton.addEventListener("click", () => onAccess(reservation, item, accessButton));
             actions.appendChild(accessButton);
         }
         if (reservation.can_cancel && onCancel) {
             const cancelButton = document.createElement("button");
             cancelButton.className = "btn btn-secondary";
             cancelButton.type = "button";
-        cancelButton.textContent = "Annuler la réservation";
             cancelButton.textContent = "Annuler la réservation";
             cancelButton.addEventListener("click", () => onCancel(reservation));
             actions.appendChild(cancelButton);
@@ -120,6 +120,8 @@ function renderReservationCard(reservation, onCancel, onAccess) {
 
     const accessContainer = document.createElement("div");
     accessContainer.className = "reservation-access-host";
+    accessContainer.dataset.reservationId = reservation.id_reservation;
+    accessContainer.dataset.accessMode = reservation.auth_mode || "";
     item.appendChild(accessContainer);
 
     return item;
@@ -176,21 +178,54 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     }
 
-    async function showReservationAccess(reservation, card) {
+    async function showReservationAccess(reservation, card, triggerButton) {
         const accessContainer = card.querySelector(".reservation-access-host");
         if (!accessContainer) return;
 
+        if (accessContainer.dataset.visible === "true") {
+            accessContainer.innerHTML = "";
+            accessContainer.dataset.visible = "false";
+            if (triggerButton) {
+                triggerButton.textContent = reservation.auth_mode === "qr" ? "+ Afficher le QR" : "+ Afficher le code";
+            }
+            return;
+        }
+
         try {
             const result = await window.AuthAPI.getReservationAccessPayload(reservation.id_reservation);
+            accessContainer.innerHTML = "";
             appendAccessPayload(accessContainer, result);
-            setStatus(
-                reservation.auth_mode === "qr"
-                    ? "QR code régénéré pour cette réservation."
-                    : "Code temporaire régénéré pour cette réservation."
-            );
+            accessContainer.dataset.visible = "true";
+            if (triggerButton) {
+                triggerButton.textContent = reservation.auth_mode === "qr" ? "- Masquer le QR" : "- Masquer le code";
+            }
+            setStatus(reservation.auth_mode === "qr" ? "QR code affiché." : "Code temporaire affiché.");
             setActiveTab("reservations");
         } catch (error) {
-            setStatus(error.message || "Impossible de générer l’accès temporaire.", true);
+            setStatus(error.message || "Impossible d'afficher l'accès temporaire.", true);
+        }
+    }
+
+    async function refreshVisibleAccesses() {
+        if (document.hidden) return;
+
+        const visibleContainers = document.querySelectorAll(".reservation-access-host[data-visible='true']");
+        for (const accessContainer of visibleContainers) {
+            const reservationId = accessContainer.dataset.reservationId;
+            const accessMode = accessContainer.dataset.accessMode;
+            if (!reservationId || !["qr", "code"].includes(accessMode)) continue;
+
+            try {
+                const result = await window.AuthAPI.getReservationAccessPayload(reservationId);
+                appendAccessPayload(accessContainer, result);
+            } catch (_error) {
+                accessContainer.innerHTML = "";
+                accessContainer.dataset.visible = "false";
+                const toggleButton = document.querySelector(`[data-access-toggle="${reservationId}"]`);
+                if (toggleButton) {
+                    toggleButton.textContent = accessMode === "qr" ? "+ Afficher le QR" : "+ Afficher le code";
+                }
+            }
         }
     }
 
@@ -271,6 +306,10 @@ document.addEventListener("DOMContentLoaded", async () => {
         setStatus("Données chargées.");
         const initialTab = (window.location.hash || "#overview").replace("#", "");
         setActiveTab(["overview", "reservations", "sessions"].includes(initialTab) ? initialTab : "overview");
+        window.setInterval(refreshVisibleAccesses, 15000);
+        document.addEventListener("visibilitychange", () => {
+            if (!document.hidden) refreshVisibleAccesses();
+        });
     } catch (_error) {
         setStatus("Impossible de charger le tableau de bord. Reconnectez-vous.", true);
         window.AuthAPI.clearTokens();

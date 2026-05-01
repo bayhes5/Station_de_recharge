@@ -1,9 +1,18 @@
+from datetime import timedelta
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 
-from api.models import Emplacement, ProfilUtilisateur, Station
+from api.models import Authentification, Emplacement, JournalSecurite, ProfilUtilisateur, Reservation, Station, TypeAuth
+
+
+def hash_secret(value):
+    import hashlib
+
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 @pytest.mark.django_db
@@ -83,6 +92,96 @@ def test_admin_can_delete_user(admin_client):
 
     assert response.status_code == status.HTTP_204_NO_CONTENT
     assert not get_user_model().objects.filter(id_user=user.id_user).exists()
+
+
+@pytest.mark.django_db
+def test_admin_can_list_create_and_revoke_user_rfid(admin_client, admin_user, user):
+    type_auth = TypeAuth.objects.create(libelle="RFID", factor_level=1)
+    old_badge = Authentification.objects.create(
+        utilisateur=user,
+        type_auth=type_auth,
+        hash_valeur=hash_secret("OLD-RFID"),
+        display_value="OLD-RFID",
+        expiration=timezone.now() + timedelta(days=365),
+    )
+
+    create_response = admin_client.post(
+        reverse("api-admin-user-auth-methods", kwargs={"user_id": user.id_user}),
+        {"auth_value": "RFID-SECRET-1234"},
+        format="json",
+    )
+
+    assert create_response.status_code == status.HTTP_201_CREATED
+    assert create_response.data["auth_method"]["display_value"] == "****1234"
+    auth_id = create_response.data["auth_method"]["id_auth"]
+    old_badge.refresh_from_db()
+    assert old_badge.is_active is False
+
+    list_response = admin_client.get(reverse("api-admin-user-auth-methods", kwargs={"user_id": user.id_user}))
+
+    assert list_response.status_code == status.HTTP_200_OK
+    assert list_response.data["results"][0]["display_value"] == "****1234"
+    assert "RFID-SECRET-1234" not in str(list_response.data)
+
+    revoke_response = admin_client.post(
+        reverse(
+            "api-admin-user-auth-method-revoke",
+            kwargs={"user_id": user.id_user, "auth_id": auth_id},
+        )
+    )
+
+    assert revoke_response.status_code == status.HTTP_204_NO_CONTENT
+    auth_method = Authentification.objects.get(id_auth=auth_id)
+    assert auth_method.is_active is False
+    assert JournalSecurite.objects.filter(
+        utilisateur=user,
+        action__contains=f"admin:{admin_user.pseudo}:rfid_revoked",
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_admin_can_regenerate_and_revoke_temporary_access(admin_client, admin_user, user, emplacements):
+    type_auth = TypeAuth.objects.create(libelle="CODE", factor_level=2)
+    auth_method = Authentification.objects.create(
+        utilisateur=user,
+        type_auth=type_auth,
+        hash_valeur=hash_secret("OLD-CODE"),
+        display_value="****CODE",
+        expiration=timezone.now() + timedelta(hours=1),
+    )
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="ADMINCD1",
+        authentification=auth_method,
+        auth_choice="code",
+        date_debut=timezone.now() + timedelta(minutes=10),
+        date_fin=timezone.now() + timedelta(minutes=40),
+        statut="confirmee",
+    )
+
+    regenerate_response = admin_client.post(
+        reverse("api-admin-reservation-access-payload", kwargs={"reservation_id": reservation.id_reservation})
+    )
+
+    assert regenerate_response.status_code == status.HTTP_200_OK
+    assert regenerate_response.data["access_payload"]["mode"] == "code"
+    assert regenerate_response.data["access_payload"]["value"].startswith("CODE-")
+    reservation.refresh_from_db()
+    reservation.authentification.refresh_from_db()
+    assert reservation.authentification.is_active is True
+
+    revoke_response = admin_client.post(
+        reverse("api-admin-reservation-access-revoke", kwargs={"reservation_id": reservation.id_reservation})
+    )
+
+    assert revoke_response.status_code == status.HTTP_200_OK
+    reservation.authentification.refresh_from_db()
+    assert reservation.authentification.is_active is False
+    assert JournalSecurite.objects.filter(
+        utilisateur=user,
+        action__contains=f"admin:{admin_user.pseudo}:temporary_access_revoked",
+    ).exists()
 
 
 @pytest.mark.django_db

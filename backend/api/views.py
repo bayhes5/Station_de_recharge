@@ -1,4 +1,6 @@
+import base64
 import hashlib
+import hmac
 import json
 import secrets
 import string
@@ -28,6 +30,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .models import (
     Authentification,
     Emplacement,
+    JournalSecurite,
     Maintenance,
     ProfilUtilisateur,
     Reservation,
@@ -104,6 +107,24 @@ def _list_response(request, queryset, serializer_class=None, serializer_func=Non
 def _clear_station_catalog_cache():
     """Invalidate cached station catalog data after station or bay changes."""
     cache.delete(STATIONS_CATALOG_CACHE_KEY)
+
+
+def _client_ip(request):
+    """Return the best effort client IP for audit entries."""
+    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if forwarded_for:
+        return forwarded_for.split(",", 1)[0].strip()
+    return request.META.get("REMOTE_ADDR") or "0.0.0.0"
+
+
+def _log_security_event(request, target_user, action, statut="success"):
+    """Persist a compact security audit event."""
+    JournalSecurite.objects.create(
+        utilisateur=target_user,
+        action=action,
+        ip=_client_ip(request),
+        statut=statut,
+    )
 
 
 def _schema(
@@ -243,6 +264,15 @@ def _cancel_reservation(reservation):
     return True
 
 
+def _temporary_access_can_be_rotated(reservation):
+    """Return whether a reservation can receive a new temporary credential."""
+    return (
+        reservation.auth_choice in {"qr", "code"}
+        and reservation.statut not in {"annulee", "terminee"}
+        and reservation.date_fin >= timezone.now()
+    )
+
+
 def _serialize_station(station):
     """Return public station fields used by catalog and admin screens."""
     return {
@@ -275,7 +305,16 @@ def _serialize_auth_method(method):
         "type_label": method.type_auth.libelle,
         "display_value": method.display_value,
         "expiration": method.expiration.isoformat() if method.expiration else None,
+        "is_active": method.is_active,
+        "created_at": method.created_at.isoformat() if method.created_at else None,
     }
+
+
+def _serialize_admin_auth_method(method):
+    """Return an admin-safe authentication method without exposing the raw badge value."""
+    payload = _serialize_auth_method(method)
+    payload["display_value"] = _mask_secret(method.display_value)
+    return payload
 
 
 def _serialize_maintenance(maintenance):
@@ -347,9 +386,29 @@ def _hash_secret(secret):
     return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
 
-def _generate_access_secret(prefix):
-    """Generate an opaque temporary access secret with a readable prefix."""
-    return f"{prefix}-{secrets.token_urlsafe(18)}"
+def _generate_access_nonce():
+    """Generate a public nonce used to derive a temporary access secret."""
+    return secrets.token_urlsafe(18)
+
+
+def _derive_temporary_access_secret(auth_method, auth_mode, reservation_code):
+    """Derive a stable temporary secret without storing the clear value."""
+    metadata = auth_method.metadata or {}
+    nonce = metadata.get("access_nonce")
+    if not nonce:
+        return None
+
+    material = "|".join(
+        [
+            str(auth_method.id_auth),
+            str(reservation_code or ""),
+            str(auth_mode or "").lower(),
+            str(nonce),
+        ]
+    ).encode("utf-8")
+    digest = hmac.new(settings.SECRET_KEY.encode("utf-8"), material, hashlib.sha256).digest()
+    token = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")[:24]
+    return f"{str(auth_mode).upper()}-{token}"
 
 
 def _mask_secret(secret):
@@ -429,11 +488,12 @@ def _build_qr_svg(payload):
     return svg.replace("</svg>", f"{pictogram}</svg>")
 
 
-def _temporary_auth_metadata(auth_mode, expiration, reservation_code, display_value):
+def _temporary_auth_metadata(auth_mode, expiration, reservation_code, display_value, access_nonce=None):
     """Build metadata stored alongside a generated temporary credential."""
     metadata = {
         "version": 1,
-        "secret_storage": "sha256",
+        "secret_storage": "derived_sha256",
+        "access_nonce": access_nonce or _generate_access_nonce(),
         "token_hint": display_value,
         "expires_at": expiration.isoformat(),
     }
@@ -483,7 +543,8 @@ def _ensure_rfid_auth(user, auth_value):
 
     auth_method.display_value = auth_value.strip()
     auth_method.expiration = timezone.now() + timedelta(days=3650)
-    auth_method.save(update_fields=["display_value", "expiration"])
+    auth_method.is_active = True
+    auth_method.save(update_fields=["display_value", "expiration", "is_active"])
     return auth_method
 
 
@@ -505,16 +566,25 @@ def _get_saved_rfid_auth(user):
 def _create_temporary_auth(user, auth_mode, expiration, reservation_code):
     """Create a temporary QR or code credential for a reservation."""
     type_auth = _get_type_auth(auth_mode)
-    clear_value = _generate_access_secret(auth_mode.upper())
-    display_value = _mask_secret(clear_value)
     auth_method = Authentification.objects.create(
         utilisateur=user,
         type_auth=type_auth,
-        hash_valeur=_hash_secret(clear_value),
-        display_value=display_value,
-        metadata=_temporary_auth_metadata(auth_mode, expiration, reservation_code, display_value),
+        hash_valeur="pending",
+        metadata=_temporary_auth_metadata(auth_mode, expiration, reservation_code, ""),
         expiration=expiration,
     )
+    clear_value = _derive_temporary_access_secret(auth_method, auth_mode, reservation_code)
+    display_value = _mask_secret(clear_value)
+    auth_method.hash_valeur = _hash_secret(clear_value)
+    auth_method.display_value = display_value
+    auth_method.metadata = _temporary_auth_metadata(
+        auth_mode,
+        expiration,
+        reservation_code,
+        display_value,
+        access_nonce=auth_method.metadata.get("access_nonce"),
+    )
+    auth_method.save(update_fields=["hash_valeur", "display_value", "metadata"])
     if auth_mode == "qr":
         return auth_method, _build_qr_payload(reservation_code, clear_value)
     return auth_method, clear_value
@@ -530,7 +600,15 @@ def _refresh_temporary_auth(reservation):
             type_auth=_get_type_auth(auth_mode),
         )
 
-    clear_value = _generate_access_secret(auth_mode.upper())
+    access_nonce = _generate_access_nonce()
+    auth_method.metadata = _temporary_auth_metadata(
+        auth_mode,
+        reservation.date_fin,
+        reservation.reference_code,
+        "",
+        access_nonce=access_nonce,
+    )
+    clear_value = _derive_temporary_access_secret(auth_method, auth_mode, reservation.reference_code)
     display_value = _mask_secret(clear_value)
     auth_method.type_auth = _get_type_auth(auth_mode)
     auth_method.hash_valeur = _hash_secret(clear_value)
@@ -540,6 +618,7 @@ def _refresh_temporary_auth(reservation):
         reservation.date_fin,
         reservation.reference_code,
         display_value,
+        access_nonce=access_nonce,
     )
     auth_method.expiration = reservation.date_fin
     auth_method.is_active = True
@@ -550,6 +629,35 @@ def _refresh_temporary_auth(reservation):
         reservation.save(update_fields=["authentification"])
 
     if auth_mode == "qr":
+        return auth_method, _build_qr_payload(reservation.reference_code, clear_value)
+    return auth_method, clear_value
+
+
+def _get_temporary_access_value(reservation):
+    """Return the current temporary access value, deriving it when possible."""
+    auth_method = reservation.authentification
+    if auth_method is None or not auth_method.is_active:
+        return None, None
+
+    clear_value = _derive_temporary_access_secret(
+        auth_method,
+        reservation.auth_choice,
+        reservation.reference_code,
+    )
+    if not clear_value:
+        return None, None
+
+    expected_hash = _hash_secret(clear_value)
+    if auth_method.hash_valeur != expected_hash:
+        auth_method.hash_valeur = expected_hash
+        auth_method.display_value = _mask_secret(clear_value)
+        auth_method.metadata = {
+            **(auth_method.metadata or {}),
+            "token_hint": auth_method.display_value,
+        }
+        auth_method.save(update_fields=["hash_valeur", "display_value", "metadata"])
+
+    if reservation.auth_choice == "qr":
         return auth_method, _build_qr_payload(reservation.reference_code, clear_value)
     return auth_method, clear_value
 
@@ -1101,12 +1209,110 @@ def admin_reset_user_password(request, user_id):
     temporary_password = _generate_temporary_password(user)
     user.set_password(temporary_password)
     user.save(update_fields=["password"])
+    _log_security_event(
+        request,
+        user,
+        f"admin:{request.user.pseudo}:password_reset",
+    )
     return Response(
         {
             "message": "Mot de passe temporaire genere.",
             "temporary_password": temporary_password,
         }
     )
+
+
+@_schema("Lister ou creer les badges RFID d'un utilisateur", request=OpenApiTypes.OBJECT, tags=["Administration"])
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_user_auth_methods(request, user_id):
+    """List active RFID badges for a user, or register a replacement badge."""
+    try:
+        user = User.objects.get(id_user=user_id)
+    except User.DoesNotExist:
+        return Response({"detail": "Utilisateur introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == "GET":
+        methods = (
+            Authentification.objects.filter(utilisateur=user, type_auth__libelle="RFID", is_active=True)
+            .exclude(display_value="")
+            .select_related("type_auth")
+            .order_by("-expiration", "-created_at", "-id_auth")
+        )
+        return _list_response(request, methods, serializer_func=_serialize_admin_auth_method)
+
+    auth_value = (request.data.get("auth_value") or request.data.get("value") or "").strip()
+    try:
+        auth_method = _ensure_rfid_auth(user, auth_value)
+    except ValueError as error:
+        return Response({"auth_value": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+
+    now = timezone.now()
+    Authentification.objects.filter(
+        utilisateur=user,
+        type_auth__libelle="RFID",
+        is_active=True,
+    ).exclude(id_auth=auth_method.id_auth).update(
+        is_active=False,
+        expiration=now,
+        metadata={
+            "revoked_at": now.isoformat(),
+            "revoked_by": str(request.user.id_user),
+            "revocation_source": "admin_replacement",
+        },
+    )
+    _log_security_event(
+        request,
+        user,
+        f"admin:{request.user.pseudo}:rfid_registered:{auth_method.id_auth}",
+    )
+    return Response(
+        {
+            "message": "Badge RFID enregistre.",
+            "auth_method": _serialize_admin_auth_method(auth_method),
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@_schema("Revoquer un badge RFID utilisateur", responses={204: None}, tags=["Administration"])
+@api_view(["POST", "DELETE"])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_revoke_user_auth_method(request, user_id, auth_id):
+    """Soft-revoke an active RFID badge from the administration API."""
+    try:
+        user = User.objects.get(id_user=user_id)
+    except User.DoesNotExist:
+        return Response({"detail": "Utilisateur introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    auth_method = (
+        Authentification.objects.filter(
+            id_auth=auth_id,
+            utilisateur=user,
+            type_auth__libelle="RFID",
+            is_active=True,
+        )
+        .select_related("type_auth")
+        .first()
+    )
+    if auth_method is None:
+        return Response({"detail": "Badge RFID introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    auth_method.is_active = False
+    auth_method.expiration = timezone.now()
+    auth_method.metadata = {
+        **(auth_method.metadata or {}),
+        "revoked_at": timezone.now().isoformat(),
+        "revoked_by": str(request.user.id_user),
+        "revocation_source": "admin",
+    }
+    auth_method.save(update_fields=["is_active", "expiration", "metadata"])
+    _log_security_event(
+        request,
+        user,
+        f"admin:{request.user.pseudo}:rfid_revoked:{auth_method.id_auth}",
+    )
+    return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @_schema("Lister les stations", tags=["Administration"], operation_id="admin_stations_list", methods=["GET"])
@@ -1263,15 +1469,25 @@ def create_auth_method(request):
 @permission_classes([IsAuthenticated])
 def delete_auth_method(request, auth_id):
     """Delete a saved RFID authentication method owned by the user."""
-    deleted, _detail = Authentification.objects.filter(
+    auth_method = Authentification.objects.filter(
         id_auth=auth_id,
         utilisateur=request.user,
         type_auth__libelle="RFID",
-    ).delete()
+        is_active=True,
+    ).first()
 
-    if not deleted:
+    if auth_method is None:
         return Response({"detail": "Badge RFID introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
+    auth_method.is_active = False
+    auth_method.expiration = timezone.now()
+    auth_method.metadata = {
+        **(auth_method.metadata or {}),
+        "revoked_at": timezone.now().isoformat(),
+        "revocation_source": "self_service",
+    }
+    auth_method.save(update_fields=["is_active", "expiration", "metadata"])
+    _log_security_event(request, request.user, f"user:{request.user.pseudo}:rfid_revoked:{auth_method.id_auth}")
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -1537,11 +1753,11 @@ def cancel_reservation(request, reservation_id):
     return Response(ReservationSerializer(reservation).data)
 
 
-@_schema("Regenerer l'acces temporaire d'une reservation", tags=["Reservations"])
+@_schema("Afficher l'acces temporaire d'une reservation", tags=["Reservations"])
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def reservation_access_payload(request, reservation_id):
-    """Regenerate temporary QR or code access for an active reservation."""
+    """Return the current temporary QR or code access for an active reservation."""
     try:
         reservation = Reservation.objects.select_related(
             "utilisateur",
@@ -1568,7 +1784,13 @@ def reservation_access_payload(request, reservation_id):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    auth_method, access_value = _refresh_temporary_auth(reservation)
+    auth_method, access_value = _get_temporary_access_value(reservation)
+    if auth_method is None or access_value is None:
+        return Response(
+            {"detail": "L'acces temporaire ne peut pas etre affiche. Regenerez-le depuis l'administration."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     return Response(
         {
             "reservation_code": reservation.reference_code,
@@ -1600,6 +1822,91 @@ def admin_cancel_reservation(request, reservation_id):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    return Response(ReservationSerializer(reservation).data)
+
+
+@_schema("Regenerer l'acces temporaire d'une reservation en administration", tags=["Administration"])
+@api_view(["POST"])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_reservation_access_payload(request, reservation_id):
+    """Regenerate a temporary QR or code credential from the administration API."""
+    try:
+        reservation = Reservation.objects.select_related(
+            "utilisateur",
+            "emplacement",
+            "emplacement__station",
+            "authentification",
+            "authentification__type_auth",
+        ).get(id_reservation=reservation_id)
+    except Reservation.DoesNotExist:
+        return Response({"detail": "Reservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    if not _temporary_access_can_be_rotated(reservation):
+        return Response(
+            {"detail": "L'acces temporaire ne peut pas etre regenere pour cette reservation."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    auth_method, access_value = _refresh_temporary_auth(reservation)
+    if reservation.utilisateur:
+        _log_security_event(
+            request,
+            reservation.utilisateur,
+            f"admin:{request.user.pseudo}:temporary_access_regenerated:{reservation.reference_code}",
+        )
+    return Response(
+        {
+            "reservation": ReservationSerializer(reservation).data,
+            "access_payload": _build_access_payload(
+                reservation.auth_choice,
+                access_value,
+                auth_method,
+                reservation.date_fin,
+            ),
+        }
+    )
+
+
+@_schema("Revoquer l'acces temporaire d'une reservation en administration", tags=["Administration"])
+@api_view(["POST", "DELETE"])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_revoke_reservation_access(request, reservation_id):
+    """Revoke the temporary credential attached to a QR/code reservation."""
+    try:
+        reservation = Reservation.objects.select_related(
+            "utilisateur",
+            "emplacement",
+            "emplacement__station",
+            "authentification",
+            "authentification__type_auth",
+        ).get(id_reservation=reservation_id)
+    except Reservation.DoesNotExist:
+        return Response({"detail": "Reservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    if reservation.auth_choice not in {"qr", "code"}:
+        return Response(
+            {"detail": "Cette reservation utilise un badge RFID."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if reservation.authentification is None or not reservation.authentification.is_active:
+        return Response({"detail": "Aucun acces temporaire actif."}, status=status.HTTP_404_NOT_FOUND)
+
+    auth_method = reservation.authentification
+    auth_method.is_active = False
+    auth_method.expiration = timezone.now()
+    auth_method.metadata = {
+        **(auth_method.metadata or {}),
+        "revoked_at": timezone.now().isoformat(),
+        "revoked_by": str(request.user.id_user),
+        "revocation_source": "admin",
+    }
+    auth_method.save(update_fields=["is_active", "expiration", "metadata"])
+    if reservation.utilisateur:
+        _log_security_event(
+            request,
+            reservation.utilisateur,
+            f"admin:{request.user.pseudo}:temporary_access_revoked:{reservation.reference_code}",
+        )
     return Response(ReservationSerializer(reservation).data)
 
 
@@ -1786,6 +2093,8 @@ def terminal_authenticate(request):
     auth_method = reservation.authentification
     if auth_method is None:
         return Response({"detail": "Aucun moyen d'authentification associe a cette reservation."}, status=status.HTTP_400_BAD_REQUEST)
+    if not auth_method.is_active:
+        return Response({"detail": "Le moyen d'authentification est revoque."}, status=status.HTTP_400_BAD_REQUEST)
 
     if auth_method.expiration and auth_method.expiration < now and not session_is_active:
         return Response({"detail": "Le moyen d'authentification est expire."}, status=status.HTTP_400_BAD_REQUEST)

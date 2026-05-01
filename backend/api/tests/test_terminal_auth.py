@@ -63,7 +63,9 @@ def test_delete_auth_method_only_deletes_owned_badge(api_client, user):
     delete_response = api_client.delete(reverse("api-auth-method-delete", kwargs={"auth_id": badge.id_auth}))
 
     assert delete_response.status_code == status.HTTP_204_NO_CONTENT
-    assert not Authentification.objects.filter(id_auth=badge.id_auth).exists()
+    badge.refresh_from_db()
+    assert badge.is_active is False
+    assert badge.expiration <= timezone.now()
 
 
 @pytest.mark.django_db
@@ -105,6 +107,42 @@ def test_terminal_authenticate_rejects_wrong_secret(api_client, user, station, e
     )
 
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert not Session.objects.filter(reservation=reservation).exists()
+
+
+@pytest.mark.django_db
+def test_terminal_authenticate_rejects_revoked_secret(api_client, user, station, emplacements):
+    type_auth = TypeAuth.objects.create(libelle="CODE", factor_level=2)
+    auth_method = Authentification.objects.create(
+        utilisateur=user,
+        type_auth=type_auth,
+        hash_valeur=hash_secret("GOOD-CODE"),
+        display_value="****CODE",
+        expiration=timezone.now() + timedelta(hours=1),
+        is_active=False,
+    )
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="REVOKED1",
+        authentification=auth_method,
+        auth_choice="code",
+        date_debut=timezone.now() - timedelta(minutes=5),
+        date_fin=timezone.now() + timedelta(minutes=25),
+        statut="confirmee",
+    )
+
+    response = api_client.post(
+        reverse("api-terminal-authenticate"),
+        {
+            "reservation_code": reservation.reference_code,
+            "auth_mode": "code",
+            "auth_value": "GOOD-CODE",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert not Session.objects.filter(reservation=reservation).exists()
 
 

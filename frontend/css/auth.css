@@ -1188,6 +1188,24 @@ h2 {
     align-items: center;
 }
 
+.reservation-actions {
+    display: grid;
+    gap: 8px;
+    width: 100%;
+    min-width: 210px;
+}
+
+.reservation-action-group {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.reservation-action-group:only-child,
+.reservation-action-group:last-child {
+    grid-template-columns: 1fr;
+}
+
 .table-action {
     min-height: 34px;
     display: inline-flex;
@@ -1201,6 +1219,11 @@ h2 {
     font-weight: 800;
     cursor: pointer;
     white-space: nowrap;
+}
+
+.reservation-actions .table-action {
+    width: 100%;
+    padding: 0 9px;
 }
 
 .table-action:hover {
@@ -1266,6 +1289,32 @@ h2 {
     min-width: 320px;
     background: var(--surface);
     box-shadow: -10px 0 18px rgba(22, 34, 51, 0.05);
+}
+
+.reservation-actions-column {
+    min-width: 250px;
+}
+
+.data-table th.access-column,
+.data-table td.access-column {
+    min-width: 170px;
+    white-space: normal;
+}
+
+.access-summary {
+    display: grid;
+    gap: 4px;
+    align-items: start;
+}
+
+.access-summary .badge {
+    width: fit-content;
+}
+
+.access-summary small {
+    color: var(--muted);
+    font-size: 0.78rem;
+    line-height: 1.35;
 }
 
 th.actions-column {
@@ -1366,6 +1415,32 @@ th.actions-column {
 
 .admin-password-heading .helper {
     margin: 6px 0 0;
+}
+
+.admin-access-panel {
+    display: grid;
+    gap: 16px;
+    background: var(--surface);
+}
+
+.admin-access-heading {
+    margin-bottom: 0;
+}
+
+.admin-access-heading .helper {
+    margin: 6px 0 0;
+}
+
+.admin-inline-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: end;
+}
+
+.admin-access-item .cta-row,
+.compact-row {
+    margin-top: 12px;
 }
 
 .admin-form-grid {
@@ -1591,5 +1666,9 @@ input[type="checkbox"] {
     .admin-password-heading {
         align-items: stretch;
         flex-direction: column;
+    }
+
+    .admin-inline-form {
+        grid-template-columns: 1fr;
     }
 }

@@ -42,3 +42,26 @@ disponible dans la station demandée.
 L'endpoint de disponibilité expose notamment ``available_count`` et
 ``total_count`` pour permettre au frontend d'afficher une disponibilité globale
 de station plutôt qu'une sélection manuelle de place.
+
+Endpoints d'administration des accès
+------------------------------------
+
+Les moyens d'accès sont séparés selon leur durée de vie :
+
+* les badges RFID persistants sont gérés sur l'utilisateur avec
+  ``/api/admin/users/<user_id>/auth-methods/``;
+* la révocation d'un badge RFID passe par
+  ``/api/admin/users/<user_id>/auth-methods/<auth_id>/revoke/``;
+* l'utilisateur affiche le QR/code courant de sa réservation avec
+  ``/api/reservations/<reservation_id>/access-payload/`` sans rotation du secret;
+* les QR codes et codes temporaires sont gérés sur la réservation avec
+  ``/api/admin/reservations/<reservation_id>/access-payload/`` pour régénérer
+  une valeur temporaire;
+* la révocation d'un QR/code temporaire passe par
+  ``/api/admin/reservations/<reservation_id>/revoke-access/``.
+
+Ces endpoints exigent un utilisateur authentifié avec les droits staff. Ils ne
+renvoient jamais la valeur complète d'un badge RFID. Les QR codes et codes
+temporaires sont dérivés côté serveur : l'utilisateur peut afficher ou masquer
+le même accès, tandis que l'administration dispose d'une action explicite de
+régénération qui invalide l'ancienne valeur.
