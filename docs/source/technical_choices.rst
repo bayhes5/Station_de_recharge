@@ -175,6 +175,11 @@ est dérivée côté serveur à partir d'un nonce et de ``SECRET_KEY`` : le secr
 clair n'est pas stocké, mais le même accès peut être reconstruit tant qu'il est
 actif.
 
+La régénération par l'administration remplace la valeur active et ne présente
+plus le QR/code dans une modale de copie. Cette décision évite de transformer
+l'admin en canal de transmission du secret : si l'utilisateur affiche déjà son
+accès, l'interface rafraîchit la valeur courante automatiquement.
+
 La révocation est douce : l'enregistrement reste en base avec
 ``is_active=False`` et une expiration ramenée à l'instant courant. Le terminal
 refuse explicitement tout moyen d'accès révoqué, ce qui conserve une trace tout

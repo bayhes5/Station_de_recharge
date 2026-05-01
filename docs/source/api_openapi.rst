@@ -56,7 +56,7 @@ Les moyens d'accès sont séparés selon leur durée de vie :
   ``/api/reservations/<reservation_id>/access-payload/`` sans rotation du secret;
 * les QR codes et codes temporaires sont gérés sur la réservation avec
   ``/api/admin/reservations/<reservation_id>/access-payload/`` pour régénérer
-  une valeur temporaire;
+  une valeur temporaire sans l'afficher dans une fenêtre de copie côté admin;
 * la révocation d'un QR/code temporaire passe par
   ``/api/admin/reservations/<reservation_id>/revoke-access/``.
 
@@ -64,4 +64,6 @@ Ces endpoints exigent un utilisateur authentifié avec les droits staff. Ils ne
 renvoient jamais la valeur complète d'un badge RFID. Les QR codes et codes
 temporaires sont dérivés côté serveur : l'utilisateur peut afficher ou masquer
 le même accès, tandis que l'administration dispose d'une action explicite de
-régénération qui invalide l'ancienne valeur.
+régénération qui invalide l'ancienne valeur. Si l'accès est déjà visible côté
+utilisateur, l'interface récupère automatiquement la valeur courante après la
+régénération.

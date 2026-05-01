@@ -264,7 +264,9 @@ Gestion des moyens d'acces:
 - un QR code ou un code temporaire reste rattache a une reservation;
 - l'utilisateur peut afficher ou masquer le QR/code courant sans le regenerer;
 - l'administrateur peut regenerer ou revoquer un QR/code temporaire depuis la
-  table des reservations;
+  table des reservations; la regeneration remplace la valeur cote serveur sans
+  afficher de fenetre de copie, puis l'interface utilisateur recupere
+  automatiquement la nouvelle valeur visible;
 - les secrets d'acces sont haches cote backend et les actions sensibles sont
   journalisees dans `JournalSecurite`.
 

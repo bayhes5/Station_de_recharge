@@ -43,8 +43,11 @@ valeur complète du badge n'est pas exposée dans l'administration.
 
 Les QR codes et codes temporaires sont rattachés à une réservation. Ils peuvent
 être régénérés ou révoqués depuis l'administration des réservations, tandis que
-le terminal refuse les moyens d'accès expirés ou révoqués. Les actions sensibles
-sont journalisées dans ``JournalSecurite``.
+le terminal refuse les moyens d'accès expirés ou révoqués. La régénération admin
+remplace la valeur côté serveur sans afficher le secret dans une fenêtre de copie;
+l'interface utilisateur rafraîchit ensuite le QR/code visible pour récupérer la
+valeur courante. Les actions sensibles sont journalisées dans
+``JournalSecurite``.
 
 Kiosque Raspberry
 -----------------
