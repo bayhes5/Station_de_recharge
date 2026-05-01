@@ -64,6 +64,10 @@ class Utilisateur(AbstractBaseUser, PermissionsMixin):
 
     class Meta:
         db_table = "utilisateur"
+        indexes = [
+            models.Index(fields=["is_active"], name="idx_user_is_active"),
+            models.Index(fields=["date_joined"], name="idx_user_date_joined"),
+        ]
 
     def __str__(self):
         """Return the pseudo used to identify the account in admin screens."""
@@ -146,6 +150,9 @@ class Consentement(models.Model):
 
     class Meta:
         db_table = "consentement"
+        indexes = [
+            models.Index(fields=["utilisateur", "date_consentement"], name="idx_consent_user_date"),
+        ]
 
 
 class JournalSecurite(models.Model):
@@ -167,6 +174,9 @@ class JournalSecurite(models.Model):
 
     class Meta:
         db_table = "journal_securite"
+        indexes = [
+            models.Index(fields=["utilisateur", "date_action"], name="idx_log_user_date"),
+        ]
 
 
 class TypeAuth(models.Model):
@@ -209,6 +219,10 @@ class Authentification(models.Model):
 
     class Meta:
         db_table = "auth_method"
+        indexes = [
+            models.Index(fields=["utilisateur", "type_auth", "is_active"], name="idx_auth_user_type"),
+            models.Index(fields=["expiration"], name="idx_auth_expiration"),
+        ]
 
 
 class Station(models.Model):
@@ -224,6 +238,10 @@ class Station(models.Model):
 
     class Meta:
         db_table = "station"
+        indexes = [
+            models.Index(fields=["nom"], name="idx_station_nom"),
+            models.Index(fields=["statut"], name="idx_station_statut"),
+        ]
 
     def __str__(self):
         """Return the station name."""
@@ -251,6 +269,9 @@ class Emplacement(models.Model):
     class Meta:
         db_table = "emplacement"
         unique_together = ("station", "numero")
+        indexes = [
+            models.Index(fields=["station", "statut"], name="idx_emp_station_statut"),
+        ]
 
     def __str__(self):
         """Return a readable station and bay identifier."""
@@ -300,6 +321,8 @@ class Reservation(models.Model):
         ]
         indexes = [
             models.Index(fields=["emplacement", "date_debut", "date_fin"], name="idx_reservation_emp_dates"),
+            models.Index(fields=["utilisateur", "date_debut"], name="idx_res_user_date"),
+            models.Index(fields=["statut", "date_debut"], name="idx_res_statut_date"),
         ]
 
 
@@ -332,6 +355,8 @@ class Session(models.Model):
         ]
         indexes = [
             models.Index(fields=["emplacement"], name="idx_session_emplacement"),
+            models.Index(fields=["start_time"], name="idx_session_start"),
+            models.Index(fields=["end_time"], name="idx_session_end"),
         ]
 
 
@@ -356,6 +381,9 @@ class SessionTelemetry(models.Model):
 
     class Meta:
         db_table = "session_telemetry"
+        indexes = [
+            models.Index(fields=["session", "timestamp"], name="idx_telemetry_time"),
+        ]
 
 
 class Device(models.Model):
@@ -449,6 +477,10 @@ class Alerte(models.Model):
 
     class Meta:
         db_table = "alerte"
+        indexes = [
+            models.Index(fields=["status", "timestamp"], name="idx_alert_status_time"),
+            models.Index(fields=["session", "timestamp"], name="idx_alert_session_time"),
+        ]
 
 
 class Technicien(models.Model):
@@ -503,3 +535,8 @@ class Maintenance(models.Model):
 
     class Meta:
         db_table = "maintenance"
+        indexes = [
+            models.Index(fields=["technicien", "date_planifiee"], name="idx_maint_tech_date"),
+            models.Index(fields=["station", "date_planifiee"], name="idx_maint_station_date"),
+            models.Index(fields=["status", "date_planifiee"], name="idx_maint_status_date"),
+        ]

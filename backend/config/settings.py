@@ -98,6 +98,8 @@ REST_FRAMEWORK = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': env_int("API_DEFAULT_PAGE_SIZE", 50),
 }
 
 SPECTACULAR_SETTINGS = {
@@ -124,6 +126,26 @@ SIMPLE_JWT = {
 WSGI_APPLICATION = "config.wsgi.application"
 
 FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:5173")
+
+API_DEFAULT_PAGE_SIZE = env_int("API_DEFAULT_PAGE_SIZE", 50)
+API_MAX_PAGE_SIZE = env_int("API_MAX_PAGE_SIZE", 200)
+STATIONS_CATALOG_CACHE_SECONDS = env_int("STATIONS_CATALOG_CACHE_SECONDS", 60)
+CACHE_URL = os.environ.get("CACHE_URL", "")
+
+if CACHE_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": CACHE_URL,
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "station-local-cache",
+        }
+    }
 
 # DATABASES = {
 #     "default": {

@@ -8,6 +8,7 @@ Le projet rassemble:
 - un frontend Vite servi en développement par le serveur Vite
 - une interface kiosque Raspberry Pi
 - une base PostgreSQL pour les données de développement
+- un cache Redis pour les caches applicatifs ciblés
 
 ## Démarrage rapide
 
@@ -81,6 +82,7 @@ docker compose up -d --build
 Cette commande démarre:
 
 - PostgreSQL sur le port `5432`
+- Redis sur le port `6379`
 - Django sur le port `8000`
 - le frontend Vite sur le port `5173`
 - le kiosque Raspberry sur le port `9000`
@@ -122,6 +124,27 @@ Redémarrer après une modification:
 
 ```bash
 docker compose up -d --build
+```
+
+Reconstruire rapidement l'image backend de développement:
+
+```bash
+docker compose build backend
+```
+
+Reconstruire le backend sans cache Docker. Cette commande reste plus lente car
+elle force la réexécution des étapes Docker, mais le cache pip BuildKit limite
+les retéléchargements après un premier passage:
+
+```bash
+docker compose build --no-cache backend
+```
+
+Construire l'image backend de vérification, avec installation des dépendances de
+test et exécution de pytest pendant le build:
+
+```bash
+docker compose --profile test build backend-test
 ```
 
 Lancer une commande Django dans le conteneur backend:
@@ -175,6 +198,8 @@ Le fichier `.env.example` couvre les variables principales:
 - `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`
 - `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
 - `FRONTEND_BASE_URL`, `CORS_ALLOWED_ORIGINS`
+- `CACHE_URL`, `API_DEFAULT_PAGE_SIZE`, `API_MAX_PAGE_SIZE`
+- `STATIONS_CATALOG_CACHE_SECONDS`
 - `SIMPLE_JWT_ACCESS_MINUTES`, `SIMPLE_JWT_REFRESH_DAYS`
 - `ADMIN_PSEUDO`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`
 - `DEMO_STATION_*`, `DEMO_EMPLACEMENTS_COUNT`, `DEMO_ESP32_FIRMWARE_VERSION`, `DEMO_TECH_*`

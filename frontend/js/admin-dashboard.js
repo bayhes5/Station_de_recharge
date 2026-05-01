@@ -70,6 +70,15 @@ function createDataTable(container, columns, rows, emptyMessage) {
     container.appendChild(tableWrap);
 }
 
+function parsePageNumber(url) {
+    if (!url) return null;
+    try {
+        return Number(new URL(url).searchParams.get("page")) || null;
+    } catch (_error) {
+        return null;
+    }
+}
+
 function normalizeSearchValue(value) {
     return String(value ?? "")
         .normalize("NFD")
@@ -88,7 +97,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     const AUTO_REFRESH_MS = 30000;
     const status = document.getElementById("admin-status");
     const logoutBtn = document.getElementById("logout-admin");
-    const passwordResetDialog = createPasswordResetDialog();
 
     let users = [];
     let stations = [];
@@ -101,6 +109,19 @@ document.addEventListener("DOMContentLoaded", async () => {
     let archivedSessions = [];
     let currentAdminId = null;
     let isLoading = false;
+    const paginatedTables = ["users", "stations", "emplacements", "technicians", "maintenances"];
+    const paginationState = Object.fromEntries(
+        paginatedTables.map((key) => [
+            key,
+            {
+                page: 1,
+                pageSize: 10,
+                count: 0,
+                next: null,
+                previous: null,
+            },
+        ])
+    );
     const searchState = {
         users: "",
         stations: "",
@@ -198,6 +219,76 @@ document.addEventListener("DOMContentLoaded", async () => {
         return `Aucun résultat pour « ${query} ».`;
     }
 
+    function pageParams(tableKey) {
+        const state = paginationState[tableKey];
+        return {
+            page: state.page,
+            page_size: state.pageSize,
+        };
+    }
+
+    function updatePageState(tableKey, response) {
+        const state = paginationState[tableKey];
+        state.count = Number(response.count ?? response.results?.length ?? 0);
+        state.next = response.next || null;
+        state.previous = response.previous || null;
+    }
+
+    function renderPagination(containerId, tableKey) {
+        const container = document.getElementById(containerId);
+        const state = paginationState[tableKey];
+        const totalPages = Math.max(1, Math.ceil(state.count / state.pageSize));
+        const start = state.count === 0 ? 0 : (state.page - 1) * state.pageSize + 1;
+        const end = Math.min(state.count, state.page * state.pageSize);
+
+        const controls = document.createElement("div");
+        controls.className = "pagination-controls";
+
+        const summary = document.createElement("span");
+        summary.className = "pagination-summary";
+        summary.textContent = `${start}-${end} sur ${state.count}`;
+
+        const previousButton = createActionButton("Précédent", async () => {
+            if (state.page <= 1 || isLoading) return;
+            state.page -= 1;
+            await loadAll();
+        });
+        previousButton.disabled = state.page <= 1 || !state.previous;
+
+        const nextButton = createActionButton("Suivant", async () => {
+            if (state.page >= totalPages || isLoading) return;
+            state.page = parsePageNumber(state.next) || state.page + 1;
+            await loadAll();
+        });
+        nextButton.disabled = state.page >= totalPages || !state.next;
+
+        const pageSizeLabel = document.createElement("label");
+        pageSizeLabel.className = "pagination-size";
+        const pageSizeText = document.createElement("span");
+        pageSizeText.textContent = "Par page";
+        const pageSizeSelect = document.createElement("select");
+        [10, 25, 50, 100].forEach((value) => {
+            const option = document.createElement("option");
+            option.value = String(value);
+            option.textContent = String(value);
+            option.selected = value === state.pageSize;
+            pageSizeSelect.appendChild(option);
+        });
+        pageSizeSelect.addEventListener("change", async () => {
+            state.pageSize = Number(pageSizeSelect.value);
+            state.page = 1;
+            await loadAll();
+        });
+
+        pageSizeLabel.appendChild(pageSizeText);
+        pageSizeLabel.appendChild(pageSizeSelect);
+        controls.appendChild(summary);
+        controls.appendChild(previousButton);
+        controls.appendChild(nextButton);
+        controls.appendChild(pageSizeLabel);
+        container.appendChild(controls);
+    }
+
     function setAdminTab(name, pushHash = true) {
         document.querySelectorAll("[data-admin-tab]").forEach((button) => {
             const active = button.dataset.adminTab === name;
@@ -218,94 +309,14 @@ document.addEventListener("DOMContentLoaded", async () => {
         status.textContent = message;
     }
 
-    function createPasswordResetDialog() {
-        const backdrop = document.createElement("div");
-        backdrop.className = "modal-backdrop";
-        backdrop.hidden = true;
-        backdrop.innerHTML = `
-            <section class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-password-title">
-                <div class="modal-heading">
-                    <div>
-                        <p class="eyebrow">Administration</p>
-                        <h2 id="reset-password-title">Mot de passe temporaire</h2>
-                    </div>
-                    <button class="modal-close" type="button" aria-label="Fermer">×</button>
-                </div>
-                <div class="account-form">
-                    <p id="reset-password-user" class="helper"></p>
-                    <p class="helper">Copiez ce mot de passe maintenant. Il ne sera plus affiché après fermeture.</p>
-                    <div class="generated-password-box">
-                        <code id="generated-password-value"></code>
-                    </div>
-                    <p id="reset-password-status" class="field-feedback" aria-live="polite"></p>
-                    <div class="cta-row">
-                        <button class="btn btn-primary" type="button" data-copy-password>Copier</button>
-                        <button class="btn btn-secondary" type="button" data-reset-cancel>Fermer</button>
-                    </div>
-                </div>
-            </section>
-        `;
-
-        document.body.appendChild(backdrop);
-
-        const statusElement = backdrop.querySelector("#reset-password-status");
-        const userElement = backdrop.querySelector("#reset-password-user");
-        const passwordElement = backdrop.querySelector("#generated-password-value");
-        let generatedPassword = "";
-
-        function close() {
-            generatedPassword = "";
-            passwordElement.textContent = "";
-            statusElement.textContent = "";
-            statusElement.className = "field-feedback";
-            backdrop.hidden = true;
-        }
-
-        function setDialogStatus(message, isError = false) {
-            statusElement.textContent = message;
-            statusElement.className = `field-feedback${isError ? " invalid" : " valid"}`;
-        }
-
-        backdrop.querySelector(".modal-close").addEventListener("click", close);
-        backdrop.querySelector("[data-reset-cancel]").addEventListener("click", close);
-        backdrop.querySelector("[data-copy-password]").addEventListener("click", async () => {
-            if (!generatedPassword) return;
-
-            try {
-                await navigator.clipboard.writeText(generatedPassword);
-                setDialogStatus("Mot de passe copié.");
-            } catch (_error) {
-                setDialogStatus("Copie automatique impossible. Sélectionnez le mot de passe manuellement.", true);
-            }
-        });
-        backdrop.addEventListener("click", (event) => {
-            if (event.target === backdrop) {
-                close();
-            }
-        });
-
-        return {
-            show(user, password) {
-                generatedPassword = password;
-                userElement.textContent = `Utilisateur : ${user.pseudo} (${user.email})`;
-                passwordElement.textContent = password;
-                statusElement.textContent = "";
-                statusElement.className = "field-feedback";
-                backdrop.hidden = false;
-                backdrop.querySelector("[data-copy-password]").focus();
-            },
-        };
-    }
-
     function editHref(resource, id) {
         return `/admin-form.html?resource=${resource}&id=${id}`;
     }
 
-    function renderActions({ resource, id, label, onDelete, extraActions = [] }) {
+    function renderActions({ resource, id, label, onDelete }) {
         const actions = document.createElement("div");
         actions.className = "table-actions";
         actions.appendChild(createActionLink("Modifier", editHref(resource, id)));
-        extraActions.forEach((action) => actions.appendChild(action));
         actions.appendChild(createActionButton("Supprimer", onDelete, "danger-action"));
         actions.setAttribute("aria-label", `Actions ${label}`);
         return actions;
@@ -338,24 +349,6 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     }
 
-    async function resetUserPassword(user, triggerButton) {
-        const confirmed = window.confirm(
-            `Générer un nouveau mot de passe temporaire pour ${user.pseudo} ?`
-        );
-        if (!confirmed) return;
-
-        triggerButton.disabled = true;
-        try {
-            const result = await window.AuthAPI.resetAdminUserPassword(user.id_user);
-            passwordResetDialog.show(user, result.temporary_password);
-            setStatus(`Mot de passe temporaire généré pour ${user.pseudo}.`);
-        } catch (error) {
-            setStatus(error.message || "Réinitialisation impossible.", true);
-        } finally {
-            triggerButton.disabled = false;
-        }
-    }
-
     function renderUsers() {
         createDataTable(
             document.getElementById("users-list"),
@@ -382,9 +375,6 @@ document.addEventListener("DOMContentLoaded", async () => {
                         resource: "user",
                         id: user.id_user,
                         label: user.pseudo,
-                        extraActions: [
-                            createActionButton("Réinitialiser", (event) => resetUserPassword(user, event.currentTarget)),
-                        ],
                         onDelete: async () => {
                             if (String(user.id_user) === String(currentAdminId)) {
                                 setStatus("Vous ne pouvez pas supprimer votre propre compte depuis cet \u00e9cran.", true);
@@ -401,6 +391,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             filterRows("users", users),
             emptyMessageFor("users", "Aucun utilisateur.")
         );
+        renderPagination("users-list", "users");
     }
 
     function renderStations() {
@@ -429,6 +420,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             filterRows("stations", stations),
             emptyMessageFor("stations", "Aucune station.")
         );
+        renderPagination("stations-list", "stations");
     }
 
     function renderEmplacements() {
@@ -456,6 +448,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             filterRows("emplacements", emplacements),
             emptyMessageFor("emplacements", "Aucun emplacement.")
         );
+        renderPagination("emplacements-list", "emplacements");
     }
 
     function renderTechnicians() {
@@ -483,6 +476,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             filterRows("technicians", technicians),
             emptyMessageFor("technicians", "Aucun technicien.")
         );
+        renderPagination("technicians-list", "technicians");
     }
 
     function renderMaintenances() {
@@ -512,6 +506,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             filterRows("maintenances", maintenances),
             emptyMessageFor("maintenances", "Aucune maintenance.")
         );
+        renderPagination("maintenances-list", "maintenances");
     }
 
     function renderReservations(containerId, rows, emptyMessage, searchKey) {
@@ -580,11 +575,11 @@ document.addEventListener("DOMContentLoaded", async () => {
                 adminMaintenances,
             ] = await Promise.all([
                 window.AuthAPI.getAdminOverview(),
-                window.AuthAPI.getAdminUsers(),
-                window.AuthAPI.getAdminStations(),
-                window.AuthAPI.getAdminEmplacements(),
-                window.AuthAPI.getAdminTechnicians(),
-                window.AuthAPI.getAdminMaintenances(),
+                window.AuthAPI.getAdminUsers(pageParams("users")),
+                window.AuthAPI.getAdminStations(pageParams("stations")),
+                window.AuthAPI.getAdminEmplacements(pageParams("emplacements")),
+                window.AuthAPI.getAdminTechnicians(pageParams("technicians")),
+                window.AuthAPI.getAdminMaintenances(pageParams("maintenances")),
             ]);
 
             let adminReservations = { upcoming: [], archived: [] };
@@ -612,6 +607,11 @@ document.addEventListener("DOMContentLoaded", async () => {
             emplacements = adminEmplacements.results || [];
             technicians = adminTechnicians.results || [];
             maintenances = adminMaintenances.results || [];
+            updatePageState("users", adminUsers);
+            updatePageState("stations", adminStations);
+            updatePageState("emplacements", adminEmplacements);
+            updatePageState("technicians", adminTechnicians);
+            updatePageState("maintenances", adminMaintenances);
             upcomingReservations = adminReservations.upcoming || [];
             archivedReservations = adminReservations.archived || [];
             activeSessions = adminSessions.active || [];

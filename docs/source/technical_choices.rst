@@ -277,6 +277,49 @@ lisible pour les dépendances Python directes.
 Quand une dépendance est mise à jour, il faut reconstruire l'environnement et
 relancer les tests.
 
+Pagination API
+--------------
+
+Les endpoints de liste acceptent progressivement ``page`` et ``page_size``.
+
+Ce choix permet d'éviter de charger des volumes trop importants quand les données
+grandissent, tout en gardant la forme historique ``results`` pour les écrans qui
+ne demandent pas encore explicitement une page. Les paramètres
+``API_DEFAULT_PAGE_SIZE`` et ``API_MAX_PAGE_SIZE`` encadrent la taille des pages.
+
+La pagination reste volontairement progressive : les écrans existants peuvent
+continuer à fonctionner sans changement, et les interfaces pourront ajouter des
+contrôles de pagination là où le volume le justifie.
+
+Cache Redis ciblé
+-----------------
+
+Le projet configure le cache Django avec Redis quand ``CACHE_URL`` est défini,
+et bascule sur un cache local en mémoire quand Redis n'est pas disponible.
+
+Ce choix garde le développement local simple tout en préparant un cache partagé
+dans Docker. Le premier usage ciblé est le catalogue des stations, car il est lu
+souvent par le frontend et change moins fréquemment que les réservations ou les
+données de profil.
+
+Le cache est invalidé lors des modifications de stations ou d'emplacements. Les
+réservations et les accès temporaires restent hors cache, car ils sont dynamiques
+et sensibles à l'utilisateur connecté.
+
+Headers cache des assets Vite
+-----------------------------
+
+Le frontend fournit une configuration Nginx de production pour servir le build
+Vite.
+
+Les fichiers hashés sous ``/assets/`` reçoivent un header
+``Cache-Control: public, max-age=31536000, immutable``. Les pages HTML restent en
+``no-cache`` afin que le navigateur récupère rapidement les nouveaux liens vers
+les assets après un déploiement.
+
+Ce choix optimise les assets sans risquer de servir une ancienne page HTML qui
+pointe vers des fichiers retirés du build.
+
 SBOM et analyse de vulnérabilités
 ---------------------------------
 
@@ -297,14 +340,15 @@ Cache HTTP et Varnish
 
 Le projet n'intègre pas encore Varnish Cache.
 
-La majorité des endpoints actuels sont dynamiques et authentifiés par JWT :
+La majorité des endpoints actuels restent dynamiques et authentifiés par JWT :
 profil, réservations, administration, maintenances et accès temporaires. Les
-mettre en cache au niveau HTTP serait risqué sans politique fine sur les
+mettre en cache au niveau reverse proxy serait risqué sans politique fine sur les
 en-têtes ``Authorization``, ``Cookie`` et ``Set-Cookie``.
 
-La priorité actuelle est donc Vite pour les assets frontend, puis l'optimisation
-Django/DRF : requêtes, index, pagination et cache applicatif ciblé. Varnish Cache
-pourra devenir pertinent pour des pages publiques ou endpoints anonymes stables.
+La priorité actuelle est donc l'optimisation interne Django/DRF : requêtes,
+index, pagination, cache Redis ciblé et headers cache pour les assets buildés.
+Varnish Cache pourra devenir pertinent pour des pages publiques ou endpoints
+anonymes stables.
 
 Varnish Orca n'est pas retenu pour l'accélération applicative : son rôle est
 plutôt de mettre en cache des registres et artifacts de build, comme Docker, npm

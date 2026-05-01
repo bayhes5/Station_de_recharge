@@ -9,8 +9,10 @@ from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password as validate_django_password
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.db.models import Exists, OuterRef, Prefetch
 from django.shortcuts import render
 from django.utils import timezone
 from django.db import transaction
@@ -18,6 +20,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.decorators import permission_classes
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -55,6 +58,52 @@ RESERVATION_START_GRACE_MINUTES = getattr(settings, "RESERVATION_START_GRACE_MIN
 DEFAULT_SESSION_MAX_MINUTES = getattr(settings, "CHARGING_SESSION_MAX_MINUTES", 240)
 ADMIN_TEMPORARY_PASSWORD_LENGTH = 16
 ADMIN_TEMPORARY_PASSWORD_SPECIALS = "!@#$%&*-_?"
+LIST_PAGINATION_QUERY_PARAMS = {"page", "page_size"}
+STATIONS_CATALOG_CACHE_KEY = "api:stations_catalog:v1"
+
+
+class OptionalPageNumberPagination(PageNumberPagination):
+    """Paginate function-based list endpoints when the client requests it."""
+
+    page_size = settings.API_DEFAULT_PAGE_SIZE
+    page_size_query_param = "page_size"
+    max_page_size = settings.API_MAX_PAGE_SIZE
+
+
+def _serialize_collection(items, serializer_class=None, serializer_func=None):
+    """Serialize a queryset or list with either a DRF serializer or function."""
+    if serializer_class is not None:
+        return serializer_class(items, many=True).data
+    return [serializer_func(item) for item in items]
+
+
+def _list_response(request, queryset, serializer_class=None, serializer_func=None):
+    """Return a list response, with opt-in page/page_size pagination."""
+    if not LIST_PAGINATION_QUERY_PARAMS.intersection(request.query_params):
+        return Response(
+            {
+                "results": _serialize_collection(
+                    queryset,
+                    serializer_class=serializer_class,
+                    serializer_func=serializer_func,
+                )
+            }
+        )
+
+    paginator = OptionalPageNumberPagination()
+    page = paginator.paginate_queryset(queryset, request)
+    return paginator.get_paginated_response(
+        _serialize_collection(
+            page,
+            serializer_class=serializer_class,
+            serializer_func=serializer_func,
+        )
+    )
+
+
+def _clear_station_catalog_cache():
+    """Invalidate cached station catalog data after station or bay changes."""
+    cache.delete(STATIONS_CATALOG_CACHE_KEY)
 
 
 def _schema(
@@ -525,12 +574,19 @@ def _reservation_overlaps(emplacement, date_debut, date_fin):
 
 def _available_emplacements(station, date_debut, date_fin):
     """Return available charging bays for a station and reservation window."""
-    emplacements = Emplacement.objects.filter(station=station).order_by("numero")
-    return [
-        emplacement
-        for emplacement in emplacements
-        if not _reservation_overlaps(emplacement, date_debut, date_fin)
-    ]
+    overlapping_reservations = Reservation.objects.filter(
+        emplacement=OuterRef("pk"),
+        date_debut__lt=date_fin,
+        date_fin__gt=date_debut,
+        statut__in=["confirmee", "active", "en_attente"],
+    )
+    return list(
+        Emplacement.objects.filter(station=station)
+        .select_related("station")
+        .annotate(has_overlap=Exists(overlapping_reservations))
+        .filter(has_overlap=False)
+        .order_by("numero")
+    )
 
 
 def _round_to_thirty_minutes(dt):
@@ -966,11 +1022,7 @@ def admin_users(request):
     """List users or create a user from the administration API."""
     if request.method == "GET":
         users = User.objects.select_related("profil", "technicien_profile").order_by("-date_joined")
-        return Response(
-            {
-                "results": [AdminUserSerializer(user).data for user in users],
-            }
-        )
+        return _list_response(request, users, serializer_class=AdminUserSerializer)
 
     payload = request.data
     required = ("pseudo", "email", "password")
@@ -1065,11 +1117,12 @@ def admin_stations(request):
     """List stations or create a station from the administration API."""
     if request.method == "GET":
         stations = Station.objects.order_by("nom")
-        return Response({"results": [StationSerializer(station).data for station in stations]})
+        return _list_response(request, stations, serializer_class=StationSerializer)
 
     serializer = StationSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     station = serializer.save()
+    _clear_station_catalog_cache()
     return Response(StationSerializer(station).data, status=status.HTTP_201_CREATED)
 
 
@@ -1092,8 +1145,10 @@ def admin_station_detail(request, station_id):
         serializer = StationSerializer(instance=station, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        _clear_station_catalog_cache()
         return Response(StationSerializer(station).data)
 
+    _clear_station_catalog_cache()
     station.delete()
     return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -1106,11 +1161,12 @@ def admin_emplacements(request):
     """List charging bays or create one from the administration API."""
     if request.method == "GET":
         emplacements = Emplacement.objects.select_related("station").order_by("station__nom", "numero")
-        return Response({"results": [EmplacementSerializer(emplacement).data for emplacement in emplacements]})
+        return _list_response(request, emplacements, serializer_class=EmplacementSerializer)
 
     serializer = EmplacementSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     emplacement = serializer.save()
+    _clear_station_catalog_cache()
     return Response(EmplacementSerializer(emplacement).data, status=status.HTTP_201_CREATED)
 
 
@@ -1133,8 +1189,10 @@ def admin_emplacement_detail(request, emplacement_id):
         serializer = EmplacementSerializer(instance=emplacement, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        _clear_station_catalog_cache()
         return Response(EmplacementSerializer(emplacement).data)
 
+    _clear_station_catalog_cache()
     emplacement.delete()
     return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -1166,7 +1224,7 @@ def auth_methods(request):
             .select_related("type_auth")
             .order_by("-expiration", "-id_auth")
         )
-        return Response({"results": [_serialize_auth_method(method) for method in methods]})
+        return _list_response(request, methods, serializer_func=_serialize_auth_method)
 
     return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
@@ -1253,7 +1311,7 @@ def auth_history(request):
             }
         )
 
-    return Response({"results": history})
+    return _list_response(request, history, serializer_func=lambda item: item)
 
 
 @_schema(
@@ -1322,21 +1380,35 @@ def reservation_availability(request):
 @permission_classes([IsAuthenticated])
 def stations_catalog(request):
     """Return stations with their charging bays for reservation screens."""
-    stations = Station.objects.prefetch_related("emplacements").order_by("nom")
-    return Response(
-        {
+    payload = cache.get(STATIONS_CATALOG_CACHE_KEY)
+    if payload is None:
+        stations = (
+            Station.objects.prefetch_related(
+                Prefetch(
+                    "emplacements",
+                    queryset=Emplacement.objects.select_related("station").order_by("numero"),
+                )
+            )
+            .order_by("nom")
+        )
+        payload = {
             "results": [
                 {
                     **_serialize_station(station),
                     "emplacements": [
                         _serialize_emplacement(emplacement)
-                        for emplacement in station.emplacements.all().order_by("numero")
+                        for emplacement in station.emplacements.all()
                     ],
                 }
                 for station in stations
             ]
         }
-    )
+        cache.set(
+            STATIONS_CATALOG_CACHE_KEY,
+            payload,
+            timeout=settings.STATIONS_CATALOG_CACHE_SECONDS,
+        )
+    return Response(payload)
 
 
 @_schema("Lister ou creer des reservations", request=ReservationCreateSerializer, tags=["Reservations"])
@@ -1350,7 +1422,7 @@ def reservations(request):
             .select_related("emplacement", "emplacement__station", "authentification", "authentification__type_auth")
             .order_by("-date_debut")
         )
-        return Response({"results": [ReservationSerializer(reservation).data for reservation in queryset]})
+        return _list_response(request, queryset, serializer_class=ReservationSerializer)
 
     serializer = ReservationCreateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -1546,9 +1618,10 @@ def technician_maintenances(request):
     maintenances = (
         Maintenance.objects.filter(technicien=technicien)
         .select_related("station", "technicien")
+        .prefetch_related("station__emplacements")
         .order_by("date_planifiee")
     )
-    return Response({"results": [TechnicianMaintenanceSerializer(maintenance).data for maintenance in maintenances]})
+    return _list_response(request, maintenances, serializer_class=TechnicianMaintenanceSerializer)
 
 
 @_schema("Lister les techniciens", tags=["Administration"], operation_id="admin_technicians_list", methods=["GET"])
@@ -1559,7 +1632,7 @@ def admin_technicians(request):
     """List technicians or create a technician from the administration API."""
     if request.method == "GET":
         technicians = Technicien.objects.select_related("utilisateur").order_by("nom")
-        return Response({"results": [TechnicianSerializer(technician).data for technician in technicians]})
+        return _list_response(request, technicians, serializer_class=TechnicianSerializer)
 
     serializer = TechnicianSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -1627,7 +1700,7 @@ def admin_maintenances(request):
     """List maintenance records or create one from the admin API."""
     if request.method == "GET":
         maintenances = Maintenance.objects.select_related("station", "technicien").order_by("-date_planifiee")
-        return Response({"results": [MaintenanceAdminSerializer(maintenance).data for maintenance in maintenances]})
+        return _list_response(request, maintenances, serializer_class=MaintenanceAdminSerializer)
 
     serializer = MaintenanceAdminSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)

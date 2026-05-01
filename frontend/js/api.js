@@ -166,6 +166,17 @@ async function doRequest(path, options = {}) {
     return payload;
 }
 
+function withQuery(path, params = {}) {
+    const query = new URLSearchParams();
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== "") {
+            query.set(key, value);
+        }
+    });
+    const queryString = query.toString();
+    return queryString ? `${path}?${queryString}` : path;
+}
+
 async function refreshAccessToken() {
     const refresh = getRefreshToken();
     if (!refresh) {
@@ -342,8 +353,8 @@ async function getAdminSessions() {
     });
 }
 
-async function getAdminUsers() {
-    return doRequest("/admin/users/", {
+async function getAdminUsers(params) {
+    return doRequest(withQuery("/admin/users/", params), {
         method: "GET",
     });
 }
@@ -374,8 +385,8 @@ async function resetAdminUserPassword(id) {
     });
 }
 
-async function getAdminStations() {
-    return doRequest("/admin/stations/", {
+async function getAdminStations(params) {
+    return doRequest(withQuery("/admin/stations/", params), {
         method: "GET",
     });
 }
@@ -400,8 +411,8 @@ async function deleteAdminStation(id) {
     });
 }
 
-async function getAdminEmplacements() {
-    return doRequest("/admin/emplacements/", {
+async function getAdminEmplacements(params) {
+    return doRequest(withQuery("/admin/emplacements/", params), {
         method: "GET",
     });
 }
@@ -426,8 +437,8 @@ async function deleteAdminEmplacement(id) {
     });
 }
 
-async function getAdminTechnicians() {
-    return doRequest("/admin/technicians/", {
+async function getAdminTechnicians(params) {
+    return doRequest(withQuery("/admin/technicians/", params), {
         method: "GET",
     });
 }
@@ -452,8 +463,8 @@ async function deleteAdminTechnician(id) {
     });
 }
 
-async function getAdminMaintenances() {
-    return doRequest("/admin/maintenances/", {
+async function getAdminMaintenances(params) {
+    return doRequest(withQuery("/admin/maintenances/", params), {
         method: "GET",
     });
 }

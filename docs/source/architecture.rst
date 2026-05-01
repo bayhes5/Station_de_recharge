@@ -1,7 +1,8 @@
 Architecture
 ============
 
-Le projet est composé de quatre parties principales.
+Le projet est composé de quatre parties applicatives principales, complétées par
+PostgreSQL et Redis dans la stack Docker locale.
 
 Backend Django
 --------------
@@ -44,3 +45,10 @@ ESP32
 Le dossier ``esp32/`` contient le prototype de logique embarquée pour un
 emplacement de recharge. En configuration de démonstration, le backend crée
 trois emplacements et associe un device ``ESP32`` à chacun d'eux.
+
+Cache Redis
+-----------
+
+Le service Docker ``redis`` expose un cache partagé sur le port ``6379``. Django
+l'utilise quand ``CACHE_URL`` est défini, notamment pour le catalogue des
+stations. Sans ``CACHE_URL``, le backend revient à un cache local en mémoire.

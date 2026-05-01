@@ -33,6 +33,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     let stations = [];
     let technicians = [];
     let currentItem = null;
+    let passwordResetDialog = null;
 
     const configs = {
         user: {
@@ -131,6 +132,134 @@ document.addEventListener("DOMContentLoaded", async () => {
         status.classList.toggle("error", isError);
         status.classList.toggle("success", Boolean(message) && !isError);
         status.textContent = message;
+    }
+
+    function getPasswordResetDialog() {
+        if (!passwordResetDialog) {
+            passwordResetDialog = createPasswordResetDialog();
+        }
+        return passwordResetDialog;
+    }
+
+    function createPasswordResetDialog() {
+        const backdrop = document.createElement("div");
+        backdrop.className = "modal-backdrop";
+        backdrop.hidden = true;
+        backdrop.innerHTML = `
+            <section class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-password-title">
+                <div class="modal-heading">
+                    <div>
+                        <p class="eyebrow">Administration</p>
+                        <h2 id="reset-password-title">Mot de passe temporaire</h2>
+                    </div>
+                    <button class="modal-close" type="button" aria-label="Fermer">&times;</button>
+                </div>
+                <div class="account-form">
+                    <p id="reset-password-user" class="helper"></p>
+                    <p class="helper">Copiez ce mot de passe maintenant. Il ne sera plus affich&eacute; apr&egrave;s fermeture.</p>
+                    <div class="generated-password-box">
+                        <code id="generated-password-value"></code>
+                    </div>
+                    <p id="reset-password-status" class="field-feedback" aria-live="polite"></p>
+                    <div class="cta-row">
+                        <button class="btn btn-primary" type="button" data-copy-password>Copier</button>
+                        <button class="btn btn-secondary" type="button" data-reset-cancel>Fermer</button>
+                    </div>
+                </div>
+            </section>
+        `;
+
+        document.body.appendChild(backdrop);
+
+        const statusElement = backdrop.querySelector("#reset-password-status");
+        const userElement = backdrop.querySelector("#reset-password-user");
+        const passwordElement = backdrop.querySelector("#generated-password-value");
+        let generatedPassword = "";
+
+        function close() {
+            generatedPassword = "";
+            passwordElement.textContent = "";
+            statusElement.textContent = "";
+            statusElement.className = "field-feedback";
+            backdrop.hidden = true;
+        }
+
+        function setDialogStatus(message, isError = false) {
+            statusElement.textContent = message;
+            statusElement.className = `field-feedback${isError ? " invalid" : " valid"}`;
+        }
+
+        backdrop.querySelector(".modal-close").addEventListener("click", close);
+        backdrop.querySelector("[data-reset-cancel]").addEventListener("click", close);
+        backdrop.querySelector("[data-copy-password]").addEventListener("click", async () => {
+            if (!generatedPassword) return;
+
+            try {
+                await navigator.clipboard.writeText(generatedPassword);
+                setDialogStatus("Mot de passe copi\u00e9.");
+            } catch (_error) {
+                setDialogStatus("Copie automatique impossible. S\u00e9lectionnez le mot de passe manuellement.", true);
+            }
+        });
+        backdrop.addEventListener("click", (event) => {
+            if (event.target === backdrop) {
+                close();
+            }
+        });
+
+        return {
+            show(user, password) {
+                generatedPassword = password;
+                userElement.textContent = `Utilisateur : ${user.pseudo} (${user.email})`;
+                passwordElement.textContent = password;
+                statusElement.textContent = "";
+                statusElement.className = "field-feedback";
+                backdrop.hidden = false;
+                backdrop.querySelector("[data-copy-password]").focus();
+            },
+        };
+    }
+
+    function renderPasswordResetPanel() {
+        if (resource !== "user" || !isEdit) return;
+
+        const panel = document.createElement("section");
+        panel.className = "dashboard-panel admin-password-panel";
+        panel.setAttribute("aria-labelledby", "admin-password-title");
+        panel.innerHTML = `
+            <div class="panel-heading admin-password-heading">
+                <div>
+                    <p id="admin-password-title" class="panel-title">Mot de passe</p>
+                    <p class="helper">G&eacute;n&eacute;rez un mot de passe temporaire pour ce compte utilisateur.</p>
+                </div>
+                <button id="admin-reset-password" class="btn btn-secondary" type="button">R&eacute;initialiser le mot de passe</button>
+            </div>
+        `;
+
+        panel.querySelector("#admin-reset-password").addEventListener("click", (event) => {
+            resetCurrentUserPassword(event.currentTarget);
+        });
+        form.closest(".admin-edit-panel").after(panel);
+    }
+
+    async function resetCurrentUserPassword(triggerButton) {
+        if (!currentItem) return;
+
+        const confirmed = window.confirm(
+            `G\u00e9n\u00e9rer un nouveau mot de passe temporaire pour ${currentItem.pseudo} ?`
+        );
+        if (!confirmed) return;
+
+        triggerButton.disabled = true;
+        try {
+            const result = await window.AuthAPI.resetAdminUserPassword(currentItem.id_user);
+            getPasswordResetDialog().show(currentItem, result.temporary_password);
+            setStatus(`Mot de passe temporaire g\u00e9n\u00e9r\u00e9 pour ${currentItem.pseudo}.`);
+        } catch (error) {
+            setStatus(error.message || "R\u00e9initialisation impossible.", true);
+        } finally {
+            triggerButton.disabled = false;
+        }
     }
 
     function createField(field) {
@@ -325,6 +454,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         renderForm();
         await loadCurrentItem();
         if (currentItem) setFormValues(currentItem);
+        renderPasswordResetPanel();
         setStatus(isEdit ? "Formulaire charg\u00e9." : "Formulaire pr\u00eat.");
     } catch (error) {
         setStatus(error.message || "Impossible de charger le formulaire.", true);

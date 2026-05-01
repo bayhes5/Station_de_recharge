@@ -93,8 +93,21 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: redis_cache
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      target: dev
     container_name: django_app
     env_file:
       - .env
@@ -105,7 +118,19 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     command: sh /app/docker-entrypoint.sh
+
+  backend-test:
+    build:
+      context: ./backend
+      target: test
+    profiles:
+      - test
+    command: python -m pytest
+    env_file:
+      - .env
 
   frontend:
     image: node:22-alpine
