@@ -89,6 +89,32 @@ Le dépôt contient aussi :
 * une configuration Dependabot pour proposer des mises à jour hebdomadaires des
   dépendances GitHub Actions, npm, pip et Docker.
 
+Le workflow CodeQL versionné dans ``.github/workflows/codeql.yml`` est une
+configuration avancée. Le ``Default setup`` CodeQL de GitHub doit rester
+désactivé, sinon GitHub Code Scanning refuse les résultats SARIF produits par le
+workflow avancé.
+
+Protection de la branche principale
+-----------------------------------
+
+La branche ``main`` est protégée côté GitHub. Les changements doivent passer par
+une pull request dont la branche est à jour et dont les statuts requis sont au
+vert :
+
+* ``Backend tests`` ;
+* ``Backend quality`` ;
+* ``Frontend verify`` ;
+* ``Documentation build`` ;
+* ``Analyze (python)`` ;
+* ``Analyze (javascript-typescript)`` ;
+* ``Backend image supply chain reports``.
+
+Les conversations de revue doivent être résolues avant fusion. Les force-pushs
+et suppressions de ``main`` sont désactivés, et la règle s'applique aussi aux
+administrateurs du dépôt. Dependabot crée une branche et une pull request par
+mise à jour proposée ; les montées de versions majeures doivent être relues avant
+fusion.
+
 Installer les dépendances de développement :
 
 .. code-block:: powershell
