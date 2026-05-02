@@ -81,6 +81,8 @@ Automatisations DevSecOps
 
 Le dépôt contient aussi :
 
+* un workflow ``Documentation Pages`` pour reconstruire la documentation Sphinx
+  et la publier sur GitHub Pages après chaque merge dans ``main`` ;
 * un workflow ``CodeQL`` pour analyser le code Python et JavaScript sur push,
   pull request, exécution manuelle et planification hebdomadaire ;
 * un workflow ``Generate SBOM and VEX`` pour produire les SBOM CycloneDX/SPDX,
@@ -114,6 +116,17 @@ et suppressions de ``main`` sont désactivés, et la règle s'applique aussi aux
 administrateurs du dépôt. Dependabot crée une branche et une pull request par
 mise à jour proposée ; les montées de versions majeures doivent être relues avant
 fusion.
+
+Publication de la documentation HTML
+------------------------------------
+
+Le dossier ``docs/build/html`` est un artefact local ignoré par Git. Il peut être
+reconstruit sur le poste de développement, mais il ne doit pas être committé.
+
+La publication officielle est assurée par le workflow ``Documentation Pages`` :
+il installe les dépendances de documentation, lance Sphinx puis publie
+``docs/build/html`` via GitHub Pages à chaque merge dans ``main``. Le workflow
+peut aussi être lancé manuellement depuis l'onglet Actions.
 
 Installer les dépendances de développement :
 

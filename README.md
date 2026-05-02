@@ -360,6 +360,8 @@ de la documentation HTML sur chaque push et pull request.
 Automatisation DevSecOps:
 
 - `CI`: tests, qualité backend, validation frontend et build documentaire;
+- `Documentation Pages`: génération Sphinx et publication GitHub Pages à chaque
+  merge sur `main`;
 - `CodeQL`: analyse statique Python et JavaScript planifiée chaque semaine et
   exécutée aussi sur push, pull request et lancement manuel;
 - `Generate SBOM and VEX`: génération SBOM CycloneDX/SPDX, scan Grype de
@@ -387,6 +389,10 @@ Les conversations de revue doivent être résolues avant fusion, et les force-pu
 ou suppressions de `main` sont désactivés. Dependabot crée une branche et une PR
 par mise à jour proposée; les montées de versions majeures doivent être relues
 avant fusion.
+
+Le dossier `docs/build/html` reste un artefact local ignoré par Git. La version
+HTML publiée est reconstruite par GitHub Actions puis déployée via GitHub Pages;
+il ne faut donc pas committer le contenu généré.
 
 ```powershell
 cd backend
