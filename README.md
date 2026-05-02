@@ -368,6 +368,26 @@ Automatisation DevSecOps:
 - `Dependabot`: propositions hebdomadaires de mises à jour pour GitHub Actions,
   npm, pip et images Docker.
 
+Le dépôt utilise le workflow CodeQL avancé versionné dans `.github/workflows/`.
+Le `Default setup` CodeQL de GitHub doit donc rester désactivé, sinon GitHub Code
+Scanning refuse les résultats SARIF du workflow avancé.
+
+La branche `main` est protégée côté GitHub. Les changements doivent passer par
+une pull request avec une branche à jour et les statuts suivants au vert :
+
+- `Backend tests`
+- `Backend quality`
+- `Frontend verify`
+- `Documentation build`
+- `Analyze (python)`
+- `Analyze (javascript-typescript)`
+- `Backend image supply chain reports`
+
+Les conversations de revue doivent être résolues avant fusion, et les force-pushs
+ou suppressions de `main` sont désactivés. Dependabot crée une branche et une PR
+par mise à jour proposée; les montées de versions majeures doivent être relues
+avant fusion.
+
 ```powershell
 cd backend
 ..\.venv\Scripts\python.exe -m pytest

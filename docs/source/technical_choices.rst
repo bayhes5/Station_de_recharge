@@ -370,9 +370,19 @@ CodeQL complète ce contrôle avec une analyse statique Python et JavaScript. Il
 sert à détecter automatiquement des vulnérabilités de code ou des usages risqués
 qui ne sont pas visibles dans un simple inventaire de dépendances.
 
+Le projet conserve une configuration CodeQL avancée dans le dépôt plutôt que le
+``Default setup`` GitHub. Ce choix garde les requêtes, la planification et les
+permissions visibles en revue de code. Le ``Default setup`` doit rester
+désactivé pour éviter un conflit de traitement des résultats SARIF.
+
 Dependabot surveille les dépendances GitHub Actions, npm, pip et Docker. Les
 mises à jour arrivent sous forme de pull requests, ce qui permet de les faire
 passer par la même CI que les changements applicatifs.
+
+La protection de ``main`` transforme ces automatisations en garde-fous
+opérationnels : une mise à jour Dependabot ou applicative ne doit pas être
+fusionnée tant que les tests, CodeQL, le build documentaire et le rapport SBOM ne
+sont pas validés.
 
 Les rapports ne remplacent pas une analyse humaine. Une entrée VEX ne doit être
 validée qu'après avoir vérifié si le chemin vulnérable est réellement
