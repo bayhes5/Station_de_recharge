@@ -36,6 +36,8 @@ $VulnerabilitySarifPath = Join-Path $OutputDir "$ProjectName.vulnerabilities.sar
 $VexDraftPath = Join-Path $OutputDir "$ProjectName.openvex.json"
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $OutputDir "tmp") | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $OutputDir ".cache") | Out-Null
 
 function Use-HttpsCycloneDxSchema {
     if (-not (Test-Path $CycloneDxPath)) {
@@ -84,9 +86,11 @@ function Invoke-DockerSyftForSource {
     $DockerCycloneDxPath = "/work/$DockerOutputDir/$ProjectName.cdx.json"
     $DockerSpdxPath = "/work/$DockerOutputDir/$ProjectName.spdx.json"
     $DockerUserArgs = Get-DockerUserArgs
+    $DockerWritableArgs = Get-DockerWritableArgs
 
     & docker run --rm `
         @DockerUserArgs `
+        @DockerWritableArgs `
         -v "${RepoRoot}:/work" `
         -w /work `
         anchore/syft:v1.42.4 `
@@ -103,9 +107,11 @@ function Invoke-DockerSyftForImage {
     $DockerCycloneDxPath = "/work/$DockerOutputDir/$ProjectName.cdx.json"
     $DockerSpdxPath = "/work/$DockerOutputDir/$ProjectName.spdx.json"
     $DockerUserArgs = Get-DockerUserArgs
+    $DockerWritableArgs = Get-DockerWritableArgs
 
     & docker run --rm `
         @DockerUserArgs `
+        @DockerWritableArgs `
         -v /var/run/docker.sock:/var/run/docker.sock `
         -v "${RepoRoot}:/work" `
         -w /work `
@@ -151,6 +157,14 @@ function Get-DockerUserArgs {
     $Uid = (& id -u).Trim()
     $Gid = (& id -g).Trim()
     return @("--user", "${Uid}:${Gid}")
+}
+
+function Get-DockerWritableArgs {
+    $DockerOutputDir = ($OutputDir -replace "\\", "/").TrimEnd("/")
+    return @(
+        "-e", "TMPDIR=/work/$DockerOutputDir/tmp",
+        "-e", "XDG_CACHE_HOME=/work/$DockerOutputDir/.cache"
+    )
 }
 
 function Get-ExistingVexDocuments {
@@ -212,6 +226,7 @@ function Invoke-DockerGrype {
         "run",
         "--rm",
         (Get-DockerUserArgs),
+        (Get-DockerWritableArgs),
         "-v", "${RepoRoot}:/work",
         "-w", "/work",
         "anchore/grype:v0.111.0",
