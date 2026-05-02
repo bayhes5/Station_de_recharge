@@ -21,21 +21,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Build backend image
+        run: docker build -t station-de-recharge-backend:sbom ./backend
+
       - name: Generate SBOM, vulnerability reports and OpenVEX draft
         shell: pwsh
         run: |
           ./scripts/generate-sbom.ps1 `
             -Target backend-image `
+            -ImageName station-de-recharge-backend:sbom `
+            -SkipImageBuild `
             -UseDockerSyft `
             -AnalyzeVulnerabilities `
             -UseDockerGrype
 
+      - name: Summarize vulnerabilities
+        shell: pwsh
+        run: ./scripts/summarize-vulnerabilities.ps1
+
       - name: Upload supply chain artifacts
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: backend-supply-chain-reports
           path: |
             sbom/*.json
+            sbom/*.md
             sbom/*.sarif
 
       - name: Upload vulnerability SARIF

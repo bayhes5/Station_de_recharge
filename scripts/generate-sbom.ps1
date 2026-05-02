@@ -13,6 +13,8 @@ param(
 
     [switch]$UseDockerGrype,
 
+    [switch]$SkipImageBuild,
+
     [string[]]$VexDocuments = @("security/vex.openvex.json")
 )
 
@@ -285,7 +287,9 @@ function New-OpenVexDraft {
 }
 
 if ($Target -eq "backend-image") {
-    & docker build -t $ImageName ./backend
+    if (-not $SkipImageBuild) {
+        & docker build -t $ImageName ./backend
+    }
 
     if ($UseDockerSyft) {
         Invoke-DockerSyftForImage -Source $ImageName
