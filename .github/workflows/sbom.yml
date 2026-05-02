@@ -9,6 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
   security-events: write
 
@@ -16,6 +17,7 @@ jobs:
   backend-image-supply-chain:
     name: Backend image supply chain reports
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -24,12 +26,18 @@ jobs:
       - name: Build backend image
         run: docker build -t station-de-recharge-backend:sbom ./backend
 
+      - name: Export backend image
+        run: |
+          mkdir -p sbom
+          docker save station-de-recharge-backend:sbom -o sbom/backend-image.tar
+
       - name: Generate SBOM, vulnerability reports and OpenVEX draft
         shell: pwsh
         run: |
           ./scripts/generate-sbom.ps1 `
             -Target backend-image `
-            -ImageName station-de-recharge-backend:sbom `
+            -ImageName "docker-archive:/work/sbom/backend-image.tar" `
+            -ProductId "pkg:docker/station-de-recharge-backend@sbom" `
             -SkipImageBuild `
             -UseDockerSyft `
             -AnalyzeVulnerabilities `

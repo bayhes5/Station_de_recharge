@@ -15,6 +15,8 @@ param(
 
     [switch]$SkipImageBuild,
 
+    [string]$ProductId,
+
     [string[]]$VexDocuments = @("security/vex.openvex.json")
 )
 
@@ -81,8 +83,10 @@ function Invoke-DockerSyftForSource {
     $DockerOutputDir = ($OutputDir -replace "\\", "/").TrimEnd("/")
     $DockerCycloneDxPath = "/work/$DockerOutputDir/$ProjectName.cdx.json"
     $DockerSpdxPath = "/work/$DockerOutputDir/$ProjectName.spdx.json"
+    $DockerUserArgs = Get-DockerUserArgs
 
     & docker run --rm `
+        @DockerUserArgs `
         -v "${RepoRoot}:/work" `
         -w /work `
         anchore/syft:v1.42.4 `
@@ -98,8 +102,10 @@ function Invoke-DockerSyftForImage {
     $DockerOutputDir = ($OutputDir -replace "\\", "/").TrimEnd("/")
     $DockerCycloneDxPath = "/work/$DockerOutputDir/$ProjectName.cdx.json"
     $DockerSpdxPath = "/work/$DockerOutputDir/$ProjectName.spdx.json"
+    $DockerUserArgs = Get-DockerUserArgs
 
     & docker run --rm `
+        @DockerUserArgs `
         -v /var/run/docker.sock:/var/run/docker.sock `
         -v "${RepoRoot}:/work" `
         -w /work `
@@ -110,6 +116,10 @@ function Invoke-DockerSyftForImage {
 }
 
 function Get-ProductId {
+    if ($ProductId) {
+        return $ProductId
+    }
+
     if ($Target -eq "backend-image") {
         $TagSeparatorIndex = $ImageName.LastIndexOf(":")
 
@@ -131,6 +141,16 @@ function Get-ProductId {
     }
 
     return "pkg:generic/$ProjectName@source"
+}
+
+function Get-DockerUserArgs {
+    if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) {
+        return @()
+    }
+
+    $Uid = (& id -u).Trim()
+    $Gid = (& id -g).Trim()
+    return @("--user", "${Uid}:${Gid}")
 }
 
 function Get-ExistingVexDocuments {
@@ -191,6 +211,7 @@ function Invoke-DockerGrype {
     $GrypeArgs = @(
         "run",
         "--rm",
+        (Get-DockerUserArgs),
         "-v", "${RepoRoot}:/work",
         "-w", "/work",
         "anchore/grype:v0.111.0",
