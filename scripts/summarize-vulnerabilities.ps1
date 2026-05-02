@@ -178,9 +178,9 @@ foreach ($Match in $PrioritizedMatches) {
 $Lines.Add("")
 $Lines.Add("## Recommended Reading Order")
 $Lines.Add("")
-$Lines.Add("1. Start with Critical and High findings that have a fix state other than `wont-fix`.")
+$Lines.Add('1. Start with Critical and High findings that have a fix state other than `wont-fix`.')
 $Lines.Add("2. Review application dependencies before base-image operating system packages.")
-$Lines.Add("3. Promote VEX statements from `under_investigation` only after checking whether the vulnerable code path is reachable.")
+$Lines.Add('3. Promote VEX statements from `under_investigation` only after checking whether the vulnerable code path is reachable.')
 
 $OutputDirectory = Split-Path -Parent $OutputPath
 if ($OutputDirectory) {
