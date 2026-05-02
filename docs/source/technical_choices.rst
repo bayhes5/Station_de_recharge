@@ -384,6 +384,11 @@ opérationnels : une mise à jour Dependabot ou applicative ne doit pas être
 fusionnée tant que les tests, CodeQL, le build documentaire et le rapport SBOM ne
 sont pas validés.
 
+La documentation HTML n'est pas versionnée : ``docs/build/html`` reste un
+artefact généré. GitHub Pages est alimenté par un workflow dédié qui reconstruit
+Sphinx depuis les sources versionnées, ce qui évite les divergences entre la
+documentation source et le HTML publié.
+
 Les rapports ne remplacent pas une analyse humaine. Une entrée VEX ne doit être
 validée qu'après avoir vérifié si le chemin vulnérable est réellement
 atteignable.
