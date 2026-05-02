@@ -1,5 +1,4 @@
 from django.urls import path
-from rest_framework_simplejwt.views import TokenRefreshView
 
 from .views import (
     admin_emplacement_detail,
@@ -29,6 +28,7 @@ from .views import (
     delete_auth_method,
     export_account,
     login,
+    logout,
     me,
     create_auth_method,
     profile,
@@ -37,6 +37,7 @@ from .views import (
     reservations,
     register,
     register_availability,
+    refresh_token,
     stations_catalog,
     technician_maintenances,
     terminal_authenticate,
@@ -46,7 +47,8 @@ urlpatterns = [
     path("register/", register, name="api-register"),
     path("register/availability/", register_availability, name="api-register-availability"),
     path("login/", login, name="api-login"),
-    path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("logout/", logout, name="api-logout"),
+    path("token/refresh/", refresh_token, name="token_refresh"),
     path("me/", me, name="api-me"),
     path("me/profile/", profile, name="api-profile"),
     path("me/change-password/", change_password, name="api-change-password"),

@@ -16,15 +16,26 @@ function renderBadge(status) {
 function renderSessionCard(session) {
     const item = document.createElement("article");
     item.className = "list-item";
-    item.innerHTML = `
-        <div class="list-item-head">
-            <strong>${session.station}</strong>
-            <span>${session.status === "active" ? "En cours" : "Archivée"}</span>
-        </div>
-        <p>Emplacement ${session.emplacement}</p>
-        <p>Début : ${formatDateTime(session.start_time)}</p>
-        <p>Fin : ${formatDateTime(session.end_time)}</p>
-    `;
+    const head = document.createElement("div");
+    head.className = "list-item-head";
+    const title = document.createElement("strong");
+    title.textContent = session.station || "-";
+    const state = document.createElement("span");
+    state.textContent = session.status === "active" ? "En cours" : "Archivée";
+    head.appendChild(title);
+    head.appendChild(state);
+
+    const emplacement = document.createElement("p");
+    emplacement.textContent = `Emplacement ${session.emplacement || "-"}`;
+    const start = document.createElement("p");
+    start.textContent = `Début : ${formatDateTime(session.start_time)}`;
+    const end = document.createElement("p");
+    end.textContent = `Fin : ${formatDateTime(session.end_time)}`;
+
+    item.appendChild(head);
+    item.appendChild(emplacement);
+    item.appendChild(start);
+    item.appendChild(end);
     return item;
 }
 
@@ -83,17 +94,28 @@ function reservationCanShowAccess(reservation) {
 function renderReservationCard(reservation, onCancel, onAccess) {
     const item = document.createElement("article");
     item.className = "list-item";
-    item.innerHTML = `
-        <div class="list-item-head">
-            <strong>${reservation.station_nom || reservation.station}</strong>
-            <span>${reservation.statut}</span>
-        </div>
-        <p>Emplacement ${reservation.emplacement_numero || reservation.emplacement}</p>
-        <p>Début : ${formatDateTime(reservation.date_debut)}</p>
-        <p>Fin : ${formatDateTime(reservation.date_fin)}</p>
-        <p>Mode : ${reservation.auth_mode || "-"}</p>
-        <p>Code : ${reservation.reference_code || "-"}</p>
-    `;
+
+    const head = document.createElement("div");
+    head.className = "list-item-head";
+    const title = document.createElement("strong");
+    title.textContent = reservation.station_nom || reservation.station || "-";
+    const state = document.createElement("span");
+    state.textContent = reservation.statut || "-";
+    head.appendChild(title);
+    head.appendChild(state);
+    item.appendChild(head);
+
+    [
+        `Emplacement ${reservation.emplacement_numero || reservation.emplacement || "-"}`,
+        `Début : ${formatDateTime(reservation.date_debut)}`,
+        `Fin : ${formatDateTime(reservation.date_fin)}`,
+        `Mode : ${reservation.auth_mode || "-"}`,
+        `Code : ${reservation.reference_code || "-"}`,
+    ].forEach((line) => {
+        const paragraph = document.createElement("p");
+        paragraph.textContent = line;
+        item.appendChild(paragraph);
+    });
 
     if ((reservation.can_cancel && onCancel) || (reservationCanShowAccess(reservation) && onAccess)) {
         const actions = document.createElement("div");
@@ -242,9 +264,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         document.getElementById("access-expiry").textContent = snapshot.accessExpired
             ? "Expiré"
             : `Expire dans ${snapshot.accessReadable}`;
-        document.getElementById("refresh-expiry").textContent = snapshot.refreshExpired
-            ? "Expiré"
-            : `Expire dans ${snapshot.refreshReadable}`;
+        document.getElementById("refresh-expiry").textContent = snapshot.refreshExpiry
+            ? (snapshot.refreshExpired ? "Expiré" : `Expire dans ${snapshot.refreshReadable}`)
+            : (snapshot.hasRefreshToken ? "Cookie HttpOnly actif" : "Inconnu");
 
         document.getElementById("kpi-sessions-total").textContent = result.stats.sessions_total;
         document.getElementById("kpi-reservations-total").textContent = result.stats.reservations_total;

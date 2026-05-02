@@ -175,6 +175,20 @@ npm ci
 npm run build
 ```
 
+Verifier le frontend localement:
+
+```bash
+cd frontend
+npm ci
+npm run check:js
+npm run verify
+```
+
+`check:js` valide la syntaxe des scripts JavaScript avec Node. `verify` enchaine
+la verification syntaxique, le build Vite de production et les tests
+end-to-end Playwright. Avant le premier lancement local des tests Playwright,
+installer le navigateur de test avec `npx playwright install chromium`.
+
 Supprimer aussi la base PostgreSQL locale et repartir de zéro:
 
 ```bash
@@ -201,6 +215,11 @@ Le fichier `.env.example` couvre les variables principales:
 - `CACHE_URL`, `API_DEFAULT_PAGE_SIZE`, `API_MAX_PAGE_SIZE`
 - `STATIONS_CATALOG_CACHE_SECONDS`
 - `SIMPLE_JWT_ACCESS_MINUTES`, `SIMPLE_JWT_REFRESH_DAYS`
+- `JWT_REFRESH_COOKIE_NAME`, `JWT_REFRESH_COOKIE_SECURE`,
+  `JWT_REFRESH_COOKIE_SAMESITE`, `JWT_REFRESH_COOKIE_PATH`
+- `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`,
+  `SECURE_HSTS_SECONDS`, `SECURE_HSTS_INCLUDE_SUBDOMAINS`,
+  `SECURE_HSTS_PRELOAD`, `X_FRAME_OPTIONS`
 - `ADMIN_PSEUDO`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`
 - `DEMO_STATION_*`, `DEMO_EMPLACEMENTS_COUNT`, `DEMO_ESP32_FIRMWARE_VERSION`, `DEMO_TECH_*`
 
@@ -235,6 +254,7 @@ API principale:
 
 - `/api/register/`
 - `/api/login/`
+- `/api/logout/`
 - `/api/token/refresh/`
 - `/api/me/`
 - `/api/me/profile/`
@@ -270,6 +290,40 @@ Gestion des moyens d'acces:
 - les secrets d'acces sont haches cote backend et les actions sensibles sont
   journalisees dans `JournalSecurite`.
 
+Session navigateur:
+
+- le jeton d'acces JWT reste en memoire JavaScript et n'est plus persiste dans
+  `localStorage`;
+- le jeton de rafraichissement est envoye dans un cookie `HttpOnly`, avec les
+  attributs `Secure` et `SameSite` configurables par environnement;
+- `/api/token/refresh/` lit ce cookie pour renouveler le jeton d'acces, et
+  `/api/logout/` efface le cookie.
+
+Configuration production securisee:
+
+- definir `DEBUG=False`;
+- definir un `SECRET_KEY` long, aleatoire et propre a l'environnement;
+- remplacer `ALLOWED_HOSTS` et `CORS_ALLOWED_ORIGINS` par les domaines reels;
+- utiliser HTTPS et activer `SECURE_SSL_REDIRECT=True`;
+- activer `SESSION_COOKIE_SECURE=True`, `CSRF_COOKIE_SECURE=True` et
+  `JWT_REFRESH_COOKIE_SECURE=True`;
+- utiliser `JWT_REFRESH_COOKIE_SAMESITE=None` si le frontend et l'API sont sur
+  des domaines differents, sinon `Lax` peut suffire;
+- definir `SECURE_HSTS_SECONDS=31536000` apres validation du HTTPS;
+- activer `SECURE_HSTS_PRELOAD=True` seulement si le domaine est pret pour la
+  preload list navigateur;
+- remplacer `ADMIN_PASSWORD`, `DEMO_TECH_PASSWORD`, `DB_PASSWORD` et
+  `POSTGRES_PASSWORD` par des secrets uniques.
+
+Verifier les reglages Django avant une mise en production:
+
+```powershell
+$env:DEBUG="False"
+$env:SECRET_KEY="<secret-long-et-aleatoire>"
+$env:ALLOWED_HOSTS="example.com"
+.\.venv\Scripts\python.exe backend\manage.py check --deploy
+```
+
 Documentation:
 
 - `/api/schema/` schéma OpenAPI généré par drf-spectacular
@@ -299,6 +353,21 @@ Les tests pytest sont exécutés automatiquement pendant le build de l'image
 backend. Si un test échoue, `docker compose up -d --build` s'arrête avant de
 lancer les services.
 
+Le workflow GitHub Actions `CI` relance aussi les tests backend, la qualité des
+docstrings backend, la validation frontend (`npm run verify`) et la génération
+de la documentation HTML sur chaque push et pull request.
+
+Automatisation DevSecOps:
+
+- `CI`: tests, qualité backend, validation frontend et build documentaire;
+- `CodeQL`: analyse statique Python et JavaScript planifiée chaque semaine et
+  exécutée aussi sur push, pull request et lancement manuel;
+- `Generate SBOM and VEX`: génération SBOM CycloneDX/SPDX, scan Grype de
+  l'image backend, upload SARIF vers GitHub Code Scanning et brouillon OpenVEX
+  si des vulnérabilités sont détectées;
+- `Dependabot`: propositions hebdomadaires de mises à jour pour GitHub Actions,
+  npm, pip et images Docker.
+
 ```powershell
 cd backend
 ..\.venv\Scripts\python.exe -m pytest
@@ -319,6 +388,18 @@ cd backend
 
 Les tests utilisent `config.test_settings` et une base SQLite locale pour rester
 indépendants de PostgreSQL.
+
+Frontend:
+
+```powershell
+cd frontend
+npm run check:js
+npm run verify
+```
+
+La commande `verify` exécute la vérification syntaxique JavaScript, le build
+Vite puis les tests end-to-end Playwright. Avant le premier lancement local,
+installer le navigateur de test avec `npx playwright install chromium`.
 
 Qualité des docstrings:
 
@@ -426,7 +507,8 @@ winget install Anchore.Grype
 Un workflow GitHub Actions génère aussi un SBOM CycloneDX, un SBOM SPDX, des
 rapports de vulnérabilités Grype et un brouillon OpenVEX de l'image backend à
 chaque push, pull request ou lancement manuel. Le SARIF est envoyé à GitHub Code
-Scanning quand les permissions du dépôt le permettent.
+Scanning quand les permissions du dépôt le permettent. Dependabot surveille en
+complément les dépendances Python, JavaScript, Docker et GitHub Actions.
 
 ## Kiosque Raspberry
 

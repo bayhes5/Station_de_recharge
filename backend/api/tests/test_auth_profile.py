@@ -1,5 +1,6 @@
 import pytest
 from django.contrib.auth import get_user_model
+from django.conf import settings
 from django.urls import reverse
 from rest_framework import status
 
@@ -17,7 +18,8 @@ def test_login_accepts_pseudo(api_client, user):
     assert response.status_code == status.HTTP_200_OK
     assert response.data["user"]["pseudo"] == user.pseudo
     assert response.data["access"]
-    assert response.data["refresh"]
+    assert "refresh" not in response.data
+    assert settings.JWT_REFRESH_COOKIE_NAME in response.cookies
 
 
 @pytest.mark.django_db

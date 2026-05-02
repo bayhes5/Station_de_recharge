@@ -464,10 +464,12 @@ document.addEventListener("DOMContentLoaded", async () => {
             const item = document.createElement("button");
             item.type = "button";
             item.className = `station-result${isSelected ? " active" : ""}`;
-            item.innerHTML = `
-                <strong>${station.nom}</strong>
-                <span>${station.localisation_text || "Localisation non renseignÃ©e"}</span>
-            `;
+            const name = document.createElement("strong");
+            name.textContent = station.nom || "-";
+            const location = document.createElement("span");
+            location.textContent = station.localisation_text || "Localisation non renseignée";
+            item.appendChild(name);
+            item.appendChild(location);
             item.addEventListener("click", () => selectStation(station));
             stationResults.appendChild(item);
         });

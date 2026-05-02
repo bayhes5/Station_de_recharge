@@ -9,7 +9,9 @@ Backend Django
 
 Le dossier ``backend/`` contient la configuration Django, les modèles, les
 serializers, les vues API et les commandes de bootstrap. L'API REST est exposée
-sous ``/api/`` et utilise des jetons JWT.
+sous ``/api/`` et utilise des jetons JWT. Le refresh token navigateur est placé
+dans un cookie ``HttpOnly``; le frontend garde seulement le jeton d'accès en
+mémoire et le renouvelle via ``/api/token/refresh/``.
 
 Frontend Vite
 -------------
@@ -45,9 +47,9 @@ Les QR codes et codes temporaires sont rattachés à une réservation. Ils peuve
 être régénérés ou révoqués depuis l'administration des réservations, tandis que
 le terminal refuse les moyens d'accès expirés ou révoqués. La régénération admin
 remplace la valeur côté serveur sans afficher le secret dans une fenêtre de copie;
-l'interface utilisateur rafraîchit ensuite le QR/code visible pour récupérer la
-valeur courante. Les actions sensibles sont journalisées dans
-``JournalSecurite``.
+l'endpoint admin ne renvoie pas la valeur régénérée et l'interface utilisateur
+rafraîchit ensuite le QR/code visible pour récupérer la valeur courante. Les
+actions sensibles sont journalisées dans ``JournalSecurite``.
 
 Kiosque Raspberry
 -----------------

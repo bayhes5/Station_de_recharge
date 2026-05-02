@@ -2,6 +2,7 @@ from datetime import timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.conf import settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -26,7 +27,55 @@ def test_register_endpoint_returns_tokens_and_user_payload():
     assert response.status_code == status.HTTP_201_CREATED
     assert response.data["user"]["pseudo"] == "bob"
     assert "access" in response.data
-    assert "refresh" in response.data
+    assert "refresh" not in response.data
+    assert settings.JWT_REFRESH_COOKIE_NAME in response.cookies
+
+
+@pytest.mark.django_db
+def test_refresh_endpoint_uses_httponly_cookie():
+    client = APIClient()
+    login_response = client.post(
+        reverse("api-login"),
+        {
+            "identifiant": "cookie-user",
+            "password": "CookiePass123!",
+        },
+        format="json",
+    )
+    assert login_response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    get_user_model().objects.create_user(
+        pseudo="cookie-user",
+        email="cookie-user@example.com",
+        password="CookiePass123!",
+    )
+    login_response = client.post(
+        reverse("api-login"),
+        {
+            "identifiant": "cookie-user",
+            "password": "CookiePass123!",
+        },
+        format="json",
+    )
+
+    assert login_response.status_code == status.HTTP_200_OK
+    assert "refresh" not in login_response.data
+    assert login_response.cookies[settings.JWT_REFRESH_COOKIE_NAME]["httponly"]
+
+    refresh_response = client.post(reverse("token_refresh"), {}, format="json")
+
+    assert refresh_response.status_code == status.HTTP_200_OK
+    assert "access" in refresh_response.data
+
+
+@pytest.mark.django_db
+def test_logout_clears_refresh_cookie():
+    client = APIClient()
+    response = client.post(reverse("api-logout"))
+
+    assert response.status_code == status.HTTP_200_OK
+    assert settings.JWT_REFRESH_COOKIE_NAME in response.cookies
+    assert response.cookies[settings.JWT_REFRESH_COOKIE_NAME].value == ""
 
 
 @pytest.mark.django_db

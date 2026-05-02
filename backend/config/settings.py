@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import timedelta
 import os
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -22,11 +23,21 @@ def env_list(name, default):
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
-SECRET_KEY = os.environ.get("SECRET_KEY", "dev-key")
-
 DEBUG = env_bool("DEBUG", True)
 
-ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", ["*"])
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    if DEBUG or os.environ.get("DJANGO_SETTINGS_MODULE") == "config.test_settings":
+        SECRET_KEY = "dev-key"
+    else:
+        raise ImproperlyConfigured("SECRET_KEY must be set when DEBUG is false.")
+
+ALLOWED_HOSTS = env_list(
+    "ALLOWED_HOSTS",
+    ["localhost", "127.0.0.1"] if DEBUG else [],
+)
+if not DEBUG and not ALLOWED_HOSTS and os.environ.get("DJANGO_SETTINGS_MODULE") != "config.test_settings":
+    raise ImproperlyConfigured("ALLOWED_HOSTS must be set when DEBUG is false.")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -74,6 +85,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -109,7 +121,7 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
     "SWAGGER_UI_SETTINGS": {
-        "persistAuthorization": True,
+        "persistAuthorization": False,
     },
 }
 
@@ -120,6 +132,23 @@ SIMPLE_JWT = {
     'USER_ID_FIELD': 'id_user',
     'USER_ID_CLAIM': 'user_id',
 }
+
+JWT_REFRESH_COOKIE_NAME = os.environ.get("JWT_REFRESH_COOKIE_NAME", "station_refresh_token")
+JWT_REFRESH_COOKIE_SECURE = env_bool("JWT_REFRESH_COOKIE_SECURE", not DEBUG)
+JWT_REFRESH_COOKIE_SAMESITE = os.environ.get(
+    "JWT_REFRESH_COOKIE_SAMESITE",
+    "Lax" if DEBUG else "None",
+)
+JWT_REFRESH_COOKIE_PATH = os.environ.get("JWT_REFRESH_COOKIE_PATH", "/api/")
+
+SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", not DEBUG)
+SESSION_COOKIE_SECURE = env_bool("SESSION_COOKIE_SECURE", not DEBUG)
+CSRF_COOKIE_SECURE = env_bool("CSRF_COOKIE_SECURE", not DEBUG)
+SECURE_HSTS_SECONDS = env_int("SECURE_HSTS_SECONDS", 0 if DEBUG else 31536000)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", not DEBUG)
+SECURE_HSTS_PRELOAD = env_bool("SECURE_HSTS_PRELOAD", False)
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+X_FRAME_OPTIONS = os.environ.get("X_FRAME_OPTIONS", "DENY")
 
 
 
@@ -176,6 +205,7 @@ CORS_ALLOWED_ORIGINS = env_list(
         "http://127.0.0.1:9000",
     ],
 )
+CORS_ALLOW_CREDENTIALS = True
 
 LANGUAGE_CODE = "fr-fr"
 

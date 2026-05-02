@@ -1,6 +1,8 @@
 const API_BASE_URL = window.__API_BASE_URL__ || import.meta.env?.VITE_API_BASE_URL || "http://localhost:8000/api";
-const ACCESS_TOKEN_KEY = "station_access_token";
-const REFRESH_TOKEN_KEY = "station_refresh_token";
+const LEGACY_ACCESS_TOKEN_KEY = "station_access_token";
+const LEGACY_REFRESH_TOKEN_KEY = "station_refresh_token";
+let accessTokenMemory = null;
+let refreshCookieAvailable = false;
 
 function getHeaders(extraHeaders = {}, includeJson = false, token = null) {
     const headers = {
@@ -105,21 +107,19 @@ function getTokenTimeRemaining(token) {
 
 function getSessionSnapshot() {
     const accessToken = getAccessToken();
-    const refreshToken = getRefreshToken();
     const accessRemaining = getTokenTimeRemaining(accessToken);
-    const refreshRemaining = getTokenTimeRemaining(refreshToken);
 
     return {
         hasAccessToken: Boolean(accessToken),
-        hasRefreshToken: Boolean(refreshToken),
+        hasRefreshToken: refreshCookieAvailable,
         accessExpiry: getTokenExpiry(accessToken),
-        refreshExpiry: getTokenExpiry(refreshToken),
+        refreshExpiry: null,
         accessRemaining,
-        refreshRemaining,
+        refreshRemaining: null,
         accessReadable: formatDuration(accessRemaining),
-        refreshReadable: formatDuration(refreshRemaining),
+        refreshReadable: refreshCookieAvailable ? "cookie HttpOnly" : "inconnue",
         accessExpired: accessRemaining !== null && accessRemaining <= 0,
-        refreshExpired: refreshRemaining !== null && refreshRemaining <= 0,
+        refreshExpired: false,
     };
 }
 
@@ -135,6 +135,7 @@ async function doRequest(path, options = {}) {
     const accessToken = auth ? getAccessToken() : null;
     const response = await fetch(`${API_BASE_URL}${path}`, {
         ...fetchOptions,
+        credentials: "include",
         headers: getHeaders(headers, Boolean(body), accessToken),
         body,
     });
@@ -178,20 +179,15 @@ function withQuery(path, params = {}) {
 }
 
 async function refreshAccessToken() {
-    const refresh = getRefreshToken();
-    if (!refresh) {
-        return null;
-    }
-
     const payload = await doRequest("/token/refresh/", {
         method: "POST",
         auth: false,
         retryOnAuthFailure: false,
-        body: JSON.stringify({ refresh }),
     });
 
     if (payload.access) {
         setTokens({ access: payload.access });
+        refreshCookieAvailable = true;
         return payload.access;
     }
 
@@ -534,8 +530,13 @@ async function terminalAuthenticate(data) {
 }
 
 async function ensureSession() {
-    if (!getAccessToken() && !getRefreshToken()) {
-        return null;
+    if (!getAccessToken()) {
+        try {
+            await refreshAccessToken();
+        } catch (_error) {
+            clearTokens();
+            return null;
+        }
     }
 
     try {
@@ -548,29 +549,48 @@ async function ensureSession() {
 
 function setTokens({ access, refresh }) {
     if (access) {
-        localStorage.setItem(ACCESS_TOKEN_KEY, access);
+        accessTokenMemory = access;
+        refreshCookieAvailable = true;
     }
     if (refresh) {
-        localStorage.setItem(REFRESH_TOKEN_KEY, refresh);
+        refreshCookieAvailable = true;
     }
+    localStorage.removeItem(LEGACY_ACCESS_TOKEN_KEY);
+    localStorage.removeItem(LEGACY_REFRESH_TOKEN_KEY);
+    sessionStorage.removeItem(LEGACY_ACCESS_TOKEN_KEY);
+    sessionStorage.removeItem(LEGACY_REFRESH_TOKEN_KEY);
 }
 
 function getAccessToken() {
-    return localStorage.getItem(ACCESS_TOKEN_KEY);
+    return accessTokenMemory;
 }
 
 function getRefreshToken() {
-    return localStorage.getItem(REFRESH_TOKEN_KEY);
+    return null;
 }
 
 function clearTokens() {
-    localStorage.removeItem(ACCESS_TOKEN_KEY);
-    localStorage.removeItem(REFRESH_TOKEN_KEY);
+    accessTokenMemory = null;
+    refreshCookieAvailable = false;
+    localStorage.removeItem(LEGACY_ACCESS_TOKEN_KEY);
+    localStorage.removeItem(LEGACY_REFRESH_TOKEN_KEY);
+    sessionStorage.removeItem(LEGACY_ACCESS_TOKEN_KEY);
+    sessionStorage.removeItem(LEGACY_REFRESH_TOKEN_KEY);
 }
 
-function logout() {
-    clearTokens();
-    window.location.href = "/login.html";
+async function logout() {
+    try {
+        await doRequest("/logout/", {
+            method: "POST",
+            auth: false,
+            retryOnAuthFailure: false,
+        });
+    } catch (_error) {
+        // Local logout must still happen even if the API is unavailable.
+    } finally {
+        clearTokens();
+        window.location.href = "/login.html";
+    }
 }
 
 window.AuthAPI = {

@@ -18,6 +18,13 @@ function optionLabel(item, fallback = "-") {
     return item || fallback;
 }
 
+function createTextElement(tagName, text, className = "") {
+    const element = document.createElement(tagName);
+    if (className) element.className = className;
+    element.textContent = text;
+    return element;
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
     const params = new URLSearchParams(window.location.search);
     const resource = params.get("resource") || "user";
@@ -151,29 +158,66 @@ document.addEventListener("DOMContentLoaded", async () => {
         const backdrop = document.createElement("div");
         backdrop.className = "modal-backdrop";
         backdrop.hidden = true;
-        backdrop.innerHTML = `
-            <section class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-password-title">
-                <div class="modal-heading">
-                    <div>
-                        <p class="eyebrow">Administration</p>
-                        <h2 id="reset-password-title">Mot de passe temporaire</h2>
-                    </div>
-                    <button class="modal-close" type="button" aria-label="Fermer">&times;</button>
-                </div>
-                <div class="account-form">
-                    <p id="reset-password-user" class="helper"></p>
-                    <p class="helper">Copiez ce mot de passe maintenant. Il ne sera plus affich&eacute; apr&egrave;s fermeture.</p>
-                    <div class="generated-password-box">
-                        <code id="generated-password-value"></code>
-                    </div>
-                    <p id="reset-password-status" class="field-feedback" aria-live="polite"></p>
-                    <div class="cta-row">
-                        <button class="btn btn-primary" type="button" data-copy-password>Copier</button>
-                        <button class="btn btn-secondary" type="button" data-reset-cancel>Fermer</button>
-                    </div>
-                </div>
-            </section>
-        `;
+
+        const dialog = document.createElement("section");
+        dialog.className = "modal-dialog";
+        dialog.setAttribute("role", "dialog");
+        dialog.setAttribute("aria-modal", "true");
+        dialog.setAttribute("aria-labelledby", "reset-password-title");
+
+        const heading = document.createElement("div");
+        heading.className = "modal-heading";
+        const headingText = document.createElement("div");
+        headingText.appendChild(createTextElement("p", "Administration", "eyebrow"));
+        const dialogTitle = createTextElement("h2", "Mot de passe temporaire");
+        dialogTitle.id = "reset-password-title";
+        headingText.appendChild(dialogTitle);
+        const closeButton = document.createElement("button");
+        closeButton.className = "modal-close";
+        closeButton.type = "button";
+        closeButton.setAttribute("aria-label", "Fermer");
+        closeButton.textContent = "\u00d7";
+        heading.appendChild(headingText);
+        heading.appendChild(closeButton);
+
+        const accountForm = document.createElement("div");
+        accountForm.className = "account-form";
+        const userLine = createTextElement("p", "", "helper");
+        userLine.id = "reset-password-user";
+        accountForm.appendChild(userLine);
+        accountForm.appendChild(
+            createTextElement(
+                "p",
+                "Copiez ce mot de passe maintenant. Il ne sera plus affiché après fermeture.",
+                "helper",
+            )
+        );
+        const passwordBox = document.createElement("div");
+        passwordBox.className = "generated-password-box";
+        const passwordCode = document.createElement("code");
+        passwordCode.id = "generated-password-value";
+        passwordBox.appendChild(passwordCode);
+        accountForm.appendChild(passwordBox);
+        const dialogStatus = createTextElement("p", "", "field-feedback");
+        dialogStatus.id = "reset-password-status";
+        dialogStatus.setAttribute("aria-live", "polite");
+        accountForm.appendChild(dialogStatus);
+
+        const actions = document.createElement("div");
+        actions.className = "cta-row";
+        const copyButton = createTextElement("button", "Copier", "btn btn-primary");
+        copyButton.type = "button";
+        copyButton.dataset.copyPassword = "";
+        const cancelButton = createTextElement("button", "Fermer", "btn btn-secondary");
+        cancelButton.type = "button";
+        cancelButton.dataset.resetCancel = "";
+        actions.appendChild(copyButton);
+        actions.appendChild(cancelButton);
+        accountForm.appendChild(actions);
+
+        dialog.appendChild(heading);
+        dialog.appendChild(accountForm);
+        backdrop.appendChild(dialog);
 
         document.body.appendChild(backdrop);
 
@@ -232,17 +276,24 @@ document.addEventListener("DOMContentLoaded", async () => {
         const panel = document.createElement("section");
         panel.className = "dashboard-panel admin-password-panel";
         panel.setAttribute("aria-labelledby", "admin-password-title");
-        panel.innerHTML = `
-            <div class="panel-heading admin-password-heading">
-                <div>
-                    <p id="admin-password-title" class="panel-title">Mot de passe</p>
-                    <p class="helper">G&eacute;n&eacute;rez un mot de passe temporaire pour ce compte utilisateur.</p>
-                </div>
-                <button id="admin-reset-password" class="btn btn-secondary" type="button">R&eacute;initialiser le mot de passe</button>
-            </div>
-        `;
 
-        panel.querySelector("#admin-reset-password").addEventListener("click", (event) => {
+        const heading = document.createElement("div");
+        heading.className = "panel-heading admin-password-heading";
+        const headingText = document.createElement("div");
+        const titleElement = createTextElement("p", "Mot de passe", "panel-title");
+        titleElement.id = "admin-password-title";
+        headingText.appendChild(titleElement);
+        headingText.appendChild(
+            createTextElement("p", "Générez un mot de passe temporaire pour ce compte utilisateur.", "helper")
+        );
+        const resetButton = createTextElement("button", "Réinitialiser le mot de passe", "btn btn-secondary");
+        resetButton.id = "admin-reset-password";
+        resetButton.type = "button";
+        heading.appendChild(headingText);
+        heading.appendChild(resetButton);
+        panel.appendChild(heading);
+
+        resetButton.addEventListener("click", (event) => {
             resetCurrentUserPassword(event.currentTarget);
         });
         form.closest(".admin-edit-panel").after(panel);
@@ -254,27 +305,54 @@ document.addEventListener("DOMContentLoaded", async () => {
         const panel = document.createElement("section");
         panel.className = "dashboard-panel admin-access-panel";
         panel.setAttribute("aria-labelledby", "admin-access-title");
-        panel.innerHTML = `
-            <div class="panel-heading admin-access-heading">
-                <div>
-                    <p id="admin-access-title" class="panel-title">Moyens d'acc&egrave;s</p>
-                    <p class="helper">G&eacute;rez les badges RFID sans afficher leur valeur compl&egrave;te. Les QR codes et codes temporaires se g&egrave;rent depuis les r&eacute;servations.</p>
-                </div>
-            </div>
-            <form id="admin-rfid-form" class="admin-inline-form">
-                <div class="field">
-                    <label for="admin-rfid-value">Nouveau badge RFID</label>
-                    <input id="admin-rfid-value" name="auth_value" type="text" placeholder="Valeur du badge" autocomplete="off" required>
-                </div>
-                <button class="btn btn-secondary" type="submit">Associer / remplacer</button>
-            </form>
-            <div id="admin-auth-methods-list" class="stacked-list"></div>
-        `;
+
+        const heading = document.createElement("div");
+        heading.className = "panel-heading admin-access-heading";
+        const headingText = document.createElement("div");
+        const titleElement = createTextElement("p", "Moyens d'accès", "panel-title");
+        titleElement.id = "admin-access-title";
+        headingText.appendChild(titleElement);
+        headingText.appendChild(
+            createTextElement(
+                "p",
+                "Gérez les badges RFID sans afficher leur valeur complète. Les QR codes et codes temporaires se gèrent depuis les réservations.",
+                "helper",
+            )
+        );
+        heading.appendChild(headingText);
+        panel.appendChild(heading);
+
+        const rfidForm = document.createElement("form");
+        rfidForm.id = "admin-rfid-form";
+        rfidForm.className = "admin-inline-form";
+        const field = document.createElement("div");
+        field.className = "field";
+        const label = createTextElement("label", "Nouveau badge RFID");
+        label.setAttribute("for", "admin-rfid-value");
+        const input = document.createElement("input");
+        input.id = "admin-rfid-value";
+        input.name = "auth_value";
+        input.type = "text";
+        input.placeholder = "Valeur du badge";
+        input.autocomplete = "off";
+        input.required = true;
+        field.appendChild(label);
+        field.appendChild(input);
+        rfidForm.appendChild(field);
+        const submit = createTextElement("button", "Associer / remplacer", "btn btn-secondary");
+        submit.type = "submit";
+        rfidForm.appendChild(submit);
+        panel.appendChild(rfidForm);
+
+        const list = document.createElement("div");
+        list.id = "admin-auth-methods-list";
+        list.className = "stacked-list";
+        panel.appendChild(list);
 
         const anchor = document.querySelector(".admin-password-panel") || form.closest(".admin-edit-panel");
         anchor.after(panel);
-        panel.querySelector("#admin-rfid-form").addEventListener("submit", handleRfidSubmit);
-        renderAuthMethodsList(panel.querySelector("#admin-auth-methods-list"));
+        rfidForm.addEventListener("submit", handleRfidSubmit);
+        renderAuthMethodsList(list);
     }
 
     function renderAuthMethodsList(container = document.getElementById("admin-auth-methods-list")) {

@@ -73,13 +73,20 @@ L'API utilise ``djangorestframework-simplejwt``.
 
 Les jetons JWT conviennent à une API consommée par un frontend séparé et par un
 kiosque. Le backend n'a pas besoin de maintenir une session serveur classique
-pour chaque client, et le frontend peut renouveler un jeton d'accès à partir
-d'un jeton de rafraîchissement.
+pour chaque client.
 
-La limite principale est la gestion côté navigateur : les jetons doivent être
-protégés avec soin. Dans ce prototype, la solution reste pragmatique. Pour un
-déploiement plus exposé, il faudra réexaminer le stockage des jetons, leur durée
-de vie, la rotation et les politiques de déconnexion.
+La session navigateur suit une approche plus défensive que le stockage complet
+en ``localStorage`` : le jeton d'accès reste uniquement en mémoire JavaScript et
+le jeton de rafraîchissement est porté par un cookie ``HttpOnly``. Le frontend
+ne peut donc plus lire le refresh token directement; il appelle
+``/api/token/refresh/`` avec les cookies inclus pour obtenir un nouveau jeton
+d'accès. ``/api/logout/`` efface ce cookie.
+
+Cette solution réduit l'impact d'une XSS qui lirait le stockage local. Elle ne
+remplace pas une politique anti-XSS complète : les rendus frontend évitent les
+insertions HTML pour les champs issus de l'API, et les rares usages restants de
+``innerHTML`` sont réservés au nettoyage de conteneurs ou au SVG QR généré côté
+serveur.
 
 CORS explicite
 --------------
@@ -358,6 +365,14 @@ Ce choix donne de la visibilité sur la chaîne d'approvisionnement logicielle :
 dépendances installées, image backend, rapports JSON/SARIF et brouillon OpenVEX.
 Il est utile pour expliquer ce qui est présent dans l'application et suivre les
 vulnérabilités.
+
+CodeQL complète ce contrôle avec une analyse statique Python et JavaScript. Il
+sert à détecter automatiquement des vulnérabilités de code ou des usages risqués
+qui ne sont pas visibles dans un simple inventaire de dépendances.
+
+Dependabot surveille les dépendances GitHub Actions, npm, pip et Docker. Les
+mises à jour arrivent sous forme de pull requests, ce qui permet de les faire
+passer par la même CI que les changements applicatifs.
 
 Les rapports ne remplacent pas une analyse humaine. Une entrée VEX ne doit être
 validée qu'après avoir vérifié si le chemin vulnérable est réellement

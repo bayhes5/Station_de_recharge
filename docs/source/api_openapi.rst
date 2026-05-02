@@ -67,3 +67,11 @@ le même accès, tandis que l'administration dispose d'une action explicite de
 régénération qui invalide l'ancienne valeur. Si l'accès est déjà visible côté
 utilisateur, l'interface récupère automatiquement la valeur courante après la
 régénération.
+
+Le jeton de rafraîchissement JWT n'est pas exposé au JavaScript du frontend. Les
+endpoints ``/api/register/`` et ``/api/login/`` renvoient le jeton d'accès et
+posent le refresh token dans un cookie ``HttpOnly``. ``/api/token/refresh/`` lit
+ce cookie pour renouveler l'accès, et ``/api/logout/`` le supprime.
+
+L'endpoint admin de régénération de QR/code temporaire ne renvoie pas le secret
+régénéré. Il confirme seulement l'opération et renvoie la réservation à jour.

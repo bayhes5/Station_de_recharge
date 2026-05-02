@@ -165,8 +165,8 @@ def test_admin_can_regenerate_and_revoke_temporary_access(admin_client, admin_us
     )
 
     assert regenerate_response.status_code == status.HTTP_200_OK
-    assert regenerate_response.data["access_payload"]["mode"] == "code"
-    assert regenerate_response.data["access_payload"]["value"].startswith("CODE-")
+    assert regenerate_response.data["message"] == "Acces temporaire regenere."
+    assert "access_payload" not in regenerate_response.data
     reservation.refresh_from_db()
     reservation.authentification.refresh_from_db()
     assert reservation.authentification.is_active is True

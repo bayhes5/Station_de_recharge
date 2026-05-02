@@ -25,6 +25,7 @@ from rest_framework.decorators import permission_classes
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import (
@@ -63,6 +64,38 @@ ADMIN_TEMPORARY_PASSWORD_LENGTH = 16
 ADMIN_TEMPORARY_PASSWORD_SPECIALS = "!@#$%&*-_?"
 LIST_PAGINATION_QUERY_PARAMS = {"page", "page_size"}
 STATIONS_CATALOG_CACHE_KEY = "api:stations_catalog:v1"
+
+
+def _refresh_cookie_kwargs():
+    """Return the shared security attributes for the refresh-token cookie."""
+    return {
+        "httponly": True,
+        "secure": settings.JWT_REFRESH_COOKIE_SECURE,
+        "samesite": settings.JWT_REFRESH_COOKIE_SAMESITE,
+        "path": settings.JWT_REFRESH_COOKIE_PATH,
+    }
+
+
+def _set_refresh_cookie(response, refresh_token):
+    """Store the refresh token in an HttpOnly cookie instead of JavaScript storage."""
+    max_age = int(settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds())
+    response.set_cookie(
+        settings.JWT_REFRESH_COOKIE_NAME,
+        str(refresh_token),
+        max_age=max_age,
+        **_refresh_cookie_kwargs(),
+    )
+    return response
+
+
+def _clear_refresh_cookie(response):
+    """Remove the refresh-token cookie on logout or invalid session state."""
+    response.delete_cookie(
+        settings.JWT_REFRESH_COOKIE_NAME,
+        path=settings.JWT_REFRESH_COOKIE_PATH,
+        samesite=settings.JWT_REFRESH_COOKIE_SAMESITE,
+    )
+    return response
 
 
 class OptionalPageNumberPagination(PageNumberPagination):
@@ -792,15 +825,15 @@ def register(request):
         user = serializer.save()
         refresh = RefreshToken.for_user(user)
 
-        return Response(
+        response = Response(
             {
                 "message": "Utilisateur cree",
                 "user": _serialize_user(user),
                 "access": str(refresh.access_token),
-                "refresh": str(refresh),
             },
             status=status.HTTP_201_CREATED,
         )
+        return _set_refresh_cookie(response, refresh)
 
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -843,15 +876,41 @@ def login(request):
 
         refresh = RefreshToken.for_user(user)
 
-        return Response(
+        response = Response(
             {
                 "access": str(refresh.access_token),
-                "refresh": str(refresh),
                 "user": _serialize_user(user),
             }
         )
+        return _set_refresh_cookie(response, refresh)
 
     return Response({"error": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
+
+
+@_schema("Rafraichir le jeton d'acces", request=OpenApiTypes.OBJECT, tags=["Authentification"])
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def refresh_token(request):
+    """Issue a new access token from the HttpOnly refresh cookie."""
+    refresh = request.data.get("refresh") or request.COOKIES.get(settings.JWT_REFRESH_COOKIE_NAME)
+    if not refresh:
+        return Response({"detail": "Refresh token absent."}, status=status.HTTP_401_UNAUTHORIZED)
+
+    serializer = TokenRefreshSerializer(data={"refresh": refresh})
+    serializer.is_valid(raise_exception=True)
+    response = Response({"access": serializer.validated_data["access"]})
+    rotated_refresh = serializer.validated_data.get("refresh")
+    if rotated_refresh:
+        _set_refresh_cookie(response, rotated_refresh)
+    return response
+
+
+@_schema("Deconnecter l'utilisateur", tags=["Authentification"])
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def logout(request):
+    """Clear the HttpOnly refresh cookie used by the browser session."""
+    return _clear_refresh_cookie(Response({"message": "Deconnexion effectuee."}))
 
 
 @_schema("Lire le profil de l'utilisateur connecte", tags=["Compte"])
@@ -1847,7 +1906,7 @@ def admin_reservation_access_payload(request, reservation_id):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    auth_method, access_value = _refresh_temporary_auth(reservation)
+    _refresh_temporary_auth(reservation)
     if reservation.utilisateur:
         _log_security_event(
             request,
@@ -1857,12 +1916,7 @@ def admin_reservation_access_payload(request, reservation_id):
     return Response(
         {
             "reservation": ReservationSerializer(reservation).data,
-            "access_payload": _build_access_payload(
-                reservation.auth_choice,
-                access_value,
-                auth_method,
-                reservation.date_fin,
-            ),
+            "message": "Acces temporaire regenere.",
         }
     )
 

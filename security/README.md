@@ -18,9 +18,9 @@ il doit être relu avant de devenir une déclaration VEX officielle.
 
 Après une évolution liée à la sécurité applicative, comme la gestion
 administrateur des badges RFID, la révocation des QR codes ou codes temporaires,
-ou la journalisation d'actions sensibles, il faut régénérer les SBOM et rapports
-de vulnérabilités afin que les artefacts de release décrivent le nouvel état du
-produit.
+la gestion des cookies JWT ``HttpOnly`` ou la journalisation d'actions sensibles,
+il faut régénérer les SBOM et rapports de vulnérabilités afin que les artefacts
+de release décrivent le nouvel état du produit.
 
 Pour une image Docker, le brouillon identifie le produit avec un PURL OCI basé
 sur l'image id `sha256`, afin de rattacher la déclaration à l'image analysée et

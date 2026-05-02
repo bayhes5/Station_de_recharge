@@ -14,5 +14,6 @@ backend/schema.yml
 docs/build/
 frontend/dist/
 frontend/node_modules/
+frontend/test-results/
 sbom/
 sbom-source/
