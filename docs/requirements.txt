@@ -1,22 +1,39 @@
 # Locked documentation dependencies.
 # Update docs/requirements.in first, then refresh this file.
--r ../backend/requirements.txt
 alabaster==1.0.0
-Babel==2.18.0
+asgiref==3.11.1
+attrs==26.1.0
+babel==2.18.0
 certifi==2026.4.22
 charset-normalizer==3.4.7
+django==6.0.4
+django-cors-headers==4.9.0
+djangorestframework==3.17.1
+djangorestframework-simplejwt==5.5.1
 docutils==0.22.4
+drf-spectacular==0.29.0
 idna==3.13
 imagesize==2.0.0
-Jinja2==3.1.6
-MarkupSafe==3.0.3
+inflection==0.5.1
+jinja2==3.1.6
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+markupsafe==3.0.3
 packaging==26.2
-Pygments==2.20.0
+pillow==12.2.0
+psycopg2-binary==2.9.12
+pygments==2.20.0
+pyjwt==2.12.1
+pyyaml==6.0.3
+qrcode[pil]==8.2
+redis==7.4.0
+referencing==0.37.0
 requests==2.33.1
 roman-numerals==4.1.0
+rpds-py==0.30.0
 snowballstemmer==3.0.1
-Sphinx==9.0.4
-sphinx-autodoc-typehints==3.6.1
+sphinx==9.1.0
+sphinx-autodoc-typehints==3.10.2
 sphinx-rtd-theme==3.1.0
 sphinxcontrib-applehelp==2.0.0
 sphinxcontrib-devhelp==2.0.0
@@ -25,4 +42,6 @@ sphinxcontrib-jquery==4.1
 sphinxcontrib-jsmath==1.0.1
 sphinxcontrib-qthelp==2.0.0
 sphinxcontrib-serializinghtml==2.0.0
+sqlparse==0.5.5
+uritemplate==4.2.0
 urllib3==2.6.3
