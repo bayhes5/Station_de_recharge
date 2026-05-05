@@ -124,6 +124,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const passwordForm = document.getElementById("password-form");
     const authMethodForm = document.getElementById("auth-method-form");
     const authMethodsList = document.getElementById("auth-methods-list");
+    const rfidLinkCode = document.getElementById("rfid-link-code");
     const authHistoryList = document.getElementById("auth-history-list");
     const authHistoryPreview = document.getElementById("auth-history-preview");
     const adminLink = document.getElementById("profile-admin-link");
@@ -224,18 +225,15 @@ document.addEventListener("DOMContentLoaded", async () => {
         const submitButton = authMethodForm.querySelector('button[type="submit"]');
         submitButton.disabled = true;
 
-        const payload = {
-            auth_mode: "rfid",
-            auth_value: authMethodForm.auth_value.value.trim(),
-        };
-
         try {
-            await window.AuthAPI.createAuthMethod(payload);
-            authMethodForm.reset();
-            await loadAuthMethods();
-            setStatus("Badge RFID enregistré.");
+            const result = await window.AuthAPI.createRfidLinkCode();
+            if (rfidLinkCode) {
+                rfidLinkCode.hidden = false;
+                rfidLinkCode.textContent = `Code association : ${result.code} - valable ${window.AuthAPI.formatDuration(result.expires_in)}. Saisissez ce code sur la borne, puis passez votre badge.`;
+            }
+            setStatus("Code d'association RFID genere.");
         } catch (error) {
-            setStatus(error.message || "Erreur lors de l’enregistrement du badge RFID.", true);
+            setStatus(error.message || "Impossible de generer le code d'association RFID.", true);
         } finally {
             submitButton.disabled = false;
         }

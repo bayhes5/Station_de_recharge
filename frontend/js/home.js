@@ -1,0 +1,33 @@
+document.addEventListener("DOMContentLoaded", async () => {
+    const accountLink = document.getElementById("home-account-link");
+    const registerLink = document.getElementById("home-register-link");
+    const loginLink = document.getElementById("home-login-link");
+    if (!accountLink) {
+        return;
+    }
+
+    const session = await window.AuthAPI.ensureSession();
+    if (!session?.user) {
+        return;
+    }
+
+    accountLink.hidden = false;
+    if (registerLink) {
+        registerLink.hidden = true;
+    }
+    if (loginLink) {
+        loginLink.hidden = true;
+    }
+    if (session.user.is_staff) {
+        accountLink.href = "/admin-dashboard.html";
+        accountLink.textContent = "Administration";
+        return;
+    }
+    if (session.user.is_technician) {
+        accountLink.href = "/technician-dashboard.html";
+        accountLink.textContent = "Espace technicien";
+        return;
+    }
+    accountLink.href = "/dashboard.html";
+    accountLink.textContent = "Mon compte";
+});

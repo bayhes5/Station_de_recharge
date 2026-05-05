@@ -1,6 +1,7 @@
-from pathlib import Path
 from datetime import timedelta
+from importlib.util import find_spec
 import os
+from pathlib import Path
 from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -51,6 +52,9 @@ INSTALLED_APPS = [
     "api",
     "corsheaders",
 ]
+
+if find_spec("channels"):
+    INSTALLED_APPS.append("channels")
 
 AUTH_USER_MODEL = "api.Utilisateur"
 
@@ -153,12 +157,14 @@ X_FRAME_OPTIONS = os.environ.get("X_FRAME_OPTIONS", "DENY")
 
 
 WSGI_APPLICATION = "config.wsgi.application"
+ASGI_APPLICATION = "config.asgi.application"
 
 FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:5173")
 
 API_DEFAULT_PAGE_SIZE = env_int("API_DEFAULT_PAGE_SIZE", 50)
 API_MAX_PAGE_SIZE = env_int("API_MAX_PAGE_SIZE", 200)
 STATIONS_CATALOG_CACHE_SECONDS = env_int("STATIONS_CATALOG_CACHE_SECONDS", 60)
+REDIS_URL = os.environ.get("REDIS_URL", os.environ.get("CACHE_URL", "redis://redis:6379/1"))
 CACHE_URL = os.environ.get("CACHE_URL", "")
 
 if CACHE_URL:
@@ -175,6 +181,39 @@ else:
             "LOCATION": "station-local-cache",
         }
     }
+
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", REDIS_URL)
+CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", REDIS_URL)
+CELERY_TASK_ALWAYS_EAGER = env_bool("CELERY_TASK_ALWAYS_EAGER", False)
+CELERY_TASK_IGNORE_RESULT = env_bool("CELERY_TASK_IGNORE_RESULT", True)
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = TIME_ZONE if "TIME_ZONE" in globals() else "Europe/Paris"
+
+if find_spec("channels_redis"):
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {"hosts": [REDIS_URL]},
+        }
+    }
+else:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer",
+        }
+    }
+
+MQTT_HOST = os.environ.get("MQTT_HOST", "mqtt")
+MQTT_PORT = env_int("MQTT_PORT", 1883)
+MQTT_KEEPALIVE = env_int("MQTT_KEEPALIVE", 60)
+MQTT_BASE_TOPIC = os.environ.get("MQTT_BASE_TOPIC", "station")
+MQTT_BACKEND_CLIENT_ID = os.environ.get("MQTT_BACKEND_CLIENT_ID", "station-backend")
+MQTT_USERNAME = os.environ.get("MQTT_USERNAME", "")
+MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD", "")
+MQTT_TLS_ENABLED = env_bool("MQTT_TLS_ENABLED", False)
+MQTT_QOS = env_int("MQTT_QOS", 1)
 
 # DATABASES = {
 #     "default": {

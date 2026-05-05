@@ -9,6 +9,7 @@ du frontend Vite et des composants embarqués du prototype.
    :caption: Guide
 
    architecture
+   supervision_mqtt
    technical_choices
    api_openapi
    development

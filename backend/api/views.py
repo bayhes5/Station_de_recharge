@@ -14,7 +14,7 @@ from django.contrib.auth.password_validation import validate_password as validat
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
-from django.db.models import Exists, OuterRef, Prefetch
+from django.db.models import Exists, OuterRef, Prefetch, Q
 from django.shortcuts import render
 from django.utils import timezone
 from django.db import transaction
@@ -64,6 +64,11 @@ ADMIN_TEMPORARY_PASSWORD_LENGTH = 16
 ADMIN_TEMPORARY_PASSWORD_SPECIALS = "!@#$%&*-_?"
 LIST_PAGINATION_QUERY_PARAMS = {"page", "page_size"}
 STATIONS_CATALOG_CACHE_KEY = "api:stations_catalog:v1"
+KEYPAD_CODE_ALPHABET = "0123456789ABCD"
+RESERVATION_CODE_LENGTH = 8
+TEMPORARY_CODE_LENGTH = 12
+RFID_LINK_CODE_LENGTH = 4
+RFID_LINK_CODE_TTL_SECONDS = 10 * 60
 
 
 def _refresh_cookie_kwargs():
@@ -390,12 +395,25 @@ def _user_is_technician(user):
 
 def _generate_reservation_code():
     """Generate a short unique reservation reference code."""
-    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
     for _ in range(20):
-        code = "".join(secrets.choice(alphabet) for _ in range(8))
+        code = "".join(secrets.choice(KEYPAD_CODE_ALPHABET) for _ in range(RESERVATION_CODE_LENGTH))
         if not Reservation.objects.filter(reference_code=code).exists():
             return code
     raise RuntimeError("Impossible de generer un code de reservation unique.")
+
+
+def _rfid_link_cache_key(code):
+    """Return the cache key for a temporary RFID association code."""
+    return f"rfid-link:{code}"
+
+
+def _generate_rfid_link_code():
+    """Generate a short one-use code that can be typed on the kiosk."""
+    for _ in range(20):
+        code = "".join(secrets.choice(KEYPAD_CODE_ALPHABET) for _ in range(RFID_LINK_CODE_LENGTH))
+        if cache.get(_rfid_link_cache_key(code)) is None:
+            return code
+    raise RuntimeError("Impossible de generer un code RFID temporaire unique.")
 
 
 def _get_type_auth(libelle):
@@ -424,6 +442,27 @@ def _generate_access_nonce():
     return secrets.token_urlsafe(18)
 
 
+def _digest_to_keypad_code(digest, length=TEMPORARY_CODE_LENGTH):
+    """Convert digest bytes to a code that can be typed on the matrix keypad."""
+    code = []
+    source = digest
+    round_index = 0
+    max_accepted = (256 // len(KEYPAD_CODE_ALPHABET)) * len(KEYPAD_CODE_ALPHABET)
+
+    while len(code) < length:
+        for byte in source:
+            if byte >= max_accepted:
+                continue
+            code.append(KEYPAD_CODE_ALPHABET[byte % len(KEYPAD_CODE_ALPHABET)])
+            if len(code) == length:
+                break
+        if len(code) < length:
+            round_index += 1
+            source = hashlib.sha256(digest + round_index.to_bytes(2, "big")).digest()
+
+    return "".join(code)
+
+
 def _derive_temporary_access_secret(auth_method, auth_mode, reservation_code):
     """Derive a stable temporary secret without storing the clear value."""
     metadata = auth_method.metadata or {}
@@ -440,6 +479,9 @@ def _derive_temporary_access_secret(auth_method, auth_mode, reservation_code):
         ]
     ).encode("utf-8")
     digest = hmac.new(settings.SECRET_KEY.encode("utf-8"), material, hashlib.sha256).digest()
+    if str(auth_mode).lower() == "code":
+        return _digest_to_keypad_code(digest)
+
     token = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")[:24]
     return f"{str(auth_mode).upper()}-{token}"
 
@@ -701,6 +743,79 @@ def _get_reservation_session(reservation):
         return reservation.session
     except ChargingSession.DoesNotExist:
         return None
+
+
+def _terminal_reservation_queryset():
+    """Return reservations with the related data needed by terminal flows."""
+    return Reservation.objects.select_related(
+        "utilisateur",
+        "emplacement",
+        "emplacement__station",
+        "authentification",
+        "authentification__type_auth",
+        "session",
+    )
+
+
+def _active_rfid_reservations_for_auth(auth_method, now):
+    """Return active or startable reservations that match a saved RFID badge."""
+    start_grace = timedelta(minutes=RESERVATION_START_GRACE_MINUTES)
+    return list(
+        _terminal_reservation_queryset()
+        .filter(
+            Q(date_fin__gte=now) | Q(session__end_time__isnull=True, session__isnull=False),
+            utilisateur=auth_method.utilisateur,
+            authentification=auth_method,
+            auth_choice="rfid",
+            statut__in=["confirmee", "active"],
+            date_debut__lte=now + start_grace,
+        )
+        .order_by("date_debut", "id_reservation")[:2]
+    )
+
+
+def _resolve_direct_rfid_reservation(auth_value, now):
+    """Resolve a badge UID directly to one active reservation."""
+    type_auth = _get_type_auth("RFID")
+    matching_auth_methods = list(
+        Authentification.objects.select_related("utilisateur", "type_auth")
+        .filter(
+            type_auth=type_auth,
+            hash_valeur=_hash_secret(auth_value),
+            is_active=True,
+        )[:2]
+    )
+
+    if not matching_auth_methods:
+        return None, None, Response({"detail": "Badge RFID inconnu."}, status=status.HTTP_401_UNAUTHORIZED)
+
+    if len(matching_auth_methods) > 1:
+        return None, None, Response(
+            {"detail": "Ce badge RFID est associe a plusieurs comptes."},
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    auth_method = matching_auth_methods[0]
+    if auth_method.expiration and auth_method.expiration < now:
+        return None, None, Response({"detail": "Le badge RFID est expire."}, status=status.HTTP_400_BAD_REQUEST)
+
+    reservations = _active_rfid_reservations_for_auth(auth_method, now)
+    if not reservations:
+        return None, None, Response(
+            {"detail": "Aucune reservation active pour ce badge RFID."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if len(reservations) > 1:
+        return None, None, Response(
+            {
+                "detail": "Plusieurs reservations actives correspondent a ce badge RFID.",
+                "reservations": [_serialize_reservation(reservation) for reservation in reservations],
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    return auth_method, reservations[0], None
 
 
 def _reservation_overlaps(emplacement, date_debut, date_fin):
@@ -1523,6 +1638,34 @@ def create_auth_method(request):
     )
 
 
+@_schema("Generer un code d'association RFID", responses=OpenApiTypes.OBJECT, tags=["Compte"])
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def create_rfid_link_code(request):
+    """Create a short one-use code used to link a physical RFID badge on a kiosk."""
+    code = _generate_rfid_link_code()
+    expires_at = timezone.now() + timedelta(seconds=RFID_LINK_CODE_TTL_SECONDS)
+    cache.set(
+        _rfid_link_cache_key(code),
+        {
+            "user_id": str(request.user.id_user),
+            "pseudo": request.user.pseudo,
+            "created_at": timezone.now().isoformat(),
+            "expires_at": expires_at.isoformat(),
+        },
+        timeout=RFID_LINK_CODE_TTL_SECONDS,
+    )
+    _log_security_event(request, request.user, f"user:{request.user.pseudo}:rfid_link_code_created")
+    return Response(
+        {
+            "code": code,
+            "expires_at": expires_at.isoformat(),
+            "expires_in": RFID_LINK_CODE_TTL_SECONDS,
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+
 @_schema("Supprimer un moyen d'authentification", responses={204: None}, tags=["Compte"])
 @api_view(["DELETE"])
 @permission_classes([IsAuthenticated])
@@ -2095,6 +2238,80 @@ def admin_maintenance_detail(request, maintenance_id):
     return Response(MaintenanceAdminSerializer(maintenance).data)
 
 
+@_schema("Associer un badge RFID depuis le terminal", request=OpenApiTypes.OBJECT, tags=["Terminal"])
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def terminal_link_rfid(request):
+    """Consume a short web-generated code and link the scanned RFID UID to that user."""
+    link_code = (request.data.get("link_code") or request.data.get("code") or "").strip().upper()
+    uid = (request.data.get("uid") or request.data.get("auth_value") or "").strip()
+
+    if not link_code or not uid:
+        return Response(
+            {"detail": "link_code et uid sont obligatoires."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    payload = cache.get(_rfid_link_cache_key(link_code))
+    if payload is None:
+        return Response(
+            {"detail": "Code d'association invalide ou expire."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    user = User.objects.filter(id_user=payload.get("user_id"), is_active=True).first()
+    if user is None:
+        cache.delete(_rfid_link_cache_key(link_code))
+        return Response({"detail": "Utilisateur introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    type_auth = _get_type_auth("RFID")
+    uid_hash = _hash_secret(uid)
+    existing = (
+        Authentification.objects.select_related("utilisateur")
+        .filter(type_auth=type_auth, hash_valeur=uid_hash, is_active=True)
+        .first()
+    )
+    if existing is not None and existing.utilisateur_id != user.id_user:
+        return Response(
+            {"detail": "Ce badge RFID est deja associe a un autre compte."},
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    auth_method = _ensure_rfid_auth(user, uid)
+    now = timezone.now()
+    Authentification.objects.filter(
+        utilisateur=user,
+        type_auth=type_auth,
+        is_active=True,
+    ).exclude(id_auth=auth_method.id_auth).update(
+        is_active=False,
+        expiration=now,
+        metadata={
+            "revoked_at": now.isoformat(),
+            "revocation_source": "rfid_link_replacement",
+        },
+    )
+
+    cache.delete(_rfid_link_cache_key(link_code))
+    JournalSecurite.objects.create(
+        utilisateur=user,
+        action=f"user:{user.pseudo}:rfid_linked:{auth_method.id_auth}",
+        ip=_client_ip(request),
+        statut="success",
+    )
+    return Response(
+        {
+            "message": "Badge RFID associe.",
+            "auth_method": _serialize_auth_method(auth_method),
+            "user": {
+                "id": str(user.id_user),
+                "pseudo": user.pseudo,
+            },
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+
 @_schema("Authentifier un acces depuis le terminal", request=OpenApiTypes.OBJECT, tags=["Terminal"])
 @api_view(["POST"])
 @permission_classes([AllowAny])
@@ -2104,6 +2321,7 @@ def terminal_authenticate(request):
     reservation_code = (request.data.get("reservation_code") or "").strip().upper()
     auth_mode = (request.data.get("auth_mode") or "").strip().lower()
     auth_value = (request.data.get("auth_value") or "").strip()
+    station_id = (request.data.get("station_id") or "").strip()
     parsed_qr = _parse_qr_payload(auth_value)
     if parsed_qr:
         reservation_code = reservation_code or parsed_qr["reservation_code"]
@@ -2111,21 +2329,23 @@ def terminal_authenticate(request):
         auth_value = parsed_qr["token"]
     now = timezone.now()
 
-    if not (reservation_id or reservation_code) or not auth_mode or not auth_value:
-        return Response({"detail": "reservation_code (ou reservation_id), auth_mode et auth_value sont obligatoires."}, status=status.HTTP_400_BAD_REQUEST)
-
-    reservation_qs = Reservation.objects.select_related(
-        "emplacement",
-        "authentification",
-        "authentification__type_auth",
-        "session",
-    )
-    if reservation_code:
-        reservation = reservation_qs.filter(reference_code=reservation_code).first()
+    direct_rfid = auth_mode == "rfid" and auth_value and not (reservation_id or reservation_code)
+    if direct_rfid:
+        auth_method, reservation, error_response = _resolve_direct_rfid_reservation(auth_value, now)
+        if error_response is not None:
+            return error_response
     else:
-        reservation = reservation_qs.filter(id_reservation=reservation_id).first()
-    if reservation is None:
-        return Response({"detail": "Reservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        if not (reservation_id or reservation_code) or not auth_mode or not auth_value:
+            return Response({"detail": "reservation_code (ou reservation_id), auth_mode et auth_value sont obligatoires."}, status=status.HTTP_400_BAD_REQUEST)
+
+        reservation_qs = _terminal_reservation_queryset()
+        if reservation_code:
+            reservation = reservation_qs.filter(reference_code=reservation_code).first()
+        else:
+            reservation = reservation_qs.filter(id_reservation=reservation_id).first()
+        if reservation is None:
+            return Response({"detail": "Reservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        auth_method = reservation.authentification
 
     if reservation.statut == "annulee":
         return Response({"detail": "La reservation est annulee."}, status=status.HTTP_400_BAD_REQUEST)
@@ -2144,7 +2364,6 @@ def terminal_authenticate(request):
     if expected_mode != auth_mode:
         return Response({"detail": "Mauvais moyen d'authentification."}, status=status.HTTP_400_BAD_REQUEST)
 
-    auth_method = reservation.authentification
     if auth_method is None:
         return Response({"detail": "Aucun moyen d'authentification associe a cette reservation."}, status=status.HTTP_400_BAD_REQUEST)
     if not auth_method.is_active:
@@ -2153,8 +2372,19 @@ def terminal_authenticate(request):
     if auth_method.expiration and auth_method.expiration < now and not session_is_active:
         return Response({"detail": "Le moyen d'authentification est expire."}, status=status.HTTP_400_BAD_REQUEST)
 
+    if station_id and str(reservation.emplacement.station_id) != station_id:
+        return Response(
+            {
+                "detail": "Cette reservation est associee a une autre station.",
+                "station": reservation.emplacement.station.nom,
+                "station_id": str(reservation.emplacement.station_id),
+                "emplacement": reservation.emplacement.numero,
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
+
     provided_hash = _hash_secret(auth_value)
-    if provided_hash != auth_method.hash_valeur:
+    if not direct_rfid and provided_hash != auth_method.hash_valeur:
         return Response({"detail": "Authentification refusee."}, status=status.HTTP_401_UNAUTHORIZED)
 
     session, created = ChargingSession.objects.get_or_create(

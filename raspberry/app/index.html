@@ -3,72 +3,227 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kiosk de recharge</title>
+    <title>Kiosque de recharge</title>
     <link rel="stylesheet" href="style.css">
     <script defer src="app.js"></script>
 </head>
 <body>
-    <main class="shell">
-        <section class="panel hero">
-            <p class="eyebrow">Station locale</p>
-            <h1>Authentification de charge</h1>
-            <p class="lead">
-                Présente ton badge RFID, scanne ton QR code ou saisis le code alphanumérique
-                lié à ta réservation.
-            </p>
-            <div class="status" id="status">Prêt.</div>
-        </section>
+    <main class="kiosk">
+        <header class="topbar">
+            <div class="brand">
+                <span class="brand-mark" aria-hidden="true"></span>
+                <div>
+                    <strong>M&eacute;tropole Verte</strong>
+                    <span>Recharge v&eacute;los &eacute;lectriques</span>
+                </div>
+            </div>
+            <div class="station-state">
+                <span class="pulse" aria-hidden="true"></span>
+                Station locale active
+            </div>
+        </header>
 
-        <section class="panel">
-            <div class="mode-switch">
-                <button class="mode-btn active" data-mode="qr" type="button">QR code</button>
-                <button class="mode-btn" data-mode="rfid" type="button">RFID</button>
-                <button class="mode-btn" data-mode="code" type="button">Code</button>
+        <section id="screen-home" class="screen screen-home active" aria-labelledby="home-title">
+            <div class="home-copy">
+                <p class="eyebrow">Borne de proximit&eacute;</p>
+                <h1 id="home-title">D&eacute;marrer une charge</h1>
+                <p>
+                    Pr&eacute;sentez votre badge ou votre QR code. Le code manuel reste disponible
+                    si vous n'avez pas votre badge ou votre t&eacute;l&eacute;phone.
+                </p>
+                <div class="route-band" aria-label="Parcours utilisateur">
+                    <span>Identification</span>
+                    <span>Emplacement</span>
+                    <span>D&eacute;marrage</span>
+                </div>
             </div>
 
-            <form id="auth-form" class="auth-form">
-                <label>
-                    Code de réservation
-                    <input id="reservation-code" type="text" placeholder="EX: 8K4P2D7Q" required>
-                </label>
-                <label>
-                    Valeur d'authentification
-                    <input id="auth-value" type="text" placeholder="Code QR / badge RFID / code" required>
-                </label>
-                <button type="submit" class="primary">Déverrouiller</button>
+            <nav class="action-grid" aria-label="Modes d'identification">
+                <button class="action-card primary-action" data-go="rfid" type="button">
+                    <span class="action-icon">RF</span>
+                    <strong>Badge RFID</strong>
+                    <small>Posez simplement votre badge sur le lecteur.</small>
+                </button>
+                <button class="action-card" data-go="qr" type="button">
+                    <span class="action-icon">QR</span>
+                    <strong>Scanner un QR code</strong>
+                    <small>Le plus rapide si votre t&eacute;l&eacute;phone est disponible.</small>
+                </button>
+                <button class="action-card" data-go="code" type="button">
+                    <span class="action-icon">A1</span>
+                    <strong>Entrer un code</strong>
+                    <small>Solution de secours avec les codes de votre r&eacute;servation.</small>
+                </button>
+                <button class="action-card support-action" data-go="link" type="button">
+                    <span class="action-icon">+</span>
+                    <strong>Associer un badge</strong>
+                    <small>Utilisez le code court affich&eacute; dans votre profil.</small>
+                </button>
+            </nav>
+        </section>
+
+        <section id="screen-qr" class="screen" aria-labelledby="qr-title">
+            <div class="screen-copy">
+                <button class="ghost back-home" type="button">Accueil</button>
+                <p class="eyebrow">QR code</p>
+                <h2 id="qr-title">Pr&eacute;sentez le QR code</h2>
+                <p>Approchez l'&eacute;cran du lecteur. La borne retrouve automatiquement la r&eacute;servation associ&eacute;e.</p>
+                <div class="hint-line">Validation automatique quand le scanner envoie Entr&eacute;e.</div>
+            </div>
+            <form id="qr-form" class="input-panel">
+                <label for="qr-payload">Contenu scann&eacute;</label>
+                <textarea id="qr-payload" rows="5" autocomplete="off" spellcheck="false"></textarea>
+                <button class="submit-button" type="submit">Valider le QR code</button>
             </form>
         </section>
 
-        <section class="panel">
-            <h2>Clavier matriciel virtuel</h2>
-            <div class="keypad">
-                <button type="button" class="keypad-key" data-key="1">1</button>
-                <button type="button" class="keypad-key" data-key="2">2</button>
-                <button type="button" class="keypad-key" data-key="3">3</button>
-                <button type="button" class="keypad-key" data-key="4">4</button>
-                <button type="button" class="keypad-key" data-key="5">5</button>
-                <button type="button" class="keypad-key" data-key="6">6</button>
-                <button type="button" class="keypad-key" data-key="7">7</button>
-                <button type="button" class="keypad-key" data-key="8">8</button>
-                <button type="button" class="keypad-key" data-key="9">9</button>
-                <button type="button" class="keypad-key" data-key="A">A</button>
-                <button type="button" class="keypad-key" data-key="B">B</button>
-                <button type="button" class="keypad-key" data-key="C">C</button>
-                <button type="button" class="keypad-key" data-key="D">D</button>
-                <button type="button" class="keypad-key" data-key="E">E</button>
-                <button type="button" class="keypad-key" data-key="F">F</button>
-                <button type="button" class="keypad-key keypad-wide" data-action="backspace">⌫</button>
-                <button type="button" class="keypad-key keypad-wide" data-key="0">0</button>
-                <button type="button" class="keypad-key keypad-wide" data-action="clear">C</button>
+        <section id="screen-code" class="screen" aria-labelledby="code-title">
+            <div class="screen-copy">
+                <button class="ghost back-home" type="button">Accueil</button>
+                <p class="eyebrow">Code temporaire</p>
+                <h2 id="code-title">Saisissez vos deux codes</h2>
+                <p>Le clavier accepte uniquement les chiffres, A, B, C et D. La touche # valide, la touche * corrige.</p>
+                <div id="status" class="status">Pr&ecirc;t.</div>
+            </div>
+            <div class="terminal-panel">
+                <div class="field-stack">
+                    <button class="code-field active" data-field="reservation" type="button">
+                        <span>Code r&eacute;servation</span>
+                        <output id="reservation-display">--------</output>
+                    </button>
+                    <button class="code-field" data-field="auth" type="button">
+                        <span>Code temporaire</span>
+                        <output id="auth-display">------------</output>
+                    </button>
+                </div>
+                <input id="reservation-code" type="text" inputmode="none" autocomplete="off" hidden>
+                <input id="auth-value" type="text" inputmode="none" autocomplete="off" hidden>
+                <div class="keypad" aria-label="Clavier matriciel">
+                    <button type="button" class="keypad-key" data-key="1">1</button>
+                    <button type="button" class="keypad-key" data-key="2">2</button>
+                    <button type="button" class="keypad-key" data-key="3">3</button>
+                    <button type="button" class="keypad-key accent-key" data-key="A">A</button>
+                    <button type="button" class="keypad-key" data-key="4">4</button>
+                    <button type="button" class="keypad-key" data-key="5">5</button>
+                    <button type="button" class="keypad-key" data-key="6">6</button>
+                    <button type="button" class="keypad-key accent-key" data-key="B">B</button>
+                    <button type="button" class="keypad-key" data-key="7">7</button>
+                    <button type="button" class="keypad-key" data-key="8">8</button>
+                    <button type="button" class="keypad-key" data-key="9">9</button>
+                    <button type="button" class="keypad-key accent-key" data-key="C">C</button>
+                    <button type="button" class="keypad-key utility-key" data-action="backspace">*</button>
+                    <button type="button" class="keypad-key" data-key="0">0</button>
+                    <button type="button" class="keypad-key validate-key" data-action="submit">#</button>
+                    <button type="button" class="keypad-key accent-key" data-key="D">D</button>
+                </div>
+                <div class="key-actions">
+                    <button id="clear-field" class="ghost" type="button">Effacer champ</button>
+                    <button id="submit-code" class="submit-button" type="button">Valider</button>
+                </div>
             </div>
         </section>
 
-        <section class="panel">
-            <h2>Derniers événements</h2>
-            <div id="events" class="events">
-                <div class="event empty">Aucun événement pour le moment.</div>
+        <section id="screen-rfid" class="screen" aria-labelledby="rfid-title">
+            <div class="screen-copy">
+                <button class="ghost back-home" type="button">Accueil</button>
+                <p class="eyebrow">Badge RFID</p>
+                <h2 id="rfid-title">Passez votre badge</h2>
+                <p>La borne cherche votre r&eacute;servation active et confirme l'emplacement attribu&eacute;.</p>
+                <div id="rfid-status" class="status">En attente du badge.</div>
+            </div>
+            <div class="terminal-panel scan-panel">
+                <div class="scan-target" aria-hidden="true">
+                    <span class="scan-ring"></span>
+                    <strong>RFID</strong>
+                </div>
+                <label class="text-field" for="rfid-value">
+                    Lecture badge RFID
+                    <input id="rfid-value" type="text" autocomplete="off" spellcheck="false" placeholder="En attente du badge">
+                </label>
+                <div class="key-actions">
+                    <button id="rfid-clear" class="ghost" type="button">Effacer lecture</button>
+                    <button id="submit-rfid" class="submit-button" type="button">Valider le badge</button>
+                </div>
             </div>
         </section>
+
+        <section id="screen-help" class="screen" aria-labelledby="help-title">
+            <div class="screen-copy wide-copy">
+                <button class="ghost back-home" type="button">Accueil</button>
+                <p class="eyebrow">Assistance</p>
+                <h2 id="help-title">Aide rapide</h2>
+                <div class="help-grid">
+                    <article>
+                        <strong>Badge RFID</strong>
+                        <span>Posez le badge enregistr&eacute; dans votre profil.</span>
+                    </article>
+                    <article>
+                        <strong>QR code</strong>
+                        <span>Affichez le QR depuis votre r&eacute;servation.</span>
+                    </article>
+                    <article>
+                        <strong>Code manuel</strong>
+                        <span>Utilisez le code r&eacute;servation et le code temporaire.</span>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <section id="screen-link" class="screen" aria-labelledby="link-title">
+            <div class="screen-copy">
+                <button class="ghost back-home" type="button">Accueil</button>
+                <p class="eyebrow">Association RFID</p>
+                <h2 id="link-title">Associer un badge</h2>
+                <p>Entrez le code court affiche dans votre profil, puis passez votre badge sur le lecteur.</p>
+                <div id="link-status" class="status">En attente du code association.</div>
+            </div>
+            <div class="terminal-panel">
+                <button class="code-field active" type="button">
+                    <span>Code association</span>
+                    <output id="link-code-display">----</output>
+                </button>
+                <input id="link-code" type="text" inputmode="none" autocomplete="off" hidden>
+                <label class="text-field" for="link-rfid-value">
+                    Lecture badge RFID
+                    <input id="link-rfid-value" type="text" autocomplete="off" spellcheck="false" placeholder="En attente du badge">
+                </label>
+                <div class="keypad" aria-label="Clavier code association">
+                    <button type="button" class="keypad-key" data-key="1">1</button>
+                    <button type="button" class="keypad-key" data-key="2">2</button>
+                    <button type="button" class="keypad-key" data-key="3">3</button>
+                    <button type="button" class="keypad-key accent-key" data-key="A">A</button>
+                    <button type="button" class="keypad-key" data-key="4">4</button>
+                    <button type="button" class="keypad-key" data-key="5">5</button>
+                    <button type="button" class="keypad-key" data-key="6">6</button>
+                    <button type="button" class="keypad-key accent-key" data-key="B">B</button>
+                    <button type="button" class="keypad-key" data-key="7">7</button>
+                    <button type="button" class="keypad-key" data-key="8">8</button>
+                    <button type="button" class="keypad-key" data-key="9">9</button>
+                    <button type="button" class="keypad-key accent-key" data-key="C">C</button>
+                    <button type="button" class="keypad-key utility-key" data-action="backspace">*</button>
+                    <button type="button" class="keypad-key" data-key="0">0</button>
+                    <button type="button" class="keypad-key validate-key" data-action="submit">#</button>
+                    <button type="button" class="keypad-key accent-key" data-key="D">D</button>
+                </div>
+                <div class="key-actions">
+                    <button id="link-clear" class="ghost" type="button">Effacer</button>
+                    <button id="submit-link" class="submit-button" type="button">Associer</button>
+                </div>
+            </div>
+        </section>
+
+        <section id="screen-result" class="screen result-screen" aria-live="polite" aria-labelledby="result-title">
+            <div id="result-badge" class="result-badge">OK</div>
+            <h2 id="result-title">Validation</h2>
+            <p id="result-message"></p>
+            <div id="result-details" class="result-details"></div>
+            <button class="submit-button back-home" type="button">Retour &agrave; l'accueil</button>
+        </section>
+
+        <footer class="event-strip">
+            <span>Journal local</span>
+            <div id="events">Aucun &eacute;v&eacute;nement.</div>
+        </footer>
     </main>
 </body>
 </html>
