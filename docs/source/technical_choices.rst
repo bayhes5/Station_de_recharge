@@ -209,6 +209,32 @@ Le serveur actuel est volontairement minimal. Il est suffisant pour un
 prototype, mais un déploiement réel devra traiter le démarrage automatique, la
 supervision, le mode hors ligne et la sécurité réseau locale.
 
+Parcours tactile du kiosque Raspberry
+-------------------------------------
+
+L'interface Raspberry est pensée pour un écran tactile de 7 pouces accompagné
+d'un clavier matriciel physique.
+
+Le parcours est découpé en écrans courts plutôt qu'en formulaire unique :
+
+* un écran d'accueil marqué ``Métropole Verte`` qui confirme que l'utilisateur
+  est devant la bonne borne et propose les trois moyens d'accès ;
+* un écran QR code pour scanner directement le jeton de réservation ;
+* un écran code temporaire avec deux champs explicites : code de réservation et
+  code d'accès ;
+* un écran RFID qui demande le code de réservation avant la lecture du badge ;
+* un écran de résultat plein écran, vert ou rouge, qui confirme l'emplacement ou
+  explique le refus ;
+* un écran d'aide minimal pour rappeler le format des codes et orienter en cas
+  de réservation expirée.
+
+Le clavier tactile reproduit la matrice matérielle ``1 2 3 A``, ``4 5 6 B``,
+``7 8 9 C`` et ``* 0 # D``. Les nouveaux codes de réservation et codes
+temporaires ``code`` sont donc générés uniquement avec les caractères ``0-9`` et
+``A-D``. La touche ``#`` sert à valider, tandis que ``*`` sert à corriger la
+saisie. Ce choix évite de créer des secrets impossibles à entrer sur la borne
+physique.
+
 ESP32 et modèles devices
 ------------------------
 
