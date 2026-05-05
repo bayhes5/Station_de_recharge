@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 def _handle_message(topic: str, payload: bytes):
+    """Dispatch one raw MQTT message to Celery or the local processor."""
     payload_text = payload.decode("utf-8", errors="replace")
     if process_mqtt_message_task is not None:
         process_mqtt_message_task.delay(topic, payload_text)

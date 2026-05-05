@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 def _extract_slot_id(topic: str) -> str:
+    """Extract the slot identifier from a telemetry MQTT topic."""
     parts = [part for part in topic.split("/") if part]
     if len(parts) >= 2 and parts[0] == settings.MQTT_BASE_TOPIC:
         return parts[1]

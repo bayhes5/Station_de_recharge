@@ -31,6 +31,7 @@ class TelemetryResult:
 
 
 def _parse_timestamp(value: Any):
+    """Return an aware timestamp from an MQTT value or the current time."""
     if not value:
         return timezone.now()
     if isinstance(value, datetime):
@@ -46,6 +47,7 @@ def _parse_timestamp(value: Any):
 
 
 def _as_float(value: Any):
+    """Convert telemetry numeric values to floats when possible."""
     if isinstance(value, bool) or value is None:
         return None
     try:
@@ -55,6 +57,7 @@ def _as_float(value: Any):
 
 
 def _bool_as_float(value: Any):
+    """Convert boolean-like sensor values to numeric storage values."""
     if isinstance(value, bool):
         return 1.0 if value else 0.0
     if value in {0, 1, "0", "1"}:
@@ -63,6 +66,7 @@ def _bool_as_float(value: Any):
 
 
 def _sensor_value(sensor_type: str, value: Any):
+    """Normalize one sensor value before creating a CapteurData record."""
     if sensor_type in {"door", "cable"}:
         return _bool_as_float(value)
     if sensor_type == "state":
@@ -71,6 +75,7 @@ def _sensor_value(sensor_type: str, value: Any):
 
 
 def _get_device(slot_id: str) -> Device:
+    """Return the device mapped to the slot, creating it on first telemetry."""
     try:
         return Device.objects.select_related("emplacement").get(mac_address=slot_id)
     except Device.DoesNotExist:
@@ -88,6 +93,7 @@ def _get_device(slot_id: str) -> Device:
 
 
 def _get_active_session(emplacement: Emplacement, session_id: str | None):
+    """Find the current charging session for an emplacement."""
     queryset = Session.objects.filter(emplacement=emplacement, end_time__isnull=True)
     if session_id:
         session = queryset.filter(id_session=session_id).first()
@@ -97,6 +103,7 @@ def _get_active_session(emplacement: Emplacement, session_id: str | None):
 
 
 def _store_sensor(device: Device, sensor_type: str, unit: str, value: Any, timestamp):
+    """Store one numeric sensor sample for a device."""
     numeric_value = _sensor_value(sensor_type, value)
     if numeric_value is None:
         return None
@@ -112,6 +119,7 @@ def _store_sensor(device: Device, sensor_type: str, unit: str, value: Any, times
 
 
 def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp):
+    """Create security alerts from critical telemetry states."""
     alerts = []
     state = str(payload.get("state") or "").lower()
     if state in {"error", "emergency", "fault"}:

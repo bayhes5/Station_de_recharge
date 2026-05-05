@@ -113,6 +113,8 @@ async function mockApi(page) {
 }
 
 test("public pages render without console errors", async ({ page }) => {
+  await mockApi(page);
+
   const consoleErrors = [];
   page.on("console", (message) => {
     if (message.type() === "error") {
