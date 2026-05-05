@@ -31,6 +31,7 @@ from .views import (
     logout,
     me,
     create_auth_method,
+    create_rfid_link_code,
     profile,
     reservation_availability,
     reservation_access_payload,
@@ -41,6 +42,7 @@ from .views import (
     stations_catalog,
     technician_maintenances,
     terminal_authenticate,
+    terminal_link_rfid,
 )
 
 urlpatterns = [
@@ -56,6 +58,7 @@ urlpatterns = [
     path("me/auth-methods/", auth_methods, name="api-auth-methods"),
     path("me/auth-history/", auth_history, name="api-auth-history"),
     path("me/auth-methods/create/", create_auth_method, name="api-auth-method-create"),
+    path("me/auth-methods/link-code/", create_rfid_link_code, name="api-auth-method-link-code"),
     path("me/auth-methods/<uuid:auth_id>/", delete_auth_method, name="api-auth-method-delete"),
     path("dashboard/", dashboard, name="api-dashboard"),
     path("stations/", stations_catalog, name="api-stations-catalog"),
@@ -64,6 +67,7 @@ urlpatterns = [
     path("reservations/<uuid:reservation_id>/access-payload/", reservation_access_payload, name="api-reservation-access-payload"),
     path("reservations/availability/", reservation_availability, name="api-reservation-availability"),
     path("terminal/authenticate/", terminal_authenticate, name="api-terminal-authenticate"),
+    path("terminal/link-rfid/", terminal_link_rfid, name="api-terminal-link-rfid"),
     path("technician/maintenances/", technician_maintenances, name="api-technician-maintenances"),
     path("admin/overview/", admin_overview, name="api-admin-overview"),
     path("admin/reservations/", admin_reservations, name="api-admin-reservations"),

@@ -7,6 +7,8 @@ from rest_framework import status
 
 from api.models import Reservation
 
+KEYPAD_CODE_ALPHABET = set("0123456789ABCD")
+
 
 @pytest.mark.django_db
 def test_availability_returns_counts(authenticated_client, station, emplacements, reservation_start):
@@ -198,7 +200,12 @@ def test_access_payload_display_does_not_rotate_code(authenticated_client, stati
 
     assert create_response.status_code == status.HTTP_201_CREATED
     reservation_id = create_response.data["reservation"]["id_reservation"]
+    reservation_code = create_response.data["reservation_code"]
     created_value = create_response.data["access_payload"]["value"]
+    assert len(reservation_code) == 8
+    assert set(reservation_code) <= KEYPAD_CODE_ALPHABET
+    assert len(created_value) == 12
+    assert set(created_value) <= KEYPAD_CODE_ALPHABET
 
     first_display = authenticated_client.post(
         reverse("api-reservation-access-payload", kwargs={"reservation_id": reservation_id})
@@ -226,8 +233,11 @@ def test_access_payload_display_does_not_rotate_qr(authenticated_client, station
     )
 
     assert create_response.status_code == status.HTTP_201_CREATED
+    reservation_code = create_response.data["reservation_code"]
     reservation_id = create_response.data["reservation"]["id_reservation"]
     created_value = create_response.data["access_payload"]["value"]
+    assert len(reservation_code) == 8
+    assert set(reservation_code) <= KEYPAD_CODE_ALPHABET
 
     display_response = authenticated_client.post(
         reverse("api-reservation-access-payload", kwargs={"reservation_id": reservation_id})

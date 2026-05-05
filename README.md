@@ -7,8 +7,9 @@ Le projet rassemble:
 - un backend Django avec API REST et pages serveur
 - un frontend Vite servi en développement par le serveur Vite
 - une interface kiosque Raspberry Pi
-- une base PostgreSQL pour les données de développement
+- une base TimescaleDB/PostgreSQL pour les données de développement
 - un cache Redis pour les caches applicatifs ciblés
+- un broker MQTT Mosquitto pour les messages ESP32
 
 ## Démarrage rapide
 
@@ -22,6 +23,7 @@ docker compose up -d --build
 3. Ouvrir les interfaces utiles:
 
 - `http://localhost:8000` pour le backend Django et les pages serveur
+- `http://localhost:3000` pour Grafana
 - `http://localhost:5173` pour le frontend Vite
 - `http://localhost:9000` pour le kiosque Raspberry
 
@@ -81,9 +83,13 @@ docker compose up -d --build
 
 Cette commande démarre:
 
-- PostgreSQL sur le port `5432`
+- TimescaleDB/PostgreSQL sur le port `5432`
 - Redis sur le port `6379`
+- Mosquitto MQTT sur le port `1883`
 - Django sur le port `8000`
+- un worker Celery pour l'ingestion asynchrone
+- un bridge MQTT backend pour recevoir la télémétrie ESP32
+- Grafana sur le port `3000`
 - le frontend Vite sur le port `5173`
 - le kiosque Raspberry sur le port `9000`
 
@@ -107,6 +113,7 @@ docker compose logs -f db
 Ouvrir ensuite:
 
 - `http://localhost:8000` pour le backend Django
+- `http://localhost:3000` pour Grafana
 - `http://localhost:5173` pour le frontend
 - `http://localhost:9000` pour le kiosque Raspberry
 
@@ -203,6 +210,60 @@ Attention: `docker compose down -v` supprime le volume `postgres_data` et donc l
 - `frontend/`: application Vite multi-pages pour l'inscription, la connexion, le dashboard et les vues métier
 - `raspberry/app/`: mini serveur HTTP pour simuler l'interface kiosque locale
 - `esp32/`: prototype firmware / logique embarquée pour les ESP32 affectés aux emplacements
+- `mosquitto/config/`: configuration du broker MQTT local utilisé par les ESP32
+- `grafana/`: datasource et dashboard technique provisionnés automatiquement
+
+## Flux MQTT et supervision
+
+Le broker local reçoit les messages des ESP32 sur le motif:
+
+```text
+station/<slot_id>/telemetry
+```
+
+Payload attendu pour la télémétrie:
+
+```json
+{
+  "slot_id": "slot1",
+  "state": "charging",
+  "current": 1.2,
+  "voltage": 12.0,
+  "energy_kwh": 0.04,
+  "temperature": 32.5,
+  "humidity": 45,
+  "door": true,
+  "cable": true,
+  "timestamp": "2026-05-05T10:30:00Z"
+}
+```
+
+Le bridge backend s'abonne à ces messages avec:
+
+```bash
+python manage.py run_mqtt_bridge
+```
+
+Les commandes vers un ESP32 utilisent:
+
+```text
+station/<slot_id>/cmd
+```
+
+Exemple manuel:
+
+```bash
+python manage.py send_slot_command slot1 START --session-id <uuid-session>
+```
+
+Les mesures sont persistées dans `CapteurData` et, si une session active existe
+sur l'emplacement, dans `SessionTelemetry`. Les alertes critiques alimentent
+`Alerte` pour la future supervision web ou Grafana.
+
+Grafana est disponible sur `http://localhost:3000` avec les identifiants définis
+par `GRAFANA_ADMIN_USER` et `GRAFANA_ADMIN_PASSWORD`. Le dashboard
+`Station - Supervision technique` est provisionné automatiquement avec une
+datasource vers TimescaleDB/PostgreSQL.
 
 ## Variables d'environnement
 
@@ -212,7 +273,10 @@ Le fichier `.env.example` couvre les variables principales:
 - `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`
 - `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
 - `FRONTEND_BASE_URL`, `CORS_ALLOWED_ORIGINS`
-- `CACHE_URL`, `API_DEFAULT_PAGE_SIZE`, `API_MAX_PAGE_SIZE`
+- `CACHE_URL`, `REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`
+- `MQTT_HOST`, `MQTT_PORT`, `MQTT_BASE_TOPIC`, `MQTT_BACKEND_CLIENT_ID`, `MQTT_QOS`
+- `GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD`
+- `API_DEFAULT_PAGE_SIZE`, `API_MAX_PAGE_SIZE`
 - `STATIONS_CATALOG_CACHE_SECONDS`
 - `SIMPLE_JWT_ACCESS_MINUTES`, `SIMPLE_JWT_REFRESH_DAYS`
 - `JWT_REFRESH_COOKIE_NAME`, `JWT_REFRESH_COOKIE_SECURE`,

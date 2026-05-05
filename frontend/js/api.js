@@ -313,6 +313,12 @@ async function createAuthMethod(data) {
     });
 }
 
+async function createRfidLinkCode() {
+    return doRequest("/me/auth-methods/link-code/", {
+        method: "POST",
+    });
+}
+
 async function deleteAuthMethod(authId) {
     return doRequest(`/me/auth-methods/${authId}/`, {
         method: "DELETE",
@@ -613,6 +619,7 @@ window.AuthAPI = {
     getAuthMethods,
     getAuthHistory,
     createAuthMethod,
+    createRfidLinkCode,
     deleteAuthMethod,
     deleteAccount,
     getAdminOverview,

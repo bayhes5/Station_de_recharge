@@ -92,14 +92,11 @@
                 <div class="dashboard-grid">
                     <section class="dashboard-panel">
                         <p class="panel-title">Badge RFID</p>
-                        <p class="lead">Enregistrez votre badge RFID pour le réutiliser lors des réservations. Les QR codes et codes temporaires sont générés uniquement au moment d’une réservation.</p>
+                        <p class="lead">Generez un code court, puis saisissez-le sur une borne avant de passer votre badge. L'UID est lu uniquement par le Raspberry Pi.</p>
                         <form id="auth-method-form" class="account-form">
-                            <div class="field">
-                                <label for="auth-value">Valeur RFID</label>
-                                <input id="auth-value" name="auth_value" type="text" placeholder="Valeur du badge RFID" required>
-                            </div>
-                            <button class="btn btn-primary" type="submit">Enregistrer le badge</button>
+                            <button class="btn btn-primary" type="submit">Generer un code d'association</button>
                         </form>
+                        <div id="rfid-link-code" class="empty-state access-code" hidden></div>
                         <div id="auth-methods-list" class="stacked-list section-stack"></div>
                     </section>
 

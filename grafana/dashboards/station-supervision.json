@@ -1,0 +1,195 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT cd.timestamp AS time, cd.valeur AS value, d.mac_address AS metric\nFROM capteur_data cd\nJOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nWHERE c.type = 'temperature' AND $__timeFilter(cd.timestamp)\nORDER BY cd.timestamp;",
+          "refId": "A"
+        }
+      ],
+      "title": "Temperature par slot",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "amp"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT st.timestamp AS time, st.courant AS value, e.numero::text AS metric\nFROM session_telemetry st\nJOIN charging_session s ON s.id_session = st.id_session\nJOIN emplacement e ON e.id_emplacement = s.id_emplacement\nWHERE $__timeFilter(st.timestamp)\nORDER BY st.timestamp;",
+          "refId": "A"
+        }
+      ],
+      "title": "Courant de charge",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT date AS time, type, niveau_severite, status, message\nFROM alerte\nWHERE $__timeFilter(date)\nORDER BY date DESC\nLIMIT 50;",
+          "refId": "A"
+        }
+      ],
+      "title": "Alertes recentes",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 4,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT d.mac_address AS slot, d.status, d.last_seen, e.numero AS emplacement, s.nom AS station\nFROM device d\nJOIN emplacement e ON e.id_emplacement = d.id_emplacement\nJOIN station s ON s.id_station = e.id_station\nORDER BY d.last_seen DESC NULLS LAST;",
+          "refId": "A"
+        }
+      ],
+      "title": "Etat des ESP32",
+      "type": "table"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 42,
+  "tags": ["station", "iot", "supervision"],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Station - Supervision technique",
+  "uid": "station-supervision",
+  "version": 1,
+  "weekStart": ""
+}

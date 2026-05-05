@@ -79,7 +79,7 @@
 
 services:
   db:
-    image: postgres:15
+    image: timescale/timescaledb:latest-pg15
     container_name: postgres_db
     env_file:
       - .env
@@ -104,6 +104,21 @@ services:
       timeout: 3s
       retries: 5
 
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: mqtt_broker
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+      - mqtt_data:/mosquitto/data
+      - mqtt_log:/mosquitto/log
+    ports:
+      - "1883:1883"
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -t '$$SYS/#' -C 1 -W 3 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: ./backend
@@ -120,7 +135,63 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      mqtt:
+        condition: service_healthy
     command: sh /app/docker-entrypoint.sh
+
+  celery:
+    build:
+      context: ./backend
+      target: dev
+    container_name: celery_worker
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A config worker -l info
+
+  mqtt-bridge:
+    build:
+      context: ./backend
+      target: dev
+    container_name: mqtt_bridge
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mqtt:
+        condition: service_healthy
+    command: python manage.py run_mqtt_bridge
+
+  grafana:
+    image: grafana/grafana-oss:12.3.0
+    container_name: grafana_supervision
+    env_file:
+      - .env
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
 
   backend-test:
     build:
@@ -161,4 +232,7 @@ services:
 
 volumes:
   frontend_node_modules:
+  grafana_data:
+  mqtt_data:
+  mqtt_log:
   postgres_data:  # Volume pour persister les données de PostgreSQL

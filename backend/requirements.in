@@ -6,3 +6,7 @@ djangorestframework-simplejwt
 drf-spectacular
 qrcode[pil]
 redis
+celery
+channels
+channels-redis
+paho-mqtt

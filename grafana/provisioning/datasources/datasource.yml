@@ -1,0 +1,17 @@
+apiVersion: 1
+
+datasources:
+  - name: Station TimescaleDB
+    type: postgres
+    access: proxy
+    uid: station-timescaledb
+    url: db:5432
+    database: ${POSTGRES_DB}
+    user: ${POSTGRES_USER}
+    secureJsonData:
+      password: ${POSTGRES_PASSWORD}
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1500
+      timescaledb: true
+    editable: true
