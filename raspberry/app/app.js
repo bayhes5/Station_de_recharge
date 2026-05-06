@@ -1,4 +1,5 @@
 const API_BASE_URL = "http://localhost:8000/api";
+const EDGE_BASE_URL = window.location.origin;
 const KEYPAD_PATTERN = /^[0-9A-D]$/;
 const TERMINAL_STATION_ID =
     new URLSearchParams(window.location.search).get("station_id")
@@ -168,6 +169,28 @@ async function sendRfidLink(payload) {
     return sendApi("/terminal/link-rfid/", payload);
 }
 
+async function sendEdgeMqttCommand(payload) {
+    let response;
+    try {
+        response = await fetch(`${EDGE_BASE_URL}/mqtt/command`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+            },
+            body: JSON.stringify(payload),
+        });
+    } catch (_error) {
+        throw new Error("Commande MQTT locale indisponible.");
+    }
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(data.detail || "Commande MQTT refusee.");
+    }
+    return data;
+}
+
 async function sendApi(path, payload) {
     let response;
     try {
@@ -235,6 +258,26 @@ function sessionDetails(result) {
     return `Station ${session.station || "-"} - emplacement ${session.emplacement || "-"}`;
 }
 
+function slotIdFromSession(session) {
+    if (!session?.emplacement) {
+        return "";
+    }
+    return `slot${session.emplacement}`;
+}
+
+async function startSlotFromSession(result) {
+    const session = result.session || {};
+    const slotId = slotIdFromSession(session);
+    if (!slotId) {
+        return null;
+    }
+    return sendEdgeMqttCommand({
+        slot_id: slotId,
+        action: "START",
+        session_id: session.id || "",
+    });
+}
+
 async function submitPayload(payload, successMessage) {
     if (submitting) {
         return;
@@ -250,6 +293,7 @@ async function submitPayload(payload, successMessage) {
             : payload;
         const result = await sendAuthentication(enrichedPayload);
         const details = sessionDetails(result);
+        await startSlotFromSession(result);
         pushEvent(successMessage);
         if (payload.auth_mode === "rfid") {
             setRfidStatus("Badge valide.");

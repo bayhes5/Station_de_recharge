@@ -10,6 +10,7 @@ Le projet rassemble:
 - une base TimescaleDB/PostgreSQL pour les données de développement
 - un cache Redis pour les caches applicatifs ciblés
 - un broker MQTT Mosquitto pour les messages ESP32
+- un reverse proxy Nginx local pour préparer la mise en production
 
 ## Démarrage rapide
 
@@ -22,10 +23,10 @@ docker compose up -d --build
 
 3. Ouvrir les interfaces utiles:
 
-- `http://localhost:8000` pour le backend Django et les pages serveur
-- `http://localhost:3000` pour Grafana
-- `http://localhost:5173` pour le frontend Vite
-- `http://localhost:9000` pour le kiosque Raspberry
+- `http://localhost/` pour le frontend via Nginx
+- `http://localhost/api/` pour l'API Django via Nginx
+- `http://localhost/grafana/` pour Grafana via Nginx
+- `http://localhost/kiosk/` pour le kiosque Raspberry via Nginx
 
 ## Déploiement depuis un clone Git
 
@@ -92,6 +93,7 @@ Cette commande démarre:
 - Grafana sur le port `3000`
 - le frontend Vite sur le port `5173`
 - le kiosque Raspberry sur le port `9000`
+- Nginx reverse proxy sur le port `80`
 
 Au démarrage, le backend applique les migrations Django, crée ou met à jour le superuser, puis initialise les données de démo.
 
@@ -116,6 +118,7 @@ Ouvrir ensuite:
 - `http://localhost:3000` pour Grafana
 - `http://localhost:5173` pour le frontend
 - `http://localhost:9000` pour le kiosque Raspberry
+- `http://localhost/` pour le chemin local pré-production via Nginx
 
 Sur une autre machine du réseau, remplacer `localhost` par l'adresse IP ou le nom de domaine du serveur.
 
@@ -212,6 +215,27 @@ Attention: `docker compose down -v` supprime le volume `postgres_data` et donc l
 - `esp32/`: prototype firmware / logique embarquée pour les ESP32 affectés aux emplacements
 - `mosquitto/config/`: configuration du broker MQTT local utilisé par les ESP32
 - `grafana/`: datasource et dashboard technique provisionnés automatiquement
+- `nginx/`: reverse proxy local préparant la mise en production
+
+## Reverse proxy local
+
+Le service Docker `reverse-proxy` expose un point d'entrée unique sur le port
+`80`:
+
+```text
+http://localhost/          -> frontend Vite
+http://localhost/api/      -> backend Django
+http://localhost/admin/    -> admin Django
+http://localhost/grafana/  -> Grafana
+http://localhost/kiosk/    -> kiosque Raspberry
+```
+
+Les ports directs (`8000`, `5173`, `3000`, `9000`) restent exposés pour le
+développement et le diagnostic, mais le chemin de préparation production passe
+par Nginx.
+
+L'écran tactile Raspberry cible une résolution de `1024x600`. Le kiosque doit
+donc être testé en priorité sur cette taille d'affichage.
 
 ## Flux MQTT et supervision
 
@@ -254,6 +278,14 @@ Exemple manuel:
 
 ```bash
 python manage.py send_slot_command slot1 START --session-id <uuid-session>
+```
+
+Le kiosque Raspberry expose egalement un endpoint local:
+
+```bash
+curl -X POST http://localhost:9000/mqtt/command \
+  -H "Content-Type: application/json" \
+  -d '{"slot_id":"slot1","action":"START","session_id":"demo"}'
 ```
 
 Les mesures sont persistées dans `CapteurData` et, si une session active existe
