@@ -272,9 +272,10 @@ Compose permet de lancer PostgreSQL, Django, Vite et le kiosque avec une
 commande unique. Cela réduit les écarts entre machines de développement et
 facilite la reprise du projet après un clone Git.
 
-Ce choix ne remplace pas une architecture de production. Pour un déploiement
-public, il faudra ajouter un reverse proxy, une stratégie TLS, des volumes et
-sauvegardes contrôlés, et une façon propre de servir le build Vite.
+Ce choix ne remplace pas à lui seul une architecture de production complète. Le
+reverse proxy Nginx local prépare déjà un point d'entrée unique, mais il faudra
+encore ajouter TLS, sauvegardes, supervision système et gestion stricte des
+secrets pour un déploiement public.
 
 Commandes de bootstrap
 ----------------------
@@ -493,22 +494,22 @@ sécurité exposées, les artefacts ``sbom/`` et, si nécessaire, le brouillon
 OpenVEX doivent être régénérés avec ``scripts/generate-sbom.ps1`` puis résumés
 avec ``scripts/summarize-vulnerabilities.ps1``.
 
-Cache HTTP et Varnish
----------------------
+Limites assumées
+----------------
 
-Le projet n'intègre pas encore Varnish Cache.
+Le prototype privilégie les composants réellement utilisés dans le projet :
+Django, Vite, PostgreSQL/TimescaleDB, Redis, Celery, Mosquitto, Grafana, Nginx,
+Raspberry Pi et ESP32.
 
-La majorité des endpoints actuels restent dynamiques et authentifiés par JWT :
-profil, réservations, administration, maintenances et accès temporaires. Les
-mettre en cache au niveau reverse proxy serait risqué sans politique fine sur les
-en-têtes ``Authorization``, ``Cookie`` et ``Set-Cookie``.
+Les sujets suivants restent volontairement hors périmètre immédiat :
 
-La priorité actuelle est donc l'optimisation interne Django/DRF : requêtes,
-index, pagination, cache Redis ciblé et headers cache pour les assets buildés.
-Varnish Cache pourra devenir pertinent pour des pages publiques ou endpoints
-anonymes stables.
+* paiement ou facturation réelle ;
+* application mobile native ;
+* déploiement multi-site ;
+* haute disponibilité ;
+* authentification unique avancée pour Grafana ;
+* TLS MQTT et certificats X.509 en développement local ;
+* remplacement complet des simulations par le câblage définitif.
 
-Varnish Orca n'est pas retenu pour l'accélération applicative : son rôle est
-plutôt de mettre en cache des registres et artifacts de build, comme Docker, npm
-ou Python packages. Il pourrait être étudié plus tard pour accélérer la CI, mais
-pas pour servir les réponses de l'API.
+Cette limite garde le projet soutenable pour un prototype académique, tout en
+préservant une architecture extensible.

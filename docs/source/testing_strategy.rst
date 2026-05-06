@@ -1,0 +1,219 @@
+Stratégie de tests
+==================
+
+Cette page décrit les tests à lancer pendant le développement, les tests
+automatisés existants et les scénarios manuels à prévoir pour la soutenance.
+
+Objectifs
+---------
+
+Les tests doivent vérifier :
+
+* la cohérence des réservations et des accès ;
+* la sécurité de l'authentification ;
+* la robustesse du terminal Raspberry ;
+* l'ingestion MQTT et la création d'alertes ;
+* la validité du frontend ;
+* la documentation et la configuration Docker/Nginx ;
+* les scénarios matériels simulés avant intégration physique.
+
+Tests automatisés backend
+-------------------------
+
+Le backend utilise ``pytest`` et ``pytest-django`` avec ``config.test_settings``.
+La base de test est SQLite pour rester rapide et indépendante de PostgreSQL.
+
+Commande complète :
+
+.. code-block:: powershell
+
+   cd backend
+   ..\.venv\Scripts\python.exe -m pytest
+
+Tests ciblés utiles :
+
+.. code-block:: powershell
+
+   cd backend
+   ..\.venv\Scripts\python.exe -m pytest api\tests\test_terminal_auth.py
+   ..\.venv\Scripts\python.exe -m pytest api\tests\test_mqtt_ingestion.py
+
+Couverture :
+
+.. code-block:: powershell
+
+   cd backend
+   ..\.venv\Scripts\python.exe -m pytest --cov=api --cov-report=term-missing
+
+Tests couverts actuellement :
+
+* inscription, connexion et profil ;
+* création et validation de réservations ;
+* administration utilisateurs/réservations ;
+* génération et révocation QR/code/RFID ;
+* authentification terminal QR/code/RFID ;
+* ingestion MQTT vers capteurs/alertes ;
+* performance de requêtes ciblées.
+
+Qualité backend
+---------------
+
+Ruff vérifie notamment les docstrings suivies par le projet :
+
+.. code-block:: powershell
+
+   cd backend
+   ..\.venv\Scripts\python.exe -m ruff check .
+
+Interrogate mesure la couverture documentaire :
+
+.. code-block:: powershell
+
+   cd backend
+   ..\.venv\Scripts\python.exe -m interrogate api
+
+Tests frontend
+--------------
+
+Le frontend utilise Vite, un script de vérification syntaxique et Playwright.
+
+.. code-block:: powershell
+
+   cd frontend
+   npm ci
+   npm run check:js
+   npm run verify
+
+``npm run verify`` enchaîne :
+
+* vérification syntaxique JavaScript ;
+* build Vite de production ;
+* tests end-to-end Playwright.
+
+Avant le premier lancement Playwright :
+
+.. code-block:: powershell
+
+   cd frontend
+   npx playwright install chromium
+
+Tests configuration
+-------------------
+
+Docker Compose :
+
+.. code-block:: bash
+
+   docker compose config --quiet
+
+Nginx reverse proxy :
+
+.. code-block:: bash
+
+   docker compose run --rm --no-deps reverse-proxy nginx -t
+
+Django :
+
+.. code-block:: powershell
+
+   .\.venv\Scripts\python.exe backend\manage.py check --settings=config.test_settings
+
+Documentation Sphinx
+--------------------
+
+Construction locale :
+
+.. code-block:: powershell
+
+   .\docs\make.bat html
+
+Variante fiable si ``sphinx-build`` n'est pas dans le ``PATH`` :
+
+.. code-block:: powershell
+
+   $env:DEBUG="True"
+   $env:SECRET_KEY="docs-local-secret-key-not-for-production"
+   .\.venv\Scripts\python.exe -m sphinx -b html docs\source docs\build\html
+
+La sortie est générée dans ``docs/build/html``. Ce dossier est un artefact local
+et ne doit pas être committé.
+
+Tests MQTT et supervision
+-------------------------
+
+Test d'ingestion backend :
+
+.. code-block:: powershell
+
+   cd backend
+   ..\.venv\Scripts\python.exe -m pytest api\tests\test_mqtt_ingestion.py
+
+Test manuel d'une commande via Raspberry :
+
+.. code-block:: bash
+
+   curl -X POST http://localhost:9000/mqtt/command \
+     -H "Content-Type: application/json" \
+     -d '{"slot_id":"slot1","action":"START","session_id":"demo"}'
+
+Test Wokwi vers Grafana :
+
+1. Configurer temporairement ``MQTT_HOST=test.mosquitto.org`` pour le bridge.
+2. Démarrer la stack Docker.
+3. Lancer ``esp32/wokwi/`` dans Wokwi.
+4. Vérifier les logs MQTT côté ``mqtt-bridge``.
+5. Ouvrir ``http://localhost/grafana/`` et consulter le dashboard technique.
+
+Scénarios manuels de recette
+----------------------------
+
+Réservation utilisateur :
+
+* créer un compte ;
+* réserver un créneau ;
+* afficher le QR/code ;
+* vérifier l'historique utilisateur.
+
+RFID :
+
+* générer un code d'association depuis le profil ;
+* saisir le code sur le kiosque ;
+* scanner/simuler le badge ;
+* réserver en mode RFID ;
+* s'authentifier directement au kiosque.
+
+Kiosque Raspberry :
+
+* tester l'accueil en ``1024x600`` ;
+* tester QR, code et RFID ;
+* vérifier mauvais code, mauvais moyen d'accès et mauvaise station ;
+* vérifier l'envoi de ``START`` au slot MQTT.
+
+ESP32 / Wokwi :
+
+* passer de ``idle`` à ``reserved`` puis ``charging`` ;
+* ouvrir le boîtier pendant la charge ;
+* retirer le câble pendant la charge ;
+* augmenter le courant au-dessus du seuil ;
+* augmenter la température au-dessus du seuil ;
+* vérifier les alertes dans la base et Grafana.
+
+Sécurité :
+
+* tester mot de passe faible ;
+* tester refresh/logout ;
+* vérifier qu'un utilisateur non admin ne peut pas accéder aux endpoints admin ;
+* vérifier qu'un moyen d'accès révoqué ou expiré est refusé ;
+* vérifier la journalisation des actions sensibles.
+
+Critères de validation
+----------------------
+
+Un changement est considéré prêt lorsqu'il respecte les points suivants :
+
+* tests backend ciblés ou complets au vert ;
+* vérification frontend si une page web est modifiée ;
+* ``docker compose config --quiet`` au vert si Docker change ;
+* ``nginx -t`` au vert si Nginx change ;
+* documentation mise à jour pour tout nouveau flux ;
+* PR GitHub avec les checks requis au vert avant merge dans ``main``.

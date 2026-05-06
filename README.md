@@ -1,255 +1,124 @@
-# Station de recharge
+# Station de recharge intelligente
 
-Prototype de station de recharge pour vélos électriques.
+Prototype académique de station de recharge sécurisée pour vélos électriques.
 
-Le projet rassemble:
+Le projet couvre trois blocs :
 
-- un backend Django avec API REST et pages serveur
-- un frontend Vite servi en développement par le serveur Vite
-- une interface kiosque Raspberry Pi
-- une base TimescaleDB/PostgreSQL pour les données de développement
-- un cache Redis pour les caches applicatifs ciblés
-- un broker MQTT Mosquitto pour les messages ESP32
-- un reverse proxy Nginx local pour préparer la mise en production
+- plateforme web de réservation et d'administration ;
+- interface locale Raspberry Pi pour l'identification à la borne ;
+- ESP32 par emplacement pour la serrure, les capteurs, la charge et la télémétrie.
+
+## Objectifs
+
+Le prototype doit permettre :
+
+- la réservation en ligne d'un emplacement de recharge ;
+- l'identification par QR code, badge RFID ou code alphanumérique ;
+- la validation de la réservation sur une borne locale ;
+- le pilotage d'une serrure électromagnétique et du démarrage de charge ;
+- la remontée de télémétrie : température, courant, tension, câble, boîtier ;
+- la détection d'alertes : intrusion, surchauffe, surconsommation, câble retiré ;
+- la supervision technique avec Grafana ;
+- l'archivage des sessions et statistiques d'utilisation.
+
+## Architecture
+
+```text
+Utilisateur
+  -> Frontend Vite
+  -> API Django
+  -> TimescaleDB/PostgreSQL
+
+Kiosque Raspberry
+  -> API Django pour valider l'accès
+  -> MQTT pour commander les ESP32
+
+ESP32
+  -> MQTT telemetry/status/alert
+  -> mqtt-bridge backend
+  -> Celery
+  -> Base de données
+  -> Grafana
+```
+
+Services principaux :
+
+- `backend/` : Django, API REST, modèles, Celery, bridge MQTT ;
+- `frontend/` : application Vite multi-pages ;
+- `raspberry/app/` : interface kiosque locale et client MQTT edge ;
+- `esp32/` : firmware MicroPython et simulation Wokwi ;
+- `nginx/` : reverse proxy local ;
+- `grafana/` : datasource et dashboard provisionnés ;
+- `mosquitto/config/` : configuration du broker MQTT.
 
 ## Démarrage rapide
 
-1. Copier `.env.example` vers `.env` si besoin, puis vérifier les identifiants locaux.
-2. Démarrer la stack:
-
-```bash
-docker compose up -d --build
-```
-
-3. Ouvrir les interfaces utiles:
-
-- `http://localhost/` pour le frontend via Nginx
-- `http://localhost/api/` pour l'API Django via Nginx
-- `http://localhost/grafana/` pour Grafana via Nginx
-- `http://localhost/kiosk/` pour le kiosque Raspberry via Nginx
-
-## Déploiement depuis un clone Git
-
-Cette procédure permet de repartir d'une machine vierge après un `git clone`.
-
-### Prérequis
-
-- Git
-- Docker et Docker Compose
-- Un terminal placé dans le dossier du projet
-
-Vérifier que Docker est disponible:
-
-```bash
-docker --version
-docker compose version
-```
-
-### 1. Cloner le projet
-
-```bash
-git clone https://github.com/bayhes5/Station_de_recharge
-cd Station_de_recharge
-```
-
-### 2. Créer le fichier d'environnement
-
-Copier le modèle fourni:
-
-```bash
-cp .env.example .env
-```
-
-Sous Windows PowerShell:
+Copier le modèle d'environnement :
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Ouvrir ensuite `.env` et adapter au minimum:
-
-- `SECRET_KEY`: mettre une valeur unique et secrète
-- `DEBUG`: mettre `False` hors développement local
-- `ALLOWED_HOSTS`: ajouter le domaine ou l'adresse IP de la machine cible
-- `ADMIN_PSEUDO`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`: définir le compte administrateur
-- `DEMO_TECH_*`: définir ou modifier le compte technicien de démo si besoin
-
-Pour un lancement local de test, les valeurs de `.env.example` suffisent.
-
-### 3. Construire et démarrer les services
+Démarrer la stack :
 
 ```bash
 docker compose up -d --build
 ```
 
-Cette commande démarre:
-
-- TimescaleDB/PostgreSQL sur le port `5432`
-- Redis sur le port `6379`
-- Mosquitto MQTT sur le port `1883`
-- Django sur le port `8000`
-- un worker Celery pour l'ingestion asynchrone
-- un bridge MQTT backend pour recevoir la télémétrie ESP32
-- Grafana sur le port `3000`
-- le frontend Vite sur le port `5173`
-- le kiosque Raspberry sur le port `9000`
-- Nginx reverse proxy sur le port `80`
-
-Au démarrage, le backend applique les migrations Django, crée ou met à jour le superuser, puis initialise les données de démo.
-
-### 4. Vérifier le déploiement
-
-Afficher l'état des conteneurs:
-
-```bash
-docker compose ps
-```
-
-Consulter les logs si un service ne démarre pas:
-
-```bash
-docker compose logs -f backend
-docker compose logs -f db
-```
-
-Ouvrir ensuite:
-
-- `http://localhost:8000` pour le backend Django
-- `http://localhost:3000` pour Grafana
-- `http://localhost:5173` pour le frontend
-- `http://localhost:9000` pour le kiosque Raspberry
-- `http://localhost/` pour le chemin local pré-production via Nginx
-
-Sur une autre machine du réseau, remplacer `localhost` par l'adresse IP ou le nom de domaine du serveur.
-
-### Commandes utiles
-
-Arrêter les services sans supprimer les données:
-
-```bash
-docker compose down
-```
-
-Redémarrer après une modification:
-
-```bash
-docker compose up -d --build
-```
-
-Reconstruire rapidement l'image backend de développement:
-
-```bash
-docker compose build backend
-```
-
-Reconstruire le backend sans cache Docker. Cette commande reste plus lente car
-elle force la réexécution des étapes Docker, mais le cache pip BuildKit limite
-les retéléchargements après un premier passage:
-
-```bash
-docker compose build --no-cache backend
-```
-
-Construire l'image backend de vérification, avec installation des dépendances de
-test et exécution de pytest pendant le build:
-
-```bash
-docker compose --profile test build backend-test
-```
-
-Lancer une commande Django dans le conteneur backend:
-
-```bash
-docker compose exec backend python manage.py <commande>
-```
-
-Suivre le serveur Vite:
-
-```bash
-docker compose logs -f frontend
-```
-
-Lancer le frontend sans Docker, si Node.js est installe:
-
-```bash
-cd frontend
-npm ci
-npm run dev
-```
-
-Construire les assets frontend de production:
-
-```bash
-cd frontend
-npm ci
-npm run build
-```
-
-Verifier le frontend localement:
-
-```bash
-cd frontend
-npm ci
-npm run check:js
-npm run verify
-```
-
-`check:js` valide la syntaxe des scripts JavaScript avec Node. `verify` enchaine
-la verification syntaxique, le build Vite de production et les tests
-end-to-end Playwright. Avant le premier lancement local des tests Playwright,
-installer le navigateur de test avec `npx playwright install chromium`.
-
-Supprimer aussi la base PostgreSQL locale et repartir de zéro:
-
-```bash
-docker compose down -v
-```
-
-Attention: `docker compose down -v` supprime le volume `postgres_data` et donc les données de la base locale.
-
-## Composants
-
-- `backend/`: application Django, modèle de données, API, templates et commandes de bootstrap
-- `frontend/`: application Vite multi-pages pour l'inscription, la connexion, le dashboard et les vues métier
-- `raspberry/app/`: mini serveur HTTP pour simuler l'interface kiosque locale
-- `esp32/`: prototype firmware / logique embarquée pour les ESP32 affectés aux emplacements
-- `mosquitto/config/`: configuration du broker MQTT local utilisé par les ESP32
-- `grafana/`: datasource et dashboard technique provisionnés automatiquement
-- `nginx/`: reverse proxy local préparant la mise en production
-
-## Reverse proxy local
-
-Le service Docker `reverse-proxy` expose un point d'entrée unique sur le port
-`80`:
+Routes recommandées via Nginx :
 
 ```text
-http://localhost/          -> frontend Vite
-http://localhost/api/      -> backend Django
-http://localhost/admin/    -> admin Django
+http://localhost/          -> frontend
+http://localhost/api/      -> API Django
+http://localhost/admin/    -> administration Django
 http://localhost/grafana/  -> Grafana
 http://localhost/kiosk/    -> kiosque Raspberry
 ```
 
-Les ports directs (`8000`, `5173`, `3000`, `9000`) restent exposés pour le
-développement et le diagnostic, mais le chemin de préparation production passe
-par Nginx.
+Ports directs de développement :
 
-L'écran tactile Raspberry cible une résolution de `1024x600`. Le kiosque doit
-donc être testé en priorité sur cette taille d'affichage.
+```text
+5432  -> TimescaleDB/PostgreSQL
+6379  -> Redis
+1883  -> Mosquitto MQTT
+8000  -> Django
+5173  -> Vite
+9000  -> kiosque Raspberry
+3000  -> Grafana
+```
 
-## Flux MQTT et supervision
+## Comptes de démonstration
 
-Le broker local reçoit les messages des ESP32 sur le motif:
+Les comptes sont créés au démarrage Docker depuis `.env` :
+
+```text
+admin       -> ADMIN_PSEUDO / ADMIN_PASSWORD
+technicien  -> DEMO_TECH_PSEUDO / DEMO_TECH_PASSWORD
+```
+
+Les valeurs de `.env.example` sont suffisantes en local, mais doivent être
+changées hors développement.
+
+## Flux MQTT
+
+Télémétrie ESP32 :
 
 ```text
 station/<slot_id>/telemetry
 ```
 
-Payload attendu pour la télémétrie:
+Commandes vers ESP32 :
+
+```text
+station/<slot_id>/cmd
+```
+
+Payload type :
 
 ```json
 {
   "slot_id": "slot1",
+  "session_id": "demo",
   "state": "charging",
   "current": 1.2,
   "voltage": 12.0,
@@ -257,30 +126,17 @@ Payload attendu pour la télémétrie:
   "temperature": 32.5,
   "humidity": 45,
   "door": true,
-  "cable": true,
-  "timestamp": "2026-05-05T10:30:00Z"
+  "cable": true
 }
 ```
 
-Le bridge backend s'abonne à ces messages avec:
+Envoyer une commande manuelle depuis Django :
 
 ```bash
-python manage.py run_mqtt_bridge
+python manage.py send_slot_command slot1 START --session-id demo
 ```
 
-Les commandes vers un ESP32 utilisent:
-
-```text
-station/<slot_id>/cmd
-```
-
-Exemple manuel:
-
-```bash
-python manage.py send_slot_command slot1 START --session-id <uuid-session>
-```
-
-Le kiosque Raspberry expose egalement un endpoint local:
+Envoyer une commande via le Raspberry :
 
 ```bash
 curl -X POST http://localhost:9000/mqtt/command \
@@ -288,363 +144,130 @@ curl -X POST http://localhost:9000/mqtt/command \
   -d '{"slot_id":"slot1","action":"START","session_id":"demo"}'
 ```
 
-Les mesures sont persistées dans `CapteurData` et, si une session active existe
-sur l'emplacement, dans `SessionTelemetry`. Les alertes critiques alimentent
-`Alerte` pour la future supervision web ou Grafana.
+## Simulation Wokwi
 
-Grafana est disponible sur `http://localhost:3000` avec les identifiants définis
-par `GRAFANA_ADMIN_USER` et `GRAFANA_ADMIN_PASSWORD`. Le dashboard
-`Station - Supervision technique` est provisionné automatiquement avec une
-datasource vers TimescaleDB/PostgreSQL.
+Le dossier `esp32/wokwi/` contient une simulation interactive :
 
-## Variables d'environnement
+- switch câble ;
+- switch boîtier ;
+- potentiomètre courant ;
+- potentiomètre température ;
+- LED serrure ;
+- LED charge.
 
-Le fichier `.env.example` couvre les variables principales:
+Par défaut, Wokwi publie vers :
 
-- `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`
-- `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`
-- `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
-- `FRONTEND_BASE_URL`, `CORS_ALLOWED_ORIGINS`
-- `CACHE_URL`, `REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`
-- `MQTT_HOST`, `MQTT_PORT`, `MQTT_BASE_TOPIC`, `MQTT_BACKEND_CLIENT_ID`, `MQTT_QOS`
-- `GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD`
-- `API_DEFAULT_PAGE_SIZE`, `API_MAX_PAGE_SIZE`
-- `STATIONS_CATALOG_CACHE_SECONDS`
-- `SIMPLE_JWT_ACCESS_MINUTES`, `SIMPLE_JWT_REFRESH_DAYS`
-- `JWT_REFRESH_COOKIE_NAME`, `JWT_REFRESH_COOKIE_SECURE`,
-  `JWT_REFRESH_COOKIE_SAMESITE`, `JWT_REFRESH_COOKIE_PATH`
-- `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`,
-  `SECURE_HSTS_SECONDS`, `SECURE_HSTS_INCLUDE_SUBDOMAINS`,
-  `SECURE_HSTS_PRELOAD`, `X_FRAME_OPTIONS`
-- `ADMIN_PSEUDO`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`
-- `DEMO_STATION_*`, `DEMO_EMPLACEMENTS_COUNT`, `DEMO_ESP32_FIRMWARE_VERSION`, `DEMO_TECH_*`
-
-## Données de démo
-
-Au démarrage du backend dans Docker:
-
-- le superuser local est créé ou mis à jour automatiquement
-- une station de démo est créée avec 3 emplacements par défaut
-- un device `ESP32` est associé à chaque emplacement de démo
-- un technicien de démo est créé automatiquement
-- une maintenance de démonstration est ajoutée
-
-Comptes de démo actuels dans le fichier `.env` fourni:
-
-- admin: `admin / Admin123!`
-- technicien: `tech / Tech123!`
-
-Ces valeurs peuvent être modifiées via `.env`.
-
-## Points d'entrée utiles
-
-Backend Django:
-
-- `/` page d'accueil
-- `/inscription/`
-- `/connexion/`
-- `/contact/`
-- `/politique-confidentialite/`
-
-API principale:
-
-- `/api/register/`
-- `/api/login/`
-- `/api/logout/`
-- `/api/token/refresh/`
-- `/api/me/`
-- `/api/me/profile/`
-- `/api/me/auth-methods/`
-- `/api/me/auth-history/`
-- `/api/dashboard/`
-- `/api/stations/`
-- `/api/reservations/`
-- `/api/reservations/availability/`
-- `/api/reservations/<id>/access-payload/`
-- `/api/terminal/authenticate/`
-- `/api/technician/maintenances/`
-- `/api/admin/overview/`
-- `/api/admin/users/`
-- `/api/admin/users/<id>/auth-methods/`
-- `/api/admin/users/<id>/auth-methods/<auth_id>/revoke/`
-- `/api/admin/users/<id>/reset-password/`
-- `/api/admin/reservations/`
-- `/api/admin/reservations/<id>/access-payload/`
-- `/api/admin/reservations/<id>/revoke-access/`
-
-Gestion des moyens d'acces:
-
-- un badge RFID est un moyen d'acces persistant rattache a un utilisateur;
-- l'administrateur peut associer, remplacer ou revoquer un badge RFID depuis
-  l'ecran `Modifier` de l'utilisateur, sans afficher la valeur complete du badge;
-- un QR code ou un code temporaire reste rattache a une reservation;
-- l'utilisateur peut afficher ou masquer le QR/code courant sans le regenerer;
-- l'administrateur peut regenerer ou revoquer un QR/code temporaire depuis la
-  table des reservations; la regeneration remplace la valeur cote serveur sans
-  afficher de fenetre de copie, puis l'interface utilisateur recupere
-  automatiquement la nouvelle valeur visible;
-- les secrets d'acces sont haches cote backend et les actions sensibles sont
-  journalisees dans `JournalSecurite`.
-
-Session navigateur:
-
-- le jeton d'acces JWT reste en memoire JavaScript et n'est plus persiste dans
-  `localStorage`;
-- le jeton de rafraichissement est envoye dans un cookie `HttpOnly`, avec les
-  attributs `Secure` et `SameSite` configurables par environnement;
-- `/api/token/refresh/` lit ce cookie pour renouveler le jeton d'acces, et
-  `/api/logout/` efface le cookie.
-
-Configuration production securisee:
-
-- definir `DEBUG=False`;
-- definir un `SECRET_KEY` long, aleatoire et propre a l'environnement;
-- remplacer `ALLOWED_HOSTS` et `CORS_ALLOWED_ORIGINS` par les domaines reels;
-- utiliser HTTPS et activer `SECURE_SSL_REDIRECT=True`;
-- activer `SESSION_COOKIE_SECURE=True`, `CSRF_COOKIE_SECURE=True` et
-  `JWT_REFRESH_COOKIE_SECURE=True`;
-- utiliser `JWT_REFRESH_COOKIE_SAMESITE=None` si le frontend et l'API sont sur
-  des domaines differents, sinon `Lax` peut suffire;
-- definir `SECURE_HSTS_SECONDS=31536000` apres validation du HTTPS;
-- activer `SECURE_HSTS_PRELOAD=True` seulement si le domaine est pret pour la
-  preload list navigateur;
-- remplacer `ADMIN_PASSWORD`, `DEMO_TECH_PASSWORD`, `DB_PASSWORD` et
-  `POSTGRES_PASSWORD` par des secrets uniques.
-
-Verifier les reglages Django avant une mise en production:
-
-```powershell
-$env:DEBUG="False"
-$env:SECRET_KEY="<secret-long-et-aleatoire>"
-$env:ALLOWED_HOSTS="example.com"
-.\.venv\Scripts\python.exe backend\manage.py check --deploy
+```text
+test.mosquitto.org
 ```
 
-Documentation:
+Pour afficher ces données dans Grafana via le backend local, configurer
+temporairement :
 
-- `/api/schema/` schéma OpenAPI généré par drf-spectacular
-- `/api/docs/` documentation interactive Swagger UI
-- `/api/redoc/` documentation interactive Redoc
-- `docs/` documentation technique Sphinx
-- `docs/source/technical_choices.rst`: justification des choix techniques du projet
+```env
+MQTT_HOST=test.mosquitto.org
+MQTT_PORT=1883
+MQTT_BASE_TOPIC=station
+```
 
-Dépendances:
+## Tests et vérifications
 
-- `backend/requirements.in`: dépendances directes du backend
-- `backend/requirements.txt`: dépendances backend verrouillées pour Docker
-- `backend/requirements-dev.in`: dépendances directes des tests
-- `backend/requirements-dev.txt`: dépendances de test verrouillées
-- `frontend/package.json`: scripts et dépendances Vite du frontend
-- `docs/requirements.in`: dépendances directes de documentation
-- `docs/requirements.txt`: dépendances de documentation verrouillées
-
-Les fichiers `.txt` sont ceux installés par Docker et par les commandes locales.
-Les fichiers `.in` servent de source lisible quand il faut mettre à jour les
-dépendances. Après une mise à jour, reconstruire l'image backend pour vérifier
-que les tests passent avec les versions verrouillées.
-
-Tests:
-
-Les tests pytest sont exécutés automatiquement pendant le build de l'image
-backend. Si un test échoue, `docker compose up -d --build` s'arrête avant de
-lancer les services.
-
-Le workflow GitHub Actions `CI` relance aussi les tests backend, la qualité des
-docstrings backend, la validation frontend (`npm run verify`) et la génération
-de la documentation HTML sur chaque push et pull request.
-
-Automatisation DevSecOps:
-
-- `CI`: tests, qualité backend, validation frontend et build documentaire;
-- `Documentation Pages`: génération Sphinx et publication GitHub Pages à chaque
-  merge sur `main`;
-- `CodeQL`: analyse statique Python et JavaScript planifiée chaque semaine et
-  exécutée aussi sur push, pull request et lancement manuel;
-- `Generate SBOM and VEX`: génération SBOM CycloneDX/SPDX, scan Grype de
-  l'image backend, upload SARIF vers GitHub Code Scanning et brouillon OpenVEX
-  si des vulnérabilités sont détectées;
-- `Dependabot`: propositions hebdomadaires de mises à jour pour GitHub Actions,
-  npm, pip et images Docker.
-
-Le dépôt utilise le workflow CodeQL avancé versionné dans `.github/workflows/`.
-Le `Default setup` CodeQL de GitHub doit donc rester désactivé, sinon GitHub Code
-Scanning refuse les résultats SARIF du workflow avancé.
-
-La branche `main` est protégée côté GitHub. Les changements doivent passer par
-une pull request avec une branche à jour et les statuts suivants au vert :
-
-- `Backend tests`
-- `Backend quality`
-- `Frontend verify`
-- `Documentation build`
-- `Analyze (python)`
-- `Analyze (javascript-typescript)`
-- `Backend image supply chain reports`
-
-Les conversations de revue doivent être résolues avant fusion, et les force-pushs
-ou suppressions de `main` sont désactivés. Dependabot crée une branche et une PR
-par mise à jour proposée; les montées de versions majeures doivent être relues
-avant fusion.
-
-Le dossier `docs/build/html` reste un artefact local ignoré par Git. La version
-HTML publiée est reconstruite par GitHub Actions puis déployée via GitHub Pages;
-il ne faut donc pas committer le contenu généré.
+Backend :
 
 ```powershell
 cd backend
 ..\.venv\Scripts\python.exe -m pytest
 ```
 
-Relancer uniquement le build backend et donc les tests :
-
-```bash
-docker compose build backend
-```
-
-Avec couverture:
+Tests ciblés MQTT et terminal :
 
 ```powershell
 cd backend
-..\.venv\Scripts\python.exe -m pytest --cov=api --cov-report=term-missing
+..\.venv\Scripts\python.exe -m pytest api\tests\test_mqtt_ingestion.py api\tests\test_terminal_auth.py
 ```
 
-Les tests utilisent `config.test_settings` et une base SQLite locale pour rester
-indépendants de PostgreSQL.
-
-Frontend:
+Frontend :
 
 ```powershell
 cd frontend
+npm ci
 npm run check:js
 npm run verify
 ```
 
-La commande `verify` exécute la vérification syntaxique JavaScript, le build
-Vite puis les tests end-to-end Playwright. Avant le premier lancement local,
-installer le navigateur de test avec `npx playwright install chromium`.
-
-Qualité des docstrings:
-
-Le backend contient une configuration `backend/pyproject.toml` pour contrôler
-la qualité des docstrings existantes avec Ruff et mesurer les docstrings
-manquantes avec Interrogate. Le format retenu est le style Google, compatible
-avec Sphinx via Napoleon.
-
-Installer les dépendances de développement:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r backend\requirements-dev.txt
-```
-
-Vérifier les docstrings:
-
-```powershell
-cd backend
-..\.venv\Scripts\python.exe -m ruff check .
-..\.venv\Scripts\python.exe -m interrogate api
-```
-
-Le seuil Interrogate est fixé à `100`: une nouvelle classe ou fonction suivie
-par l'audit doit donc recevoir une docstring. Ruff active aussi les règles `D`
-pour contrôler la présence et le style des docstrings publiques.
-
-## SBOM et sécurité supply chain
-
-Le projet peut générer un SBOM (Software Bill of Materials) avec Syft, en deux
-formats:
-
-- CycloneDX JSON: pratique pour les outils de sécurité applicative
-- SPDX JSON: pratique pour la conformité et les audits de licences
-
-Les fichiers générés localement sont placés dans `sbom/`, qui est ignoré par Git.
-Ils doivent être régénérés à chaque build ou release plutôt que maintenus à la
-main dans le dépôt.
-
-Génération locale depuis les sources:
-
-```powershell
-.\scripts\generate-sbom.ps1
-```
-
-Si `syft` n'est pas installé localement mais que Docker est disponible:
-
-```powershell
-.\scripts\generate-sbom.ps1 -UseDockerSyft
-```
-
-Génération locale depuis l'image backend construite, plus représentative des
-versions réellement installées. Cette commande nécessite Docker démarré et Syft
-installé localement:
-
-```powershell
-.\scripts\generate-sbom.ps1 -Target backend-image
-```
-
-Ou avec Syft via Docker:
-
-```powershell
-.\scripts\generate-sbom.ps1 -Target backend-image -UseDockerSyft
-```
-
-Génération locale du SBOM, du rapport de vulnérabilités Grype et d'un brouillon
-OpenVEX:
-
-```powershell
-.\scripts\generate-sbom.ps1 -Target backend-image -UseDockerSyft -AnalyzeVulnerabilities -UseDockerGrype
-```
-
-Les rapports Grype sont générés dans `sbom/`:
-
-- `station-de-recharge.vulnerabilities.json`: rapport machine lisible
-- `station-de-recharge.vulnerabilities.sarif`: rapport compatible GitHub Code
-  Scanning
-- `station-de-recharge.openvex.json`: brouillon OpenVEX, généré seulement si des
-  vulnérabilités sont trouvées
-
-Le brouillon OpenVEX utilise le statut `under_investigation`. Une déclaration VEX
-officielle doit être revue avant d'être placée dans `security/vex.openvex.json`.
-Si ce fichier existe, le scan Grype l'applique automatiquement.
-
-Pour visualiser les résultats plus clairement dans l'IDE, générer un rapport
-Markdown synthétique:
-
-```powershell
-.\scripts\summarize-vulnerabilities.ps1
-```
-
-Le rapport est écrit dans `sbom/station-de-recharge.vulnerability-report.md`.
-
-Installer Syft sous Windows:
-
-```powershell
-winget install Anchore.Syft
-```
-
-Installer Grype sous Windows:
-
-```powershell
-winget install Anchore.Grype
-```
-
-Un workflow GitHub Actions génère aussi un SBOM CycloneDX, un SBOM SPDX, des
-rapports de vulnérabilités Grype et un brouillon OpenVEX de l'image backend à
-chaque push, pull request ou lancement manuel. Le SARIF est envoyé à GitHub Code
-Scanning quand les permissions du dépôt le permettent. Dependabot surveille en
-complément les dépendances Python, JavaScript, Docker et GitHub Actions.
-
-## Kiosque Raspberry
-
-Le kiosque est un simple serveur HTTP local lancé sur le port `9000`.
-
-En dehors de Docker, il peut être démarré avec:
+Docker et Nginx :
 
 ```bash
-python raspberry/app/main.py
+docker compose config --quiet
+docker compose run --rm --no-deps reverse-proxy nginx -t
 ```
 
-## Notes techniques
+Django :
 
-- Le backend utilise PostgreSQL par défaut.
-- Les jetons JWT sont exposés via `SimpleJWT`.
-- Les origines CORS locales incluent `localhost:5173`, `localhost:8080` et `localhost:9000`.
-- Le backend bootstrape les données de démo à chaque démarrage de la stack Docker.
+```powershell
+.\.venv\Scripts\python.exe backend\manage.py check --settings=config.test_settings
+```
+
+## Documentation
+
+La documentation technique Sphinx est dans `docs/source/`.
+
+Pages principales :
+
+- `architecture.rst` : architecture globale ;
+- `requirements_traceability.rst` : correspondance avec le cahier des charges ;
+- `supervision_mqtt.rst` : flux MQTT, Grafana, Wokwi ;
+- `testing_strategy.rst` : stratégie de tests ;
+- `technical_choices.rst` : justification des choix techniques ;
+- `api_openapi.rst` : documentation API ;
+- `development.rst` : commandes de développement.
+
+Construire la documentation :
+
+```powershell
+.\docs\make.bat html
+```
+
+Variante si `sphinx-build` n'est pas dans le `PATH` :
+
+```powershell
+$env:DEBUG="True"
+$env:SECRET_KEY="docs-local-secret-key-not-for-production"
+.\.venv\Scripts\python.exe -m sphinx -b html docs\source docs\build\html
+```
+
+La sortie HTML est générée dans `docs/build/html/` et ne doit pas être committée.
+
+## Sécurité
+
+Mesures déjà présentes :
+
+- mots de passe hashés par Django ;
+- JWT avec refresh token en cookie `HttpOnly` ;
+- rôles utilisateur, technicien et administrateur ;
+- journalisation d'actions sensibles ;
+- reverse proxy Nginx local ;
+- protection de branche GitHub avec CI obligatoire ;
+- CodeQL et rapports supply chain.
+
+À durcir pour une production :
+
+- HTTPS/TLS ;
+- identifiants MQTT et TLS broker ;
+- segmentation réseau ;
+- secrets forts ;
+- sauvegardes ;
+- protection Grafana par SSO ou reverse proxy authentifié.
+
+## CI et branche main
+
+La branche `main` est protégée. Les changements doivent passer par une pull
+request avec les checks suivants au vert :
+
+- Backend tests ;
+- Backend quality ;
+- Frontend verify ;
+- Documentation build ;
+- Analyze Python ;
+- Analyze JavaScript/TypeScript ;
+- Backend image supply chain reports.

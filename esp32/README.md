@@ -10,6 +10,9 @@ physiques peuvent reutiliser la meme base firmware en changeant simplement:
 - `MQTT_HOST`
 - les identifiants WiFi
 
+Le dossier `wokwi/` contient une simulation ESP32 interactive pour tester le
+flux MQTT vers le backend et Grafana.
+
 ## Topics MQTT
 
 Chaque ESP32 publie:
@@ -61,3 +64,35 @@ En `charging`, l'ESP32 arrete immediatement en cas de:
 - cable retire
 - courant superieur au seuil
 - temperature superieure au seuil
+
+## Simulation Wokwi
+
+Ouvrir `esp32/wokwi/` avec l'extension Wokwi.
+
+La simulation contient:
+
+- un ESP32
+- un switch `Cable`
+- un switch `Boitier`
+- un potentiometre `Courant`
+- un potentiometre `Temperature`
+- une LED rouge pour la serrure
+- une LED verte pour la charge
+
+Par defaut, la simulation publie sur le broker public:
+
+```text
+test.mosquitto.org
+```
+
+Pour voir les donnees dans Grafana via le backend local, configurer
+temporairement le bridge backend avec le meme broker:
+
+```env
+MQTT_HOST=test.mosquitto.org
+MQTT_PORT=1883
+MQTT_BASE_TOPIC=station
+```
+
+Puis lancer la stack. Les messages publies sur `station/slot1/telemetry` seront
+traites par `mqtt-bridge`, stockes en base et visibles dans Grafana.
