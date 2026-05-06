@@ -12,6 +12,7 @@ from .views import (
     admin_maintenances,
     admin_reset_user_password,
     admin_reservation_access_payload,
+    admin_supervision,
     admin_user_detail,
     admin_user_auth_methods,
     admin_users,
@@ -70,6 +71,7 @@ urlpatterns = [
     path("terminal/link-rfid/", terminal_link_rfid, name="api-terminal-link-rfid"),
     path("technician/maintenances/", technician_maintenances, name="api-technician-maintenances"),
     path("admin/overview/", admin_overview, name="api-admin-overview"),
+    path("admin/supervision/", admin_supervision, name="api-admin-supervision"),
     path("admin/reservations/", admin_reservations, name="api-admin-reservations"),
     path("admin/reservations/<uuid:reservation_id>/cancel/", admin_cancel_reservation, name="api-admin-reservation-cancel"),
     path(

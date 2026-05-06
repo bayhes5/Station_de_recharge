@@ -6,7 +6,20 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 
-from api.models import Authentification, Emplacement, JournalSecurite, ProfilUtilisateur, Reservation, Station, TypeAuth
+from api.models import (
+    Alerte,
+    Authentification,
+    Capteur,
+    CapteurData,
+    Device,
+    Emplacement,
+    JournalSecurite,
+    ProfilUtilisateur,
+    Reservation,
+    Session,
+    Station,
+    TypeAuth,
+)
 
 
 def hash_secret(value):
@@ -29,6 +42,69 @@ def test_admin_overview_returns_counts(admin_client, station, emplacements):
     assert response.status_code == status.HTTP_200_OK
     assert response.data["stats"]["stations_total"] == 1
     assert response.data["stats"]["emplacements_total"] == 3
+
+
+@pytest.mark.django_db
+def test_admin_supervision_requires_staff(authenticated_client):
+    response = authenticated_client.get(reverse("api-admin-supervision"))
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.django_db
+def test_admin_supervision_returns_devices_alerts_and_measurements(admin_client, user, emplacements):
+    device = Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="1.0.0",
+        ip_address="192.168.40.10",
+        mac_address="slot1",
+        last_seen=timezone.now(),
+        status="charging",
+    )
+    capteur = Capteur.objects.create(device=device, type="temperature", unite="C")
+    data = CapteurData.objects.create(capteur=capteur, valeur=42.5)
+    type_auth = TypeAuth.objects.create(libelle="CODE", factor_level=2)
+    auth_method = Authentification.objects.create(
+        utilisateur=user,
+        type_auth=type_auth,
+        hash_valeur=hash_secret("SUPERVISION"),
+        display_value="****SION",
+        expiration=timezone.now() + timedelta(hours=1),
+    )
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="SUPERV1",
+        authentification=auth_method,
+        auth_choice="code",
+        date_debut=timezone.now() - timedelta(minutes=10),
+        date_fin=timezone.now() + timedelta(minutes=20),
+        statut="confirmee",
+    )
+    session = Session.objects.create(
+        reservation=reservation,
+        emplacement=emplacements[0],
+        start_time=timezone.now() - timedelta(minutes=5),
+    )
+    Alerte.objects.create(
+        data=data,
+        session=session,
+        type="overheat",
+        message="Temperature elevee",
+        niveau_severite="critical",
+        status="active",
+    )
+
+    response = admin_client.get(reverse("api-admin-supervision"))
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["stats"]["devices_total"] == 1
+    assert response.data["stats"]["devices_online"] == 1
+    assert response.data["stats"]["active_alerts"] == 1
+    assert response.data["devices"][0]["slot_id"] == "slot1"
+    assert response.data["alerts"][0]["type"] == "overheat"
+    assert response.data["measurements"][0]["type"] == "temperature"
 
 
 @pytest.mark.django_db

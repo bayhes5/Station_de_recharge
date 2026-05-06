@@ -29,6 +29,7 @@
 
             <nav class="tab-bar admin-tabs" role="tablist" aria-label="Navigation administration">
                 <button class="tab-button active" type="button" role="tab" aria-selected="true" data-admin-tab="overview">Vue globale</button>
+                <button class="tab-button" type="button" role="tab" aria-selected="false" data-admin-tab="supervision">Supervision</button>
                 <button class="tab-button" type="button" role="tab" aria-selected="false" data-admin-tab="users">Utilisateurs</button>
                 <button class="tab-button" type="button" role="tab" aria-selected="false" data-admin-tab="infrastructure">Infrastructure</button>
                 <button class="tab-button" type="button" role="tab" aria-selected="false" data-admin-tab="reservations">R&eacute;servations</button>
@@ -68,6 +69,70 @@
                         </div>
                     </section>
                 </div>
+            </section>
+
+            <section class="admin-data-stack" role="tabpanel" data-admin-panel="supervision" hidden>
+                <section class="dashboard-panel">
+                    <div class="panel-heading table-toolbar supervision-heading">
+                        <div>
+                            <p class="panel-title">Supervision temps r&eacute;el</p>
+                            <p class="table-caption">Sant&eacute; des ESP32, alertes et derni&egrave;res mesures capteurs.</p>
+                        </div>
+                        <a class="btn btn-secondary compact" href="/grafana/" target="_blank" rel="noreferrer">Ouvrir Grafana</a>
+                    </div>
+                    <div class="dashboard-kpis admin-kpis supervision-kpis">
+                        <div class="kpi">
+                            <span class="label">ESP32 en ligne</span>
+                            <span id="stat-devices-online" class="value">-</span>
+                        </div>
+                        <div class="kpi">
+                            <span class="label">ESP32 hors ligne</span>
+                            <span id="stat-devices-offline" class="value">-</span>
+                        </div>
+                        <div class="kpi">
+                            <span class="label">Alertes actives</span>
+                            <span id="stat-alerts-active" class="value">-</span>
+                        </div>
+                        <div class="kpi">
+                            <span class="label">Alertes critiques</span>
+                            <span id="stat-alerts-critical" class="value">-</span>
+                        </div>
+                        <div class="kpi">
+                            <span class="label">Mesures 24h</span>
+                            <span id="stat-telemetry-24h" class="value">-</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="dashboard-panel table-panel admin-table-panel">
+                    <div class="panel-heading table-toolbar">
+                        <div>
+                            <p class="panel-title">Sant&eacute; des ESP32</p>
+                            <p class="table-caption">Dernier signal, statut firmware et emplacement physique.</p>
+                        </div>
+                    </div>
+                    <div id="admin-devices-list" class="table-host"></div>
+                </section>
+
+                <section class="dashboard-panel table-panel admin-table-panel">
+                    <div class="panel-heading table-toolbar">
+                        <div>
+                            <p class="panel-title">Alertes r&eacute;centes</p>
+                            <p class="table-caption">Intrusion, surchauffe, surconsommation et d&eacute;fauts capteurs.</p>
+                        </div>
+                    </div>
+                    <div id="admin-alerts-list" class="table-host"></div>
+                </section>
+
+                <section class="dashboard-panel table-panel admin-table-panel">
+                    <div class="panel-heading table-toolbar">
+                        <div>
+                            <p class="panel-title">Derni&egrave;res mesures</p>
+                            <p class="table-caption">T&eacute;l&eacute;m&eacute;trie capteurs re&ccedil;ue par le bridge MQTT.</p>
+                        </div>
+                    </div>
+                    <div id="admin-measurements-list" class="table-host"></div>
+                </section>
             </section>
 
             <section class="admin-data-stack" role="tabpanel" data-admin-panel="users" hidden>
