@@ -174,7 +174,7 @@ services:
     command: python manage.py run_mqtt_bridge
 
   grafana:
-    image: grafana/grafana-oss:12.3.0
+    image: grafana/grafana-oss:12.1.0
     container_name: grafana_supervision
     env_file:
       - .env
@@ -183,6 +183,8 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SERVER_ROOT_URL: http://localhost/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
@@ -214,7 +216,7 @@ services:
       - "5173:5173"
     environment:
       VITE_API_BASE_URL: http://localhost:8000/api
-    command: sh -c "npm ci && npm run dev"
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0"
     depends_on:
       - backend
 
@@ -226,9 +228,29 @@ services:
       - ./raspberry/app:/app
     ports:
       - "9000:9000"
-    command: python main.py
+    environment:
+      MQTT_HOST: mqtt
+      MQTT_PORT: 1883
+      MQTT_BASE_TOPIC: station
+      MQTT_RASPBERRY_CLIENT_ID: raspberry-kiosk
+    command: sh -c "pip install --no-cache-dir -r requirements.txt && python main.py"
     depends_on:
       - backend
+      - mqtt
+
+  reverse-proxy:
+    image: nginx:1.27-alpine
+    container_name: nginx_reverse_proxy
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+      - frontend
+      - grafana
+      - raspberry
 
 volumes:
   frontend_node_modules:

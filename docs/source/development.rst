@@ -28,6 +28,56 @@ Sous Linux/macOS :
 
 La sortie HTML est générée dans ``docs/build/html/``.
 
+Lancer la stack locale
+----------------------
+
+La stack Docker démarre le backend, le frontend, le kiosque Raspberry, le broker
+MQTT, Redis, TimescaleDB/PostgreSQL, Celery, Grafana et le reverse proxy Nginx :
+
+.. code-block:: bash
+
+   docker compose up -d --build
+
+Le chemin local recommandé pour une démonstration proche production passe par
+Nginx :
+
+.. code-block:: text
+
+   http://localhost/          -> frontend
+   http://localhost/api/      -> API Django
+   http://localhost/admin/    -> admin Django
+   http://localhost/grafana/  -> Grafana
+   http://localhost/kiosk/    -> kiosque Raspberry
+
+Les ports directs ``8000``, ``5173``, ``3000`` et ``9000`` restent exposés pour
+le diagnostic pendant le développement.
+
+Vérifier Nginx et MQTT
+----------------------
+
+Valider la configuration Docker Compose :
+
+.. code-block:: bash
+
+   docker compose config --quiet
+
+Valider la syntaxe du reverse proxy :
+
+.. code-block:: bash
+
+   docker compose run --rm --no-deps reverse-proxy nginx -t
+
+Envoyer une commande MQTT via le Raspberry :
+
+.. code-block:: bash
+
+   curl -X POST http://localhost:9000/mqtt/command \
+     -H "Content-Type: application/json" \
+     -d '{"slot_id":"slot1","action":"START","session_id":"demo"}'
+
+Le firmware ESP32 publie sa télémétrie sur ``station/<slot_id>/telemetry`` et
+écoute les commandes sur ``station/<slot_id>/cmd``.
+
 Ce qui est automatique
 ----------------------
 

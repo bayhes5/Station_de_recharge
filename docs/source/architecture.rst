@@ -2,7 +2,8 @@ Architecture
 ============
 
 Le projet est composé de quatre parties applicatives principales, complétées par
-PostgreSQL et Redis dans la stack Docker locale.
+TimescaleDB/PostgreSQL, Redis, Mosquitto, Grafana et Nginx dans la stack Docker
+locale.
 
 Backend Django
 --------------
@@ -56,6 +57,25 @@ Kiosque Raspberry
 
 Le dossier ``raspberry/app/`` contient une interface locale simple exposée sur le
 port ``9000`` dans la stack Docker.
+
+L'écran tactile cible une résolution de ``1024x600``. Les parcours critiques du
+kiosque doivent être validés sur cette taille, notamment l'accueil, la lecture
+RFID, la saisie code et l'association badge.
+
+Reverse proxy local
+-------------------
+
+Le dossier ``nginx/`` contient une configuration de reverse proxy locale qui
+centralise les routes de démonstration :
+
+* ``/`` vers le frontend Vite ;
+* ``/api/`` et ``/admin/`` vers Django ;
+* ``/grafana/`` vers Grafana ;
+* ``/kiosk/`` vers le kiosque Raspberry.
+
+Cette configuration prépare la mise en production en isolant progressivement les
+services internes derrière un point d'entrée HTTP unique. Les ports directs
+restent disponibles en développement.
 
 ESP32
 -----

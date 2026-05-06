@@ -49,6 +49,21 @@ SQLite reste utilisé pour les tests unitaires via ``config.test_settings``. Ce
 choix rend les tests plus rapides et plus faciles à lancer localement, tout en
 gardant PostgreSQL pour la stack applicative normale.
 
+TimescaleDB pour la télémétrie
+------------------------------
+
+La stack Docker utilise l'image TimescaleDB compatible PostgreSQL.
+
+Ce choix garde le confort de PostgreSQL pour les modèles relationnels Django,
+tout en préparant le stockage des séries temporelles issues des ESP32 :
+température, courant, tension, énergie, câble, porte et état des slots.
+L'application peut continuer à utiliser l'ORM Django, et Grafana peut lire les
+tables horodatées sans couche supplémentaire.
+
+Dans le prototype actuel, les tables restent des modèles Django standards. Les
+hypertables TimescaleDB pourront être activées plus tard par migration SQL si le
+volume de télémétrie le justifie.
+
 Modèle utilisateur personnalisé
 -------------------------------
 
@@ -366,6 +381,60 @@ données de profil.
 Le cache est invalidé lors des modifications de stations ou d'emplacements. Les
 réservations et les accès temporaires restent hors cache, car ils sont dynamiques
 et sensibles à l'utilisateur connecté.
+
+MQTT avec Mosquitto
+-------------------
+
+MQTT est utilisé pour la télémétrie IoT et les commandes vers les ESP32.
+
+Le broker Mosquitto est léger, open source et adapté à une architecture de
+station locale. Les ESP32 publient leurs mesures sur
+``station/<slot_id>/telemetry`` et reçoivent les commandes sur
+``station/<slot_id>/cmd``. Cette séparation permet de découpler l'embarqué du
+backend : l'ESP32 reste un exécutant local, tandis que Django et le Raspberry
+gardent les décisions métier.
+
+Le développement local accepte MQTT sans authentification pour faciliter la
+simulation. En production, le broker devra être protégé par identifiants, TLS et
+segmentation réseau.
+
+Celery pour l'ingestion asynchrone
+----------------------------------
+
+Le bridge MQTT backend délègue le traitement des messages à Celery.
+
+Ce choix évite de bloquer le client MQTT pendant l'écriture en base ou la
+création d'alertes. Redis sert de broker Celery, ce qui reste cohérent avec le
+cache Django et le futur canal temps réel de Django Channels.
+
+Pour trois ESP32, le volume reste faible, mais cette architecture donne déjà une
+base robuste pour filtrer, agréger ou notifier sans modifier le firmware.
+
+Grafana pour la supervision technique
+-------------------------------------
+
+Grafana est utilisé pour les courbes et tableaux techniques.
+
+Le tableau de bord métier de l'application reste destiné aux administrateurs et
+techniciens : réservations, utilisateurs, maintenances et alertes lisibles.
+Grafana complète cette vue avec des séries temporelles : température, courant,
+état des ESP32 et incidents récents.
+
+Ce choix évite de recréer un outil de graphes temps réel de zéro et s'appuie sur
+une solution open source connue. Dans le prototype, Grafana est accessible sur
+``/grafana/`` via le reverse proxy local.
+
+Reverse proxy Nginx
+-------------------
+
+Un reverse proxy Nginx local centralise les routes de démonstration.
+
+Il expose ``/`` pour le frontend, ``/api/`` et ``/admin/`` pour Django,
+``/grafana/`` pour Grafana et ``/kiosk/`` pour le kiosque Raspberry. Les ports
+directs restent disponibles en développement, mais Nginx prépare la mise en
+production : un seul point d'entrée HTTP, possibilité de terminer TLS, ajout de
+headers de sécurité et future protection de Grafana derrière l'authentification
+admin/technicien.
 
 Headers cache des assets Vite
 -----------------------------

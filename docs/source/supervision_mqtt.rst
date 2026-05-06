@@ -28,6 +28,11 @@ Le flux de commande vers les emplacements passe dans l'autre sens :
       -> ESP32
       -> serrure / module de charge
 
+Dans le prototype actuel, le kiosque Raspberry expose aussi un endpoint local
+``POST /mqtt/command``. Après une authentification réussie auprès de l'API, le
+navigateur du kiosque appelle cet endpoint pour publier une commande ``START``
+vers le slot concerné.
+
 Le serveur Django reste la source de vérité pour les utilisateurs, les
 réservations et les droits d'accès. Les ESP32 exécutent les commandes validées et
 gardent seulement les réflexes de sécurité locale : arrêt en cas d'ouverture du
@@ -85,6 +90,9 @@ Le payload de commande est un JSON simple :
      "session_id": "<uuid-session>"
    }
 
+Le Raspberry publie ce payload via son client MQTT local. Le backend dispose du
+même mécanisme côté serveur avec la commande ``send_slot_command``.
+
 Commandes utiles
 ----------------
 
@@ -99,6 +107,14 @@ Envoyer une commande manuelle à un emplacement :
 .. code-block:: bash
 
    python manage.py send_slot_command slot1 START --session-id <uuid-session>
+
+Tester l'endpoint Raspberry local :
+
+.. code-block:: bash
+
+   curl -X POST http://localhost:9000/mqtt/command \
+     -H "Content-Type: application/json" \
+     -d '{"slot_id":"slot1","action":"START","session_id":"demo"}'
 
 Modèles alimentés
 -----------------
