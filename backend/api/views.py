@@ -29,7 +29,10 @@ from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import (
+    Alerte,
     Authentification,
+    CapteurData,
+    Device,
     Emplacement,
     JournalSecurite,
     Maintenance,
@@ -69,6 +72,7 @@ RESERVATION_CODE_LENGTH = 8
 TEMPORARY_CODE_LENGTH = 12
 RFID_LINK_CODE_LENGTH = 4
 RFID_LINK_CODE_TTL_SECONDS = 10 * 60
+DEVICE_ONLINE_GRACE_MINUTES = getattr(settings, "DEVICE_ONLINE_GRACE_MINUTES", 5)
 
 
 def _refresh_cookie_kwargs():
@@ -332,6 +336,72 @@ def _serialize_emplacement(emplacement):
         "numero": emplacement.numero,
         "statut": emplacement.statut,
         "lock_state": emplacement.lock_state,
+    }
+
+
+def _device_is_online(device, now=None):
+    """Return whether a device has sent telemetry recently enough."""
+    if not device.last_seen:
+        return False
+    now = now or timezone.now()
+    return device.last_seen >= now - timedelta(minutes=DEVICE_ONLINE_GRACE_MINUTES)
+
+
+def _serialize_device_supervision(device, now=None):
+    """Return one ESP32 state row for the admin supervision screen."""
+    online = _device_is_online(device, now=now)
+    emplacement = device.emplacement
+    station = emplacement.station
+    return {
+        "id_device": str(device.id_device),
+        "slot_id": device.mac_address or str(device.id_device),
+        "type_device": device.type_device,
+        "firmware_version": device.firmware_version,
+        "ip_address": device.ip_address,
+        "status": device.status,
+        "last_seen": device.last_seen.isoformat() if device.last_seen else None,
+        "online": online,
+        "health": "online" if online else "offline",
+        "station_nom": station.nom,
+        "emplacement_numero": emplacement.numero,
+        "emplacement_statut": emplacement.statut,
+        "lock_state": emplacement.lock_state,
+    }
+
+
+def _serialize_alert_supervision(alert):
+    """Return one operational alert for the admin supervision screen."""
+    session = alert.session
+    emplacement = session.emplacement if session else None
+    station = emplacement.station if emplacement else None
+    return {
+        "id_alerte": str(alert.id_alerte),
+        "type": alert.type,
+        "message": alert.message,
+        "niveau_severite": alert.niveau_severite,
+        "status": alert.status,
+        "timestamp": alert.timestamp.isoformat() if alert.timestamp else None,
+        "station_nom": station.nom if station else "-",
+        "emplacement_numero": emplacement.numero if emplacement else "-",
+        "session_id": str(session.id_session) if session else None,
+    }
+
+
+def _serialize_sensor_data_supervision(sensor_data):
+    """Return one recent sensor measurement for the admin supervision screen."""
+    capteur = sensor_data.capteur
+    device = capteur.device
+    emplacement = device.emplacement if device else None
+    station = emplacement.station if emplacement else None
+    return {
+        "id_data": str(sensor_data.id_data),
+        "type": capteur.type,
+        "unite": capteur.unite,
+        "valeur": sensor_data.valeur,
+        "timestamp": sensor_data.timestamp.isoformat() if sensor_data.timestamp else None,
+        "slot_id": device.mac_address if device else "-",
+        "station_nom": station.nom if station else "-",
+        "emplacement_numero": emplacement.numero if emplacement else "-",
     }
 
 
@@ -1236,6 +1306,55 @@ def admin_overview(request):
                 _serialize_emplacement(emplacement)
                 for emplacement in Emplacement.objects.select_related("station").order_by("-id_emplacement")[:5]
             ],
+        }
+    )
+
+
+@_schema("Lire la supervision technique administrateur", tags=["Administration"])
+@api_view(["GET"])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_supervision(request):
+    """Return live supervision data for devices, alerts and sensors."""
+    now = timezone.now()
+    devices = list(
+        Device.objects.select_related(
+            "emplacement",
+            "emplacement__station",
+        ).order_by("emplacement__station__nom", "emplacement__numero")
+    )
+    active_alerts = Alerte.objects.exclude(status__in=["resolved", "resolue", "closed", "fermee"])
+    recent_alerts = (
+        Alerte.objects.select_related(
+            "session",
+            "session__emplacement",
+            "session__emplacement__station",
+        )
+        .order_by("-timestamp")[:20]
+    )
+    recent_sensor_data = (
+        CapteurData.objects.select_related(
+            "capteur",
+            "capteur__device",
+            "capteur__device__emplacement",
+            "capteur__device__emplacement__station",
+        )
+        .order_by("-timestamp")[:30]
+    )
+    sensor_since = now - timedelta(hours=24)
+
+    return Response(
+        {
+            "stats": {
+                "devices_total": len(devices),
+                "devices_online": sum(1 for device in devices if _device_is_online(device, now=now)),
+                "devices_offline": sum(1 for device in devices if not _device_is_online(device, now=now)),
+                "active_alerts": active_alerts.count(),
+                "critical_alerts": active_alerts.filter(niveau_severite__in=["critical", "critique"]).count(),
+                "telemetry_samples_24h": CapteurData.objects.filter(timestamp__gte=sensor_since).count(),
+            },
+            "devices": [_serialize_device_supervision(device, now=now) for device in devices],
+            "alerts": [_serialize_alert_supervision(alert) for alert in recent_alerts],
+            "measurements": [_serialize_sensor_data_supervision(data) for data in recent_sensor_data],
         }
     )
 

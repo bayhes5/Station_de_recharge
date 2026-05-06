@@ -12,6 +12,7 @@ du frontend Vite et des composants embarqués du prototype.
    requirements_traceability
    supervision_mqtt
    testing_strategy
+   git_github_workflow
    technical_choices
    api_openapi
    development

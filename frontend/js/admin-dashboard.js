@@ -93,6 +93,13 @@ function collectSearchText(parts) {
         .join(" ");
 }
 
+function createStatusBadge(label, variant = "") {
+    const badge = document.createElement("span");
+    badge.className = `badge status-badge${variant ? ` ${variant}` : ""}`;
+    badge.textContent = label;
+    return badge;
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
     const AUTO_REFRESH_MS = 30000;
     const status = document.getElementById("admin-status");
@@ -107,6 +114,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     let archivedReservations = [];
     let activeSessions = [];
     let archivedSessions = [];
+    let supervision = {
+        stats: {},
+        devices: [],
+        alerts: [],
+        measurements: [],
+    };
     let currentAdminId = null;
     let isLoading = false;
     const paginatedTables = ["users", "stations", "emplacements", "technicians", "maintenances"];
@@ -201,6 +214,14 @@ document.addEventListener("DOMContentLoaded", async () => {
             formatDateTime(session.start_time),
             formatDateTime(session.end_time),
         ]);
+    }
+
+    function formatMeasurementValue(row) {
+        const value = Number(row.valeur);
+        const formatted = Number.isFinite(value) ? value.toLocaleString("fr-FR", {
+            maximumFractionDigits: 2,
+        }) : row.valeur;
+        return `${formatted} ${row.unite || ""}`.trim();
     }
 
     function filterRows(tableKey, rows) {
@@ -644,7 +665,63 @@ document.addEventListener("DOMContentLoaded", async () => {
         );
     }
 
+    function renderSupervision() {
+        const stats = supervision.stats || {};
+        document.getElementById("stat-devices-online").textContent = stats.devices_online ?? "-";
+        document.getElementById("stat-devices-offline").textContent = stats.devices_offline ?? "-";
+        document.getElementById("stat-alerts-active").textContent = stats.active_alerts ?? "-";
+        document.getElementById("stat-alerts-critical").textContent = stats.critical_alerts ?? "-";
+        document.getElementById("stat-telemetry-24h").textContent = stats.telemetry_samples_24h ?? "-";
+
+        createDataTable(
+            document.getElementById("admin-devices-list"),
+            [
+                { label: "Slot", render: (device) => device.slot_id || "-" },
+                { label: "Santé", render: (device) => createStatusBadge(device.online ? "En ligne" : "Hors ligne", device.online ? "success" : "danger") },
+                { label: "État", render: (device) => device.status || "-" },
+                { label: "Station", render: (device) => device.station_nom || "-" },
+                { label: "Emplacement", render: (device) => device.emplacement_numero ?? "-" },
+                { label: "Serrure", render: (device) => device.lock_state || "-" },
+                { label: "Firmware", render: (device) => device.firmware_version || "-" },
+                { label: "IP", render: (device) => device.ip_address || "-" },
+                { label: "Dernier signal", render: (device) => formatDateTime(device.last_seen) },
+            ],
+            supervision.devices || [],
+            "Aucun ESP32 enregistré."
+        );
+
+        createDataTable(
+            document.getElementById("admin-alerts-list"),
+            [
+                { label: "Date", render: (alert) => formatDateTime(alert.timestamp) },
+                { label: "Type", render: (alert) => alert.type || "-" },
+                { label: "Sévérité", render: (alert) => createStatusBadge(alert.niveau_severite || "-", ["critical", "critique"].includes(alert.niveau_severite) ? "danger" : "warning") },
+                { label: "Statut", render: (alert) => alert.status || "-" },
+                { label: "Station", render: (alert) => alert.station_nom || "-" },
+                { label: "Emplacement", render: (alert) => alert.emplacement_numero ?? "-" },
+                { label: "Message", render: (alert) => alert.message || "-" },
+            ],
+            supervision.alerts || [],
+            "Aucune alerte récente."
+        );
+
+        createDataTable(
+            document.getElementById("admin-measurements-list"),
+            [
+                { label: "Date", render: (row) => formatDateTime(row.timestamp) },
+                { label: "Slot", render: (row) => row.slot_id || "-" },
+                { label: "Capteur", render: (row) => row.type || "-" },
+                { label: "Valeur", render: formatMeasurementValue },
+                { label: "Station", render: (row) => row.station_nom || "-" },
+                { label: "Emplacement", render: (row) => row.emplacement_numero ?? "-" },
+            ],
+            supervision.measurements || [],
+            "Aucune mesure capteur reçue."
+        );
+    }
+
     function renderAllTables() {
+        renderSupervision();
         renderUsers();
         renderStations();
         renderEmplacements();
@@ -663,6 +740,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         try {
             const [
                 overview,
+                adminSupervision,
                 adminUsers,
                 adminStations,
                 adminEmplacements,
@@ -670,6 +748,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 adminMaintenances,
             ] = await Promise.all([
                 window.AuthAPI.getAdminOverview(),
+                window.AuthAPI.getAdminSupervision(),
                 window.AuthAPI.getAdminUsers(pageParams("users")),
                 window.AuthAPI.getAdminStations(pageParams("stations")),
                 window.AuthAPI.getAdminEmplacements(pageParams("emplacements")),
@@ -702,6 +781,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             emplacements = adminEmplacements.results || [];
             technicians = adminTechnicians.results || [];
             maintenances = adminMaintenances.results || [];
+            supervision = adminSupervision || supervision;
             updatePageState("users", adminUsers);
             updatePageState("stations", adminStations);
             updatePageState("emplacements", adminEmplacements);
@@ -764,7 +844,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         await loadAll();
         const initialTab = (window.location.hash || "#overview").replace("#", "");
-        const allowedTabs = ["overview", "users", "infrastructure", "reservations", "sessions", "operations"];
+        const allowedTabs = ["overview", "supervision", "users", "infrastructure", "reservations", "sessions", "operations"];
         setAdminTab(allowedTabs.includes(initialTab) ? initialTab : "overview", false);
 
         window.setInterval(async () => {

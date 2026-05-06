@@ -337,6 +337,12 @@ async function getAdminOverview() {
     });
 }
 
+async function getAdminSupervision() {
+    return doRequest("/admin/supervision/", {
+        method: "GET",
+    });
+}
+
 async function getAdminReservations() {
     return doRequest("/admin/reservations/", {
         method: "GET",
@@ -623,6 +629,7 @@ window.AuthAPI = {
     deleteAuthMethod,
     deleteAccount,
     getAdminOverview,
+    getAdminSupervision,
     getAdminReservations,
     cancelAdminReservation,
     getAdminSessions,

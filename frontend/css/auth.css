@@ -1492,6 +1492,21 @@ th.actions-column {
     color: var(--primary-strong);
 }
 
+.status-badge.success {
+    color: var(--success);
+    background: var(--success-soft);
+}
+
+.status-badge.warning {
+    color: var(--warning);
+    background: var(--warning-soft);
+}
+
+.status-badge.danger {
+    color: var(--danger);
+    background: var(--danger-soft);
+}
+
 .empty-state {
     padding: 16px;
     color: var(--muted);
