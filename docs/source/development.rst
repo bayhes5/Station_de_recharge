@@ -20,6 +20,15 @@ Sous Windows :
 
    .\docs\make.bat html
 
+Si ``sphinx-build`` n'est pas disponible dans le ``PATH`` mais que
+l'environnement virtuel contient bien les dépendances de documentation :
+
+.. code-block:: powershell
+
+   $env:DEBUG="True"
+   $env:SECRET_KEY="docs-local-secret-key-not-for-production"
+   .\.venv\Scripts\python.exe -m sphinx -b html docs\source docs\build\html
+
 Sous Linux/macOS :
 
 .. code-block:: bash

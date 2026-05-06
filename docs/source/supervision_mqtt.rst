@@ -116,6 +116,35 @@ Tester l'endpoint Raspberry local :
      -H "Content-Type: application/json" \
      -d '{"slot_id":"slot1","action":"START","session_id":"demo"}'
 
+Simulation Wokwi
+----------------
+
+Le dossier ``esp32/wokwi/`` contient une simulation interactive du slot 1. Elle
+publie les mêmes payloads que le firmware MicroPython physique sur
+``station/slot1/telemetry``.
+
+La simulation Wokwi utilise par défaut le broker public
+``test.mosquitto.org``. Pour faire passer ces messages dans la stack locale et
+les afficher dans Grafana, le bridge backend doit temporairement écouter ce même
+broker :
+
+.. code-block:: text
+
+   MQTT_HOST=test.mosquitto.org
+   MQTT_PORT=1883
+   MQTT_BASE_TOPIC=station
+
+La chaîne testée devient alors :
+
+.. code-block:: text
+
+   Wokwi ESP32
+      -> test.mosquitto.org
+      -> mqtt-bridge backend
+      -> Celery
+      -> TimescaleDB/PostgreSQL
+      -> Grafana
+
 Modèles alimentés
 -----------------
 
