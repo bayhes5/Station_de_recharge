@@ -5,6 +5,9 @@ Cette page explique les principaux choix du projet. L'objectif est de garder une
 trace des raisons, des bénéfices, des limites assumées et des alternatives
 écartées quand elles ont été discutées.
 
+Pour une lecture orientée fonctionnalité par fonctionnalité, voir aussi
+``implementation_guide.rst``.
+
 Backend Django
 --------------
 
@@ -408,6 +411,11 @@ Ce choix évite de bloquer le client MQTT pendant l'écriture en base ou la
 création d'alertes. Redis sert de broker Celery, ce qui reste cohérent avec le
 cache Django et le futur canal temps réel de Django Channels.
 
+L'ingestion est idempotente pour les anomalies ouvertes : une même anomalie sur
+un même emplacement met à jour l'alerte existante au lieu d'empiler des doublons.
+La télémétrie normale résout automatiquement les alertes connues, ce qui garde
+la supervision exploitable pendant une simulation continue.
+
 Pour trois ESP32, le volume reste faible, mais cette architecture donne déjà une
 base robuste pour filtrer, agréger ou notifier sans modifier le firmware.
 
@@ -423,7 +431,8 @@ Grafana complète cette vue avec des séries temporelles : température, courant
 
 Ce choix évite de recréer un outil de graphes temps réel de zéro et s'appuie sur
 une solution open source connue. Dans le prototype, Grafana est accessible sur
-``/grafana/`` via le reverse proxy local.
+``/grafana/`` via le reverse proxy local, avec un lien direct vers le dashboard
+``/grafana/d/station-supervision/station-supervision-technique``.
 
 Reverse proxy Nginx
 -------------------
@@ -484,6 +493,9 @@ La documentation HTML n'est pas versionnée : ``docs/build/html`` reste un
 artefact généré. GitHub Pages est alimenté par un workflow dédié qui reconstruit
 Sphinx depuis les sources versionnées, ce qui évite les divergences entre la
 documentation source et le HTML publié.
+
+La publication est disponible sur
+``https://bayhes5.github.io/Station_de_recharge/`` après merge dans ``main``.
 
 Les rapports ne remplacent pas une analyse humaine. Une entrée VEX ne doit être
 validée qu'après avoir vérifié si le chemin vulnérable est réellement

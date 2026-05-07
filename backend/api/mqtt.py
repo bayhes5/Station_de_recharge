@@ -35,10 +35,16 @@ def run_mqtt_bridge():
 
     def on_connect(client, userdata, flags, reason_code, properties=None):
         logger.info("MQTT connecte a %s:%s code=%s", settings.MQTT_HOST, settings.MQTT_PORT, reason_code)
+        print(
+            f"MQTT bridge connected to {settings.MQTT_HOST}:{settings.MQTT_PORT} "
+            f"code={reason_code}; subscribing to {topic}",
+            flush=True,
+        )
         client.subscribe(topic, qos=settings.MQTT_QOS)
 
     def on_message(client, userdata, message):
         logger.debug("MQTT message topic=%s payload=%s", message.topic, message.payload)
+        print(f"MQTT bridge received {message.topic}", flush=True)
         _handle_message(message.topic, message.payload)
 
     client.on_connect = on_connect

@@ -78,7 +78,7 @@
                             <p class="panel-title">Supervision temps r&eacute;el</p>
                             <p class="table-caption">Sant&eacute; des ESP32, alertes et derni&egrave;res mesures capteurs.</p>
                         </div>
-                        <a class="btn btn-secondary compact" href="/grafana/" target="_blank" rel="noreferrer">Ouvrir Grafana</a>
+                        <a id="grafana-link" class="btn btn-secondary compact" href="/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s" target="_blank" rel="noreferrer">Ouvrir Grafana</a>
                     </div>
                     <div class="dashboard-kpis admin-kpis supervision-kpis">
                         <div class="kpi">
@@ -159,7 +159,7 @@
                     <div class="panel-heading table-toolbar">
                         <div>
                             <p class="panel-title">Stations</p>
-                            <p class="table-caption">Localisation, coordonn&eacute;es et statut des stations.</p>
+                            <p class="table-caption">Cliquez sur une station pour afficher ses emplacements.</p>
                         </div>
                         <div class="table-toolbar-actions">
                             <label class="search-field">
@@ -167,26 +167,10 @@
                                 <input type="search" data-admin-search="stations" placeholder="Nom, localisation, statut..." autocomplete="off">
                             </label>
                             <a class="btn btn-primary compact" href="/admin-form.html?resource=station">Ajouter une station</a>
+                            <a class="btn btn-secondary compact" href="/admin-form.html?resource=emplacement">Ajouter un emplacement</a>
                         </div>
                     </div>
                     <div id="stations-list" class="table-host"></div>
-                </section>
-
-                <section class="dashboard-panel table-panel admin-table-panel">
-                    <div class="panel-heading table-toolbar">
-                        <div>
-                            <p class="panel-title">Emplacements</p>
-                            <p class="table-caption">Places disponibles, &eacute;tat et serrure associ&eacute;e.</p>
-                        </div>
-                        <div class="table-toolbar-actions">
-                            <label class="search-field">
-                                <span>Rechercher</span>
-                                <input type="search" data-admin-search="emplacements" placeholder="Station, numéro, état..." autocomplete="off">
-                            </label>
-                            <a class="btn btn-primary compact" href="/admin-form.html?resource=emplacement">Ajouter un emplacement</a>
-                        </div>
-                    </div>
-                    <div id="emplacements-list" class="table-host"></div>
                 </section>
             </section>
 

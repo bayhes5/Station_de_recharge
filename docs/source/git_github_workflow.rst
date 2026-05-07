@@ -139,6 +139,19 @@ Les checks principaux du projet sont :
 * ``Analyze (javascript-typescript)`` ;
 * ``Backend image supply chain reports``.
 
+Documentation publiée
+---------------------
+
+Le workflow ``Documentation Pages`` reconstruit Sphinx à chaque merge dans
+``main`` puis publie le résultat sur GitHub Pages :
+
+.. code-block:: text
+
+   https://bayhes5.github.io/Station_de_recharge/
+
+Le dossier ``docs/build/html`` reste un artefact local ignoré par Git. Les pages
+publiées doivent donc toujours provenir des sources ``docs/source``.
+
 Fusionner la pull request
 -------------------------
 

@@ -102,8 +102,14 @@ function createStatusBadge(label, variant = "") {
 
 document.addEventListener("DOMContentLoaded", async () => {
     const AUTO_REFRESH_MS = 30000;
+    const GRAFANA_DASHBOARD_UID = "station-supervision";
+    const GRAFANA_DASHBOARD_SLUG = "station-supervision-technique";
+    const GRAFANA_DASHBOARD_QUERY = "orgId=1&from=now-6h&to=now&refresh=5s";
+    const GRAFANA_DASHBOARD_PATH = `/d/${GRAFANA_DASHBOARD_UID}/${GRAFANA_DASHBOARD_SLUG}?${GRAFANA_DASHBOARD_QUERY}`;
+    const GRAFANA_DASHBOARD_SUBPATH = `/grafana${GRAFANA_DASHBOARD_PATH}`;
     const status = document.getElementById("admin-status");
     const logoutBtn = document.getElementById("logout-admin");
+    const grafanaLink = document.getElementById("grafana-link");
 
     let users = [];
     let stations = [];
@@ -121,8 +127,16 @@ document.addEventListener("DOMContentLoaded", async () => {
         measurements: [],
     };
     let currentAdminId = null;
+    let currentTab = "overview";
     let isLoading = false;
-    const paginatedTables = ["users", "stations", "emplacements", "technicians", "maintenances"];
+    let isRefreshingLiveData = false;
+    const expandedStations = new Set();
+    const paginatedTables = ["users", "stations", "technicians", "maintenances"];
+    const supervisionPaginationState = {
+        devices: { page: 1, pageSize: 10 },
+        alerts: { page: 1, pageSize: 10 },
+        measurements: { page: 1, pageSize: 10 },
+    };
     const paginationState = Object.fromEntries(
         paginatedTables.map((key) => [
             key,
@@ -138,7 +152,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     const searchState = {
         users: "",
         stations: "",
-        emplacements: "",
         technicians: "",
         maintenances: "",
         upcomingReservations: "",
@@ -160,12 +173,6 @@ document.addEventListener("DOMContentLoaded", async () => {
             station.latitude,
             station.longitude,
             station.statut,
-        ]),
-        emplacements: (emplacement) => collectSearchText([
-            emplacement.station_nom,
-            emplacement.numero,
-            emplacement.statut,
-            emplacement.lock_state,
         ]),
         technicians: (technician) => collectSearchText([
             technician.nom,
@@ -217,11 +224,30 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     function formatMeasurementValue(row) {
+        if (row.display_value) return row.display_value;
         const value = Number(row.valeur);
         const formatted = Number.isFinite(value) ? value.toLocaleString("fr-FR", {
             maximumFractionDigits: 2,
         }) : row.valeur;
         return `${formatted} ${row.unite || ""}`.trim();
+    }
+
+    function buildGrafanaDashboardUrl(baseUrl) {
+        const cleaned = String(baseUrl || "").trim().replace(/\/+$/, "");
+        if (!cleaned) return GRAFANA_DASHBOARD_SUBPATH;
+        if (cleaned.includes(`/d/${GRAFANA_DASHBOARD_UID}/`)) return cleaned;
+        return `${cleaned}${GRAFANA_DASHBOARD_PATH}`;
+    }
+
+    function resolveGrafanaUrl() {
+        const configured = window.__GRAFANA_URL__;
+        if (configured) return buildGrafanaDashboardUrl(configured);
+
+        if (window.location.port && window.location.port !== "80" && window.location.port !== "443") {
+            return `${window.location.protocol}//${window.location.hostname}:3000${GRAFANA_DASHBOARD_SUBPATH}`;
+        }
+
+        return GRAFANA_DASHBOARD_SUBPATH;
     }
 
     function filterRows(tableKey, rows) {
@@ -312,7 +338,70 @@ document.addEventListener("DOMContentLoaded", async () => {
         container.appendChild(controls);
     }
 
+    function paginateRows(rows, state) {
+        const totalPages = Math.max(1, Math.ceil(rows.length / state.pageSize));
+        if (state.page > totalPages) state.page = totalPages;
+        const start = (state.page - 1) * state.pageSize;
+        return rows.slice(start, start + state.pageSize);
+    }
+
+    function renderClientPagination(containerId, tableKey, rows, renderCallback) {
+        const container = document.getElementById(containerId);
+        const state = supervisionPaginationState[tableKey];
+        const totalPages = Math.max(1, Math.ceil(rows.length / state.pageSize));
+        const start = rows.length === 0 ? 0 : (state.page - 1) * state.pageSize + 1;
+        const end = Math.min(rows.length, state.page * state.pageSize);
+
+        const controls = document.createElement("div");
+        controls.className = "pagination-controls";
+
+        const summary = document.createElement("span");
+        summary.className = "pagination-summary";
+        summary.textContent = `${start}-${end} sur ${rows.length}`;
+
+        const previousButton = createActionButton("Précédent", () => {
+            if (state.page <= 1) return;
+            state.page -= 1;
+            renderCallback();
+        });
+        previousButton.disabled = state.page <= 1;
+
+        const nextButton = createActionButton("Suivant", () => {
+            if (state.page >= totalPages) return;
+            state.page += 1;
+            renderCallback();
+        });
+        nextButton.disabled = state.page >= totalPages;
+
+        const pageSizeLabel = document.createElement("label");
+        pageSizeLabel.className = "pagination-size";
+        const pageSizeText = document.createElement("span");
+        pageSizeText.textContent = "Par page";
+        const pageSizeSelect = document.createElement("select");
+        [10, 25, 50].forEach((value) => {
+            const option = document.createElement("option");
+            option.value = String(value);
+            option.textContent = String(value);
+            option.selected = value === state.pageSize;
+            pageSizeSelect.appendChild(option);
+        });
+        pageSizeSelect.addEventListener("change", () => {
+            state.pageSize = Number(pageSizeSelect.value);
+            state.page = 1;
+            renderCallback();
+        });
+
+        pageSizeLabel.appendChild(pageSizeText);
+        pageSizeLabel.appendChild(pageSizeSelect);
+        controls.appendChild(summary);
+        controls.appendChild(previousButton);
+        controls.appendChild(nextButton);
+        controls.appendChild(pageSizeLabel);
+        container.appendChild(controls);
+    }
+
     function setAdminTab(name, pushHash = true) {
+        currentTab = name;
         document.querySelectorAll("[data-admin-tab]").forEach((button) => {
             const active = button.dataset.adminTab === name;
             button.classList.toggle("active", active);
@@ -330,6 +419,16 @@ document.addEventListener("DOMContentLoaded", async () => {
         status.classList.toggle("error", isError);
         status.classList.toggle("success", Boolean(message) && !isError);
         status.textContent = message;
+    }
+
+    function renderOverviewStats(overview) {
+        const stats = overview.stats || {};
+        document.getElementById("stat-users").textContent = stats.users_total ?? "-";
+        document.getElementById("stat-stations").textContent = stats.stations_total ?? "-";
+        document.getElementById("stat-emplacements").textContent = stats.emplacements_total ?? "-";
+        document.getElementById("stat-reservations-upcoming").textContent = stats.reservations_upcoming ?? "-";
+        document.getElementById("stat-sessions-active").textContent = stats.sessions_active ?? "-";
+        document.getElementById("stat-sessions-archived").textContent = stats.sessions_archived ?? "-";
     }
 
     function editHref(resource, id) {
@@ -510,60 +609,178 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     function renderStations() {
-        createDataTable(
-            document.getElementById("stations-list"),
-            [
-                { label: "Nom", render: (station) => station.nom },
-                { label: "Localisation", render: (station) => station.localisation_text },
-                { label: "Latitude", render: (station) => station.latitude },
-                { label: "Longitude", render: (station) => station.longitude },
-                { label: "Statut", render: (station) => station.statut },
-                {
-                    label: "Actions",
-                    className: "actions-column",
-                    render: (station) => renderActions({
-                        resource: "station",
-                        id: station.id_station,
-                        label: station.nom,
-                        onDelete: () => deleteAndReload(
-                            `Supprimer la station ${station.nom} ?`,
-                            () => window.AuthAPI.deleteAdminStation(station.id_station)
-                        ),
-                    }),
-                },
-            ],
-            filterRows("stations", stations),
-            emptyMessageFor("stations", "Aucune station.")
-        );
+        const container = document.getElementById("stations-list");
+        const rows = filterRows("stations", stations);
+        container.innerHTML = "";
+
+        if (!rows.length) {
+            const empty = document.createElement("div");
+            empty.className = "empty-state";
+            empty.textContent = emptyMessageFor("stations", "Aucune station.");
+            container.appendChild(empty);
+            return;
+        }
+
+        const columnsCount = 7;
+        const tableWrap = document.createElement("div");
+        tableWrap.className = "data-table-wrap admin-data-table-wrap";
+        const table = document.createElement("table");
+        table.className = "data-table admin-data-table station-tree-table";
+        const thead = document.createElement("thead");
+        const headRow = document.createElement("tr");
+        ["Station", "Localisation", "Latitude", "Longitude", "Statut", "Emplacements", "Actions"].forEach((label) => {
+            const th = document.createElement("th");
+            th.textContent = label;
+            headRow.appendChild(th);
+        });
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement("tbody");
+        rows.forEach((station) => {
+            const stationId = String(station.id_station);
+            const stationEmplacements = emplacements
+                .filter((emplacement) => String(emplacement.station) === stationId)
+                .sort((left, right) => Number(left.numero) - Number(right.numero));
+            const expanded = expandedStations.has(stationId);
+
+            const stationRow = document.createElement("tr");
+            stationRow.className = "expandable-row";
+            stationRow.tabIndex = 0;
+            stationRow.setAttribute("aria-expanded", String(expanded));
+
+            const nameCell = document.createElement("td");
+            const toggle = createActionButton(expanded ? "Masquer" : "Voir", () => {
+                if (expandedStations.has(stationId)) {
+                    expandedStations.delete(stationId);
+                } else {
+                    expandedStations.add(stationId);
+                }
+                renderStations();
+            });
+            toggle.className = "table-action station-toggle";
+            toggle.setAttribute("aria-label", `${expanded ? "Masquer" : "Afficher"} les emplacements de ${station.nom}`);
+            const nameStack = document.createElement("div");
+            nameStack.className = "station-name-cell";
+            const strong = document.createElement("strong");
+            strong.textContent = station.nom;
+            const small = document.createElement("small");
+            small.textContent = expanded ? "Emplacements affichés" : "Cliquer pour dérouler";
+            nameStack.appendChild(strong);
+            nameStack.appendChild(small);
+            nameCell.appendChild(toggle);
+            nameCell.appendChild(nameStack);
+            stationRow.appendChild(nameCell);
+
+            [station.localisation_text, station.latitude, station.longitude, station.statut, stationEmplacements.length].forEach((value) => {
+                const td = document.createElement("td");
+                td.textContent = value ?? "-";
+                stationRow.appendChild(td);
+            });
+
+            const actionsCell = document.createElement("td");
+            actionsCell.className = "actions-column";
+            actionsCell.appendChild(renderActions({
+                resource: "station",
+                id: station.id_station,
+                label: station.nom,
+                onDelete: () => deleteAndReload(
+                    `Supprimer la station ${station.nom} ?`,
+                    () => window.AuthAPI.deleteAdminStation(station.id_station)
+                ),
+            }));
+            stationRow.appendChild(actionsCell);
+
+            const toggleStation = () => {
+                if (expandedStations.has(stationId)) {
+                    expandedStations.delete(stationId);
+                } else {
+                    expandedStations.add(stationId);
+                }
+                renderStations();
+            };
+            stationRow.addEventListener("click", (event) => {
+                if (event.target.closest("a, button")) return;
+                toggleStation();
+            });
+            stationRow.addEventListener("keydown", (event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                if (event.target.closest("a, button")) return;
+                event.preventDefault();
+                toggleStation();
+            });
+            tbody.appendChild(stationRow);
+
+            if (expanded) {
+                const detailsRow = document.createElement("tr");
+                detailsRow.className = "station-details-row";
+                const detailsCell = document.createElement("td");
+                detailsCell.colSpan = columnsCount;
+                detailsCell.appendChild(renderStationEmplacements(station, stationEmplacements));
+                detailsRow.appendChild(detailsCell);
+                tbody.appendChild(detailsRow);
+            }
+        });
+
+        table.appendChild(tbody);
+        tableWrap.appendChild(table);
+        container.appendChild(tableWrap);
         renderPagination("stations-list", "stations");
     }
 
-    function renderEmplacements() {
-        createDataTable(
-            document.getElementById("emplacements-list"),
-            [
-                { label: "Station", render: (emplacement) => emplacement.station_nom },
-                { label: "Num\u00e9ro", render: (emplacement) => emplacement.numero },
-                { label: "Statut", render: (emplacement) => emplacement.statut },
-                { label: "Serrure", render: (emplacement) => emplacement.lock_state },
-                {
-                    label: "Actions",
-                    className: "actions-column",
-                    render: (emplacement) => renderActions({
-                        resource: "emplacement",
-                        id: emplacement.id_emplacement,
-                        label: `emplacement ${emplacement.numero}`,
-                        onDelete: () => deleteAndReload(
-                            `Supprimer l'emplacement ${emplacement.numero} ?`,
-                            () => window.AuthAPI.deleteAdminEmplacement(emplacement.id_emplacement)
-                        ),
-                    }),
-                },
-            ],
-            filterRows("emplacements", emplacements),
-            emptyMessageFor("emplacements", "Aucun emplacement.")
-        );
-        renderPagination("emplacements-list", "emplacements");
+    function renderStationEmplacements(station, stationEmplacements) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "station-emplacements-panel";
+
+        const heading = document.createElement("div");
+        heading.className = "station-emplacements-heading";
+        const title = document.createElement("strong");
+        title.textContent = `Emplacements de ${station.nom}`;
+        const addLink = createActionLink("Ajouter un emplacement", "/admin-form.html?resource=emplacement");
+        addLink.className = "table-action";
+        heading.appendChild(title);
+        heading.appendChild(addLink);
+        wrapper.appendChild(heading);
+
+        if (!stationEmplacements.length) {
+            const empty = document.createElement("div");
+            empty.className = "empty-state";
+            empty.textContent = "Aucun emplacement pour cette station.";
+            wrapper.appendChild(empty);
+            return wrapper;
+        }
+
+        const grid = document.createElement("div");
+        grid.className = "slot-grid";
+        stationEmplacements.forEach((emplacement) => {
+            const card = document.createElement("article");
+            card.className = "slot-card";
+            const head = document.createElement("div");
+            head.className = "slot-card-head";
+            const title = document.createElement("strong");
+            title.textContent = `Emplacement ${emplacement.numero}`;
+            const statusBadge = createStatusBadge(emplacement.statut || "-", emplacement.statut === "disponible" ? "success" : "warning");
+            head.appendChild(title);
+            head.appendChild(statusBadge);
+
+            const lock = document.createElement("p");
+            lock.textContent = `Serrure : ${emplacement.lock_state || "-"}`;
+
+            const actions = document.createElement("div");
+            actions.className = "table-actions";
+            actions.appendChild(createActionLink("Modifier", editHref("emplacement", emplacement.id_emplacement)));
+            actions.appendChild(createActionButton("Supprimer", () => deleteAndReload(
+                `Supprimer l'emplacement ${emplacement.numero} ?`,
+                () => window.AuthAPI.deleteAdminEmplacement(emplacement.id_emplacement)
+            ), "danger-action"));
+
+            card.appendChild(head);
+            card.appendChild(lock);
+            card.appendChild(actions);
+            grid.appendChild(card);
+        });
+        wrapper.appendChild(grid);
+        return wrapper;
     }
 
     function renderTechnicians() {
@@ -676,7 +893,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         createDataTable(
             document.getElementById("admin-devices-list"),
             [
-                { label: "Slot", render: (device) => device.slot_id || "-" },
+                { label: "Emplacement", render: (device) => device.slot_label || device.slot_id || "-" },
                 { label: "Santé", render: (device) => createStatusBadge(device.online ? "En ligne" : "Hors ligne", device.online ? "success" : "danger") },
                 { label: "État", render: (device) => device.status || "-" },
                 { label: "Station", render: (device) => device.station_nom || "-" },
@@ -686,9 +903,11 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "IP", render: (device) => device.ip_address || "-" },
                 { label: "Dernier signal", render: (device) => formatDateTime(device.last_seen) },
             ],
-            supervision.devices || [],
+            paginateRows(supervision.devices || [], supervisionPaginationState.devices),
             "Aucun ESP32 enregistré."
         );
+
+        renderClientPagination("admin-devices-list", "devices", supervision.devices || [], renderSupervision);
 
         createDataTable(
             document.getElementById("admin-alerts-list"),
@@ -701,30 +920,32 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Emplacement", render: (alert) => alert.emplacement_numero ?? "-" },
                 { label: "Message", render: (alert) => alert.message || "-" },
             ],
-            supervision.alerts || [],
+            paginateRows(supervision.alerts || [], supervisionPaginationState.alerts),
             "Aucune alerte récente."
         );
+
+        renderClientPagination("admin-alerts-list", "alerts", supervision.alerts || [], renderSupervision);
 
         createDataTable(
             document.getElementById("admin-measurements-list"),
             [
                 { label: "Date", render: (row) => formatDateTime(row.timestamp) },
-                { label: "Slot", render: (row) => row.slot_id || "-" },
+                { label: "Emplacement", render: (row) => row.slot_label || row.slot_id || "-" },
                 { label: "Capteur", render: (row) => row.type || "-" },
                 { label: "Valeur", render: formatMeasurementValue },
                 { label: "Station", render: (row) => row.station_nom || "-" },
                 { label: "Emplacement", render: (row) => row.emplacement_numero ?? "-" },
             ],
-            supervision.measurements || [],
+            paginateRows(supervision.measurements || [], supervisionPaginationState.measurements),
             "Aucune mesure capteur reçue."
         );
+        renderClientPagination("admin-measurements-list", "measurements", supervision.measurements || [], renderSupervision);
     }
 
     function renderAllTables() {
         renderSupervision();
         renderUsers();
         renderStations();
-        renderEmplacements();
         renderTechnicians();
         renderMaintenances();
         renderReservations("admin-upcoming-reservations", upcomingReservations, "Aucune réservation à venir.", "upcomingReservations");
@@ -751,7 +972,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 window.AuthAPI.getAdminSupervision(),
                 window.AuthAPI.getAdminUsers(pageParams("users")),
                 window.AuthAPI.getAdminStations(pageParams("stations")),
-                window.AuthAPI.getAdminEmplacements(pageParams("emplacements")),
+                window.AuthAPI.getAdminEmplacements(),
                 window.AuthAPI.getAdminTechnicians(pageParams("technicians")),
                 window.AuthAPI.getAdminMaintenances(pageParams("maintenances")),
             ]);
@@ -769,12 +990,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 optionalDataFailed = true;
             }
 
-            document.getElementById("stat-users").textContent = overview.stats.users_total;
-            document.getElementById("stat-stations").textContent = overview.stats.stations_total;
-            document.getElementById("stat-emplacements").textContent = overview.stats.emplacements_total;
-            document.getElementById("stat-reservations-upcoming").textContent = overview.stats.reservations_upcoming ?? "-";
-            document.getElementById("stat-sessions-active").textContent = overview.stats.sessions_active ?? "-";
-            document.getElementById("stat-sessions-archived").textContent = overview.stats.sessions_archived ?? "-";
+            renderOverviewStats(overview);
 
             users = adminUsers.results || [];
             stations = adminStations.results || [];
@@ -784,7 +1000,6 @@ document.addEventListener("DOMContentLoaded", async () => {
             supervision = adminSupervision || supervision;
             updatePageState("users", adminUsers);
             updatePageState("stations", adminStations);
-            updatePageState("emplacements", adminEmplacements);
             updatePageState("technicians", adminTechnicians);
             updatePageState("maintenances", adminMaintenances);
             upcomingReservations = adminReservations.upcoming || [];
@@ -797,11 +1012,29 @@ document.addEventListener("DOMContentLoaded", async () => {
             setStatus(
                 optionalDataFailed
                     ? "Administration chargée. Redémarrez le backend pour activer les vues réservations/sessions."
-                    : "Données chargées. Mise à jour automatique toutes les 30 secondes.",
+                    : "Données chargées. La supervision se met à jour automatiquement en arrière-plan.",
                 optionalDataFailed
             );
         } finally {
             isLoading = false;
+        }
+    }
+
+    async function refreshLiveData() {
+        if (isLoading || isRefreshingLiveData) return;
+        isRefreshingLiveData = true;
+
+        try {
+            const [overview, adminSupervision] = await Promise.all([
+                window.AuthAPI.getAdminOverview(),
+                window.AuthAPI.getAdminSupervision(),
+            ]);
+
+            renderOverviewStats(overview);
+            supervision = adminSupervision || supervision;
+            renderSupervision();
+        } finally {
+            isRefreshingLiveData = false;
         }
     }
 
@@ -821,6 +1054,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
 
     logoutBtn.addEventListener("click", () => window.AuthAPI.logout());
+    if (grafanaLink) {
+        grafanaLink.href = resolveGrafanaUrl();
+    }
 
     const session = await window.AuthAPI.ensureSession();
     if (!session) {
@@ -849,9 +1085,11 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         window.setInterval(async () => {
             try {
-                await loadAll();
+                await refreshLiveData();
             } catch (_error) {
-                setStatus("Impossible de rafra\u00eechir l'administration.", true);
+                if (currentTab === "overview" || currentTab === "supervision") {
+                    setStatus("Impossible de rafra\u00eechir les donn\u00e9es de supervision.", true);
+                }
             }
         }, AUTO_REFRESH_MS);
     } catch (_error) {

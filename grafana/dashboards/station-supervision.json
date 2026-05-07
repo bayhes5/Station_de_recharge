@@ -28,12 +28,21 @@
       },
       "fieldConfig": {
         "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": true
+          },
           "unit": "celsius"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
+        "h": 7,
         "w": 12,
         "x": 0,
         "y": 0
@@ -57,11 +66,11 @@
           },
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT cd.timestamp AS time, cd.valeur AS value, d.mac_address AS metric\nFROM capteur_data cd\nJOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nWHERE c.type = 'temperature' AND $__timeFilter(cd.timestamp)\nORDER BY cd.timestamp;",
+          "rawSql": "SELECT cd.timestamp AS time, cd.valeur AS value, COALESCE(NULLIF(d.mac_address, ''), e.numero::text) AS metric\nFROM capteur_data cd\nJOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement e ON e.id_emplacement = d.id_emplacement\nWHERE c.type = 'temperature' AND $__timeFilter(cd.timestamp)\nORDER BY cd.timestamp;",
           "refId": "A"
         }
       ],
-      "title": "Temperature par slot",
+      "title": "Temperature par emplacement",
       "type": "timeseries"
     },
     {
@@ -71,12 +80,21 @@
       },
       "fieldConfig": {
         "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": true
+          },
           "unit": "amp"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
+        "h": 7,
         "w": 12,
         "x": 12,
         "y": 0
@@ -100,7 +118,7 @@
           },
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT st.timestamp AS time, st.courant AS value, e.numero::text AS metric\nFROM session_telemetry st\nJOIN charging_session s ON s.id_session = st.id_session\nJOIN emplacement e ON e.id_emplacement = s.id_emplacement\nWHERE $__timeFilter(st.timestamp)\nORDER BY st.timestamp;",
+          "rawSql": "SELECT cd.timestamp AS time, cd.valeur AS value, COALESCE(NULLIF(d.mac_address, ''), e.numero::text) AS metric\nFROM capteur_data cd\nJOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement e ON e.id_emplacement = d.id_emplacement\nWHERE c.type = 'current' AND $__timeFilter(cd.timestamp)\nORDER BY cd.timestamp;",
           "refId": "A"
         }
       ],
@@ -113,16 +131,172 @@
         "uid": "station-timescaledb"
       },
       "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 7
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT cd.timestamp AS time, cd.valeur / 100.0 AS value, COALESCE(NULLIF(d.mac_address, ''), e.numero::text) AS metric\nFROM capteur_data cd\nJOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement e ON e.id_emplacement = d.id_emplacement\nWHERE c.type = 'humidity' AND $__timeFilter(cd.timestamp)\nORDER BY cd.timestamp;",
+          "refId": "A"
+        }
+      ],
+      "title": "Humidite",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "unit": "volt"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 7
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT cd.timestamp AS time, cd.valeur AS value, COALESCE(NULLIF(d.mac_address, ''), e.numero::text) AS metric\nFROM capteur_data cd\nJOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement e ON e.id_emplacement = d.id_emplacement\nWHERE c.type = 'voltage' AND $__timeFilter(cd.timestamp)\nORDER BY cd.timestamp;",
+          "refId": "A"
+        }
+      ],
+      "title": "Tension",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "unit": "watt"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT cd.timestamp AS time, cd.valeur AS value, COALESCE(NULLIF(d.mac_address, ''), e.numero::text) AS metric\nFROM capteur_data cd\nJOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement e ON e.id_emplacement = d.id_emplacement\nWHERE c.type = 'power' AND $__timeFilter(cd.timestamp)\nORDER BY cd.timestamp;",
+          "refId": "A"
+        }
+      ],
+      "title": "Puissance",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
         "defaults": {},
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 9,
+        "w": 24,
         "x": 0,
-        "y": 8
+        "y": 28
       },
-      "id": 3,
+      "id": 6,
       "options": {
         "showHeader": true
       },
@@ -151,12 +325,12 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 8
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 21
       },
-      "id": 4,
+      "id": 7,
       "options": {
         "showHeader": true
       },
@@ -168,7 +342,7 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT d.mac_address AS slot, d.status, d.last_seen, e.numero AS emplacement, s.nom AS station\nFROM device d\nJOIN emplacement e ON e.id_emplacement = d.id_emplacement\nJOIN station s ON s.id_station = e.id_station\nORDER BY d.last_seen DESC NULLS LAST;",
+          "rawSql": "SELECT COALESCE(NULLIF(d.mac_address, ''), e.numero::text) AS slot, d.status, d.last_seen, e.numero AS emplacement, s.nom AS station\nFROM device d\nJOIN emplacement e ON e.id_emplacement = d.id_emplacement\nJOIN station s ON s.id_station = e.id_station\nORDER BY d.last_seen DESC NULLS LAST;",
           "refId": "A"
         }
       ],
@@ -190,6 +364,6 @@
   "timezone": "browser",
   "title": "Station - Supervision technique",
   "uid": "station-supervision",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

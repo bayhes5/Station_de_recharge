@@ -84,6 +84,18 @@ Le dossier ``esp32/`` contient le prototype de logique embarquée pour un
 emplacement de recharge. En configuration de démonstration, le backend crée
 trois emplacements et associe un device ``ESP32`` à chacun d'eux.
 
+Les ESP32, la simulation Wokwi ou le service Docker ``mqtt-simulator`` publient
+les mesures sur ``station/<slot_id>/telemetry``. Le service ``mqtt-bridge``
+écoute ces topics, délègue le traitement à Celery, puis le backend stocke les
+échantillons dans ``CapteurData`` et met à jour ``Device.last_seen``. Cette
+chaîne alimente l'interface de supervision et le dashboard Grafana en quasi temps
+réel.
+
+Les alertes opérationnelles sont créées depuis la télémétrie : intrusion,
+câble retiré, surchauffe, surconsommation et état critique. Une alerte démarre
+au statut ``nouvelle``, passe à ``active`` si l'anomalie continue, puis à
+``resolue`` quand une télémétrie normale confirme le retour à l'état attendu.
+
 Cache Redis
 -----------
 

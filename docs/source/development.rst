@@ -55,11 +55,72 @@ Nginx :
    http://localhost/          -> frontend
    http://localhost/api/      -> API Django
    http://localhost/admin/    -> admin Django
-   http://localhost/grafana/  -> Grafana
+   http://localhost/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s
+                         -> dashboard Grafana de supervision
    http://localhost/kiosk/    -> kiosque Raspberry
 
 Les ports directs ``8000``, ``5173``, ``3000`` et ``9000`` restent exposés pour
 le diagnostic pendant le développement.
+
+Commandes Docker courantes
+--------------------------
+
+Demarrer ou reconstruire la stack :
+
+.. code-block:: bash
+
+   docker compose up -d --build
+   docker compose up -d
+
+Consulter l'etat et les logs :
+
+.. code-block:: bash
+
+   docker compose ps
+   docker compose ps -a
+   docker compose logs --tail=100 backend
+   docker compose logs --tail=100 frontend
+   docker compose logs --tail=100 mqtt-bridge
+   docker compose logs --tail=100 mqtt
+   docker compose logs --tail=100 grafana
+
+Relancer ou recreer un service sans supprimer les volumes :
+
+.. code-block:: bash
+
+   docker compose restart backend
+   docker compose restart mqtt-bridge
+   docker compose up -d --force-recreate backend
+   docker compose up -d --force-recreate mqtt-bridge
+
+Arreter la stack en conservant les donnees :
+
+.. code-block:: bash
+
+   docker compose down
+
+Lancer le simulateur MQTT local :
+
+.. code-block:: bash
+
+   docker compose --profile simulation up -d mqtt-simulator
+   docker compose logs -f mqtt-simulator
+
+Si Docker signale ``network ... not found`` pour un conteneur arrete, supprimer
+uniquement le conteneur concerne puis le recreer :
+
+.. code-block:: bash
+
+   docker compose rm -f mqtt-simulator
+   docker compose --profile simulation up -d mqtt-simulator
+
+Verifier les reseaux attaches aux conteneurs :
+
+.. code-block:: bash
+
+   docker network ls
+   docker inspect mqtt_simulator --format '{{json .NetworkSettings.Networks}}'
+   docker inspect mqtt_broker --format '{{json .NetworkSettings.Networks}}'
 
 Vérifier Nginx et MQTT
 ----------------------
@@ -83,6 +144,24 @@ Envoyer une commande MQTT via le Raspberry :
    curl -X POST http://localhost:9000/mqtt/command \
      -H "Content-Type: application/json" \
      -d '{"slot_id":"slot1","action":"START","session_id":"demo"}'
+
+Ecouter les telemetries MQTT recues par Mosquitto :
+
+.. code-block:: bash
+
+   docker compose exec mqtt mosquitto_sub -h localhost -t 'station/#' -v -C 5 -W 10
+
+Publier une telemetrie de test :
+
+.. code-block:: bash
+
+   docker compose exec mqtt mosquitto_pub -h localhost -t 'station/slot1/telemetry' -m '{"state":"charging","current":1.2,"voltage":12.0,"temperature":32.5,"humidity":45,"door":true,"cable":true}'
+
+Verifier l'acces PostgreSQL depuis le conteneur ``db`` :
+
+.. code-block:: bash
+
+   docker compose exec db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select now();"'
 
 Le firmware ESP32 publie sa télémétrie sur ``station/<slot_id>/telemetry`` et
 écoute les commandes sur ``station/<slot_id>/cmd``.
@@ -186,6 +265,12 @@ La publication officielle est assurée par le workflow ``Documentation Pages`` :
 il installe les dépendances de documentation, lance Sphinx puis publie
 ``docs/build/html`` via GitHub Pages à chaque merge dans ``main``. Le workflow
 peut aussi être lancé manuellement depuis l'onglet Actions.
+
+La documentation publiée est accessible sur :
+
+.. code-block:: text
+
+   https://bayhes5.github.io/Station_de_recharge/
 
 Installer les dépendances de développement :
 

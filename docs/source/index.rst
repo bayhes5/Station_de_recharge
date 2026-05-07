@@ -4,11 +4,15 @@ Station de recharge
 Cette documentation rassemble les notes techniques du backend Django, de l'API REST,
 du frontend Vite et des composants embarqués du prototype.
 
+La version publiée sur GitHub Pages est disponible à l'adresse :
+https://bayhes5.github.io/Station_de_recharge/
+
 .. toctree::
    :maxdepth: 2
    :caption: Guide
 
    architecture
+   implementation_guide
    requirements_traceability
    supervision_mqtt
    testing_strategy

@@ -103,8 +103,83 @@ def test_admin_supervision_returns_devices_alerts_and_measurements(admin_client,
     assert response.data["stats"]["devices_online"] == 1
     assert response.data["stats"]["active_alerts"] == 1
     assert response.data["devices"][0]["slot_id"] == "slot1"
+    assert response.data["devices"][0]["slot_label"] == "Station Centre - emplacement 1"
     assert response.data["alerts"][0]["type"] == "overheat"
+    assert response.data["alerts"][0]["station_nom"] == "Station Centre"
+    assert response.data["alerts"][0]["emplacement_numero"] == 1
     assert response.data["measurements"][0]["type"] == "temperature"
+    assert response.data["measurements"][0]["slot_label"] == "Station Centre - emplacement 1"
+
+
+@pytest.mark.django_db
+def test_admin_supervision_resolves_alert_location_from_sensor_data(admin_client, emplacements):
+    device = Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="1.0.0",
+        mac_address="slot1",
+        last_seen=timezone.now(),
+        status="charging",
+    )
+    capteur = Capteur.objects.create(device=device, type="current", unite="A")
+    data = CapteurData.objects.create(capteur=capteur, valeur=3.4)
+    Alerte.objects.create(
+        data=data,
+        type="overcurrent",
+        message="Surconsommation detectee",
+        niveau_severite="haute",
+        status="nouvelle",
+    )
+
+    response = admin_client.get(reverse("api-admin-supervision"))
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["alerts"][0]["station_nom"] == "Station Centre"
+    assert response.data["alerts"][0]["emplacement_numero"] == 1
+
+
+@pytest.mark.django_db
+def test_admin_supervision_formats_boolean_sensor_measurements(admin_client, emplacements):
+    """Expose readable values for boolean door and cable sensor samples."""
+    device = Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="1.0.0",
+        mac_address="slot1",
+        last_seen=timezone.now(),
+        status="charging",
+    )
+    door = Capteur.objects.create(device=device, type="door", unite="bool")
+    cable = Capteur.objects.create(device=device, type="cable", unite="bool")
+    CapteurData.objects.create(capteur=door, valeur=0)
+    CapteurData.objects.create(capteur=cable, valeur=1)
+
+    response = admin_client.get(reverse("api-admin-supervision"))
+
+    assert response.status_code == status.HTTP_200_OK
+    display_values = {measurement["type"]: measurement["display_value"] for measurement in response.data["measurements"]}
+    assert display_values["door"] == "Boitier ouvert"
+    assert display_values["cable"] == "Cable present"
+
+
+@pytest.mark.django_db
+def test_admin_supervision_marks_stale_devices_offline(admin_client, emplacements):
+    Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="1.0.0",
+        ip_address="192.168.40.10",
+        mac_address="slot1",
+        last_seen=timezone.now() - timedelta(minutes=30),
+        status="charging",
+    )
+
+    response = admin_client.get(reverse("api-admin-supervision"))
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["stats"]["devices_online"] == 0
+    assert response.data["stats"]["devices_offline"] == 1
+    assert response.data["devices"][0]["health"] == "offline"
 
 
 @pytest.mark.django_db

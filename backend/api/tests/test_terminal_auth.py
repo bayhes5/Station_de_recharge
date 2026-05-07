@@ -227,6 +227,42 @@ def test_terminal_authenticate_rejects_revoked_secret(api_client, user, station,
 
 
 @pytest.mark.django_db
+def test_terminal_authenticate_rejects_wrong_auth_mode(api_client, user, station, emplacements):
+    type_auth = TypeAuth.objects.create(libelle="CODE", factor_level=2)
+    auth_method = Authentification.objects.create(
+        utilisateur=user,
+        type_auth=type_auth,
+        hash_valeur=hash_secret("GOOD-CODE"),
+        display_value="****CODE",
+        expiration=timezone.now() + timedelta(hours=1),
+    )
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="MODEBAD1",
+        authentification=auth_method,
+        auth_choice="code",
+        date_debut=timezone.now() - timedelta(minutes=5),
+        date_fin=timezone.now() + timedelta(minutes=25),
+        statut="confirmee",
+    )
+
+    response = api_client.post(
+        reverse("api-terminal-authenticate"),
+        {
+            "reservation_code": reservation.reference_code,
+            "auth_mode": "qr",
+            "auth_value": "GOOD-CODE",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.data["detail"] == "Mauvais moyen d'authentification."
+    assert not Session.objects.filter(reservation=reservation).exists()
+
+
+@pytest.mark.django_db
 def test_terminal_authenticate_opens_session_with_valid_code(api_client, user, station, emplacements):
     type_auth = TypeAuth.objects.create(libelle="CODE", factor_level=2)
     auth_method = Authentification.objects.create(
@@ -262,6 +298,48 @@ def test_terminal_authenticate_opens_session_with_valid_code(api_client, user, s
     reservation.refresh_from_db()
     assert reservation.statut == "active"
     assert Session.objects.filter(reservation=reservation, emplacement=emplacements[0]).exists()
+
+
+@pytest.mark.django_db
+def test_terminal_authenticate_is_idempotent_for_existing_active_session(api_client, user, station, emplacements):
+    type_auth = TypeAuth.objects.create(libelle="CODE", factor_level=2)
+    auth_method = Authentification.objects.create(
+        utilisateur=user,
+        type_auth=type_auth,
+        hash_valeur=hash_secret("GOOD-CODE"),
+        display_value="****CODE",
+        expiration=timezone.now() + timedelta(hours=1),
+    )
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="IDEMPOT1",
+        authentification=auth_method,
+        auth_choice="code",
+        date_debut=timezone.now() - timedelta(minutes=5),
+        date_fin=timezone.now() + timedelta(minutes=25),
+        statut="confirmee",
+    )
+    session = Session.objects.create(
+        reservation=reservation,
+        emplacement=emplacements[0],
+        start_time=timezone.now() - timedelta(minutes=2),
+    )
+
+    response = api_client.post(
+        reverse("api-terminal-authenticate"),
+        {
+            "reservation_code": reservation.reference_code,
+            "auth_mode": "code",
+            "auth_value": "GOOD-CODE",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["session_created"] is False
+    assert response.data["session"]["id"] == str(session.id_session)
+    assert Session.objects.filter(reservation=reservation).count() == 1
 
 
 @pytest.mark.django_db

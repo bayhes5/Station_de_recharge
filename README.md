@@ -2,6 +2,8 @@
 
 Prototype académique de station de recharge sécurisée pour vélos électriques.
 
+Documentation publiée : https://bayhes5.github.io/Station_de_recharge/
+
 Le projet couvre trois blocs :
 
 - plateforme web de réservation et d'administration ;
@@ -71,7 +73,8 @@ Routes recommandées via Nginx :
 http://localhost/          -> frontend
 http://localhost/api/      -> API Django
 http://localhost/admin/    -> administration Django
-http://localhost/grafana/  -> Grafana
+http://localhost/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s
+                         -> dashboard Grafana de supervision
 http://localhost/kiosk/    -> kiosque Raspberry
 ```
 
@@ -130,6 +133,11 @@ Payload type :
 }
 ```
 
+Dans l'interface de supervision, `door` et `cable` sont affiches sous forme
+lisible : boitier ferme/ouvert et cable present/retire. Les alertes suivent le
+cycle automatique `nouvelle` -> `active` -> `resolue` : une anomalie continue ne
+cree pas de doublon, et une telemetrie revenue a la normale resout l'alerte.
+
 Envoyer une commande manuelle depuis Django :
 
 ```bash
@@ -142,6 +150,88 @@ Envoyer une commande via le Raspberry :
 curl -X POST http://localhost:9000/mqtt/command \
   -H "Content-Type: application/json" \
   -d '{"slot_id":"slot1","action":"START","session_id":"demo"}'
+```
+
+## Simulation MQTT locale
+
+Wokwi peut rester de cote pendant que la supervision avance. Le backend fournit
+une commande qui publie de fausses donnees capteurs sur les vrais topics MQTT :
+
+```powershell
+cd backend
+..\.venv\Scripts\python.exe manage.py simulate_mqtt_telemetry --slots slot1 slot2 slot3 --scenario mixed --interval 2
+```
+
+Tester uniquement le format sans broker :
+
+```powershell
+cd backend
+..\.venv\Scripts\python.exe manage.py simulate_mqtt_telemetry --count 3 --dry-run
+```
+
+Avec Docker :
+
+```bash
+docker compose --profile simulation up -d mqtt-simulator
+docker compose logs -f mqtt-simulator
+```
+
+## Commandes utiles et diagnostic
+
+Etat de la stack :
+
+```bash
+docker compose ps
+docker compose ps -a
+docker compose logs --tail=100 backend
+docker compose logs --tail=100 mqtt-bridge
+docker compose logs --tail=100 mqtt
+docker compose logs --tail=100 grafana
+```
+
+Relancer un service sans toucher aux volumes :
+
+```bash
+docker compose restart backend
+docker compose restart mqtt-bridge
+docker compose up -d --force-recreate mqtt-bridge
+```
+
+Diagnostiquer le broker MQTT :
+
+```bash
+docker compose exec mqtt mosquitto_sub -h localhost -t 'station/#' -v -C 5 -W 10
+docker compose exec mqtt mosquitto_pub -h localhost -t 'station/slot1/telemetry' -m '{"state":"charging","current":1.2,"voltage":12.0,"temperature":32.5,"humidity":45,"door":true,"cable":true}'
+```
+
+Diagnostiquer PostgreSQL et Django :
+
+```bash
+docker compose exec db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select now();"'
+docker compose exec backend python manage.py check
+docker compose exec backend python manage.py spectacular --validate
+```
+
+Si Docker signale un reseau introuvable pour un conteneur arrete, supprimer
+uniquement ce conteneur puis le recreer :
+
+```bash
+docker compose rm -f mqtt-simulator
+docker compose --profile simulation up -d mqtt-simulator
+```
+
+Verifier les reseaux Docker :
+
+```bash
+docker network ls
+docker inspect mqtt_simulator --format '{{json .NetworkSettings.Networks}}'
+docker inspect mqtt_broker --format '{{json .NetworkSettings.Networks}}'
+```
+
+Arreter la stack sans supprimer les donnees :
+
+```bash
+docker compose down
 ```
 
 ## Simulation Wokwi
@@ -215,6 +305,7 @@ La documentation technique Sphinx est dans `docs/source/`.
 Pages principales :
 
 - `architecture.rst` : architecture globale ;
+- `implementation_guide.rst` : fonctionnalités, implantation et choix à expliquer ;
 - `requirements_traceability.rst` : correspondance avec le cahier des charges ;
 - `supervision_mqtt.rst` : flux MQTT, Grafana, Wokwi ;
 - `testing_strategy.rst` : stratégie de tests ;

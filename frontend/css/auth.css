@@ -1178,6 +1178,79 @@ h2 {
     background: var(--surface-soft);
 }
 
+.expandable-row {
+    cursor: pointer;
+}
+
+.expandable-row:focus-visible {
+    outline: 3px solid rgba(8, 127, 140, 0.24);
+    outline-offset: -3px;
+}
+
+.station-name-cell {
+    display: inline-grid;
+    gap: 2px;
+    vertical-align: middle;
+}
+
+.station-name-cell small {
+    color: var(--muted);
+    font-size: 0.78rem;
+}
+
+.station-toggle {
+    min-width: 78px;
+    margin-right: 10px;
+}
+
+.station-details-row td {
+    padding: 0;
+    background: var(--surface-soft);
+    white-space: normal;
+}
+
+.station-emplacements-panel {
+    display: grid;
+    gap: 14px;
+    padding: 18px 20px;
+    border-top: 1px solid var(--border);
+    background: var(--surface-soft);
+}
+
+.station-emplacements-heading {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: center;
+}
+
+.slot-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+}
+
+.slot-card {
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
+.slot-card p {
+    margin: 0;
+    color: var(--muted);
+}
+
+.slot-card-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: center;
+}
+
 .data-table tbody tr:last-child td {
     border-bottom: 0;
 }
