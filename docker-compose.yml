@@ -173,6 +173,26 @@ services:
         condition: service_healthy
     command: python manage.py run_mqtt_bridge
 
+  mqtt-simulator:
+    build:
+      context: ./backend
+      target: dev
+    container_name: mqtt_simulator
+    profiles:
+      - simulation
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app
+    environment:
+      MQTT_HOST: mqtt
+      MQTT_PORT: 1883
+      MQTT_BASE_TOPIC: station
+    depends_on:
+      mqtt:
+        condition: service_healthy
+    command: python manage.py simulate_mqtt_telemetry --slots slot1 slot2 slot3 --scenario mixed --interval 2
+
   grafana:
     image: grafana/grafana-oss:12.1.0
     container_name: grafana_supervision

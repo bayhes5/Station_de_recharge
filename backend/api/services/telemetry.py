@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import re
 from typing import Any
+from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from api.models import Alerte, Capteur, CapteurData, Device, Emplacement, Session, SessionTelemetry
@@ -16,8 +19,12 @@ SENSOR_FIELDS = {
     "door": ("door", "bool"),
     "cable": ("cable", "bool"),
     "state": ("state", "state"),
+    "current": ("current", "A"),
+    "voltage": ("voltage", "V"),
     "power": ("power", "W"),
 }
+
+RESOLVED_ALERT_STATUSES = ["resolved", "resolue", "closed", "fermee"]
 
 
 @dataclass(frozen=True)
@@ -74,14 +81,34 @@ def _sensor_value(sensor_type: str, value: Any):
     return _as_float(value)
 
 
+def _slot_number(slot_id: str) -> int | None:
+    """Extract the numeric bay number from a slot identifier."""
+    match = re.search(r"(\d+)$", slot_id)
+    return int(match.group(1)) if match else None
+
+
 def _get_device(slot_id: str) -> Device:
     """Return the device mapped to the slot, creating it on first telemetry."""
     try:
         return Device.objects.select_related("emplacement").get(mac_address=slot_id)
     except Device.DoesNotExist:
-        emplacement = Emplacement.objects.select_related("station").first()
+        slot_number = _slot_number(slot_id)
+        emplacement_query = Emplacement.objects.select_related("station").order_by(
+            "station__nom",
+            "numero",
+        )
+        if slot_number is not None:
+            emplacement = emplacement_query.filter(numero=slot_number).first()
+        else:
+            emplacement = emplacement_query.first()
         if emplacement is None:
             raise ValueError("Aucun emplacement n'existe pour rattacher la telemetrie MQTT.")
+        device = getattr(emplacement, "device", None)
+        if device is not None:
+            device.mac_address = slot_id
+            device.last_seen = timezone.now()
+            device.save(update_fields=["mac_address", "last_seen"])
+            return device
         return Device.objects.create(
             emplacement=emplacement,
             type_device="ESP32",
@@ -96,7 +123,11 @@ def _get_active_session(emplacement: Emplacement, session_id: str | None):
     """Find the current charging session for an emplacement."""
     queryset = Session.objects.filter(emplacement=emplacement, end_time__isnull=True)
     if session_id:
-        session = queryset.filter(id_session=session_id).first()
+        try:
+            session_uuid = UUID(str(session_id))
+        except ValueError:
+            session_uuid = None
+        session = queryset.filter(id_session=session_uuid).first() if session_uuid else None
         if session:
             return session
     return queryset.order_by("-start_time").first()
@@ -118,38 +149,115 @@ def _store_sensor(device: Device, sensor_type: str, unit: str, value: Any, times
     return CapteurData.objects.create(capteur=capteur, valeur=numeric_value, timestamp=timestamp)
 
 
-def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp):
-    """Create security alerts from critical telemetry states."""
-    alerts = []
+def _open_alerts_for_device(device: Device, alert_type: str):
+    """Return unresolved alerts for the current device and alert type."""
+    queryset = Alerte.objects.filter(type=alert_type).exclude(status__in=RESOLVED_ALERT_STATUSES)
+    if alert_type == "state_error":
+        return queryset.filter(Q(session__emplacement=device.emplacement) | Q(message__contains=device.mac_address))
+    return queryset.filter(Q(data__capteur__device=device) | Q(session__emplacement=device.emplacement))
+
+
+def _upsert_active_alert(
+    device: Device,
+    alert_type: str,
+    message: str,
+    severity: str,
+    sensor_type: str | None,
+    timestamp,
+    session,
+    sensor_records: dict[str, CapteurData],
+):
+    """Create a new alert or mark an existing one as still active."""
+    existing = _open_alerts_for_device(device, alert_type).order_by("-timestamp").first()
+    data = sensor_records.get(sensor_type) if sensor_type else None
+    if existing:
+        existing.message = message
+        existing.niveau_severite = severity
+        existing.timestamp = timestamp
+        existing.status = "active"
+        if data:
+            existing.data = data
+        if session:
+            existing.session = session
+        existing.save(update_fields=["message", "niveau_severite", "timestamp", "status", "data", "session"])
+        return existing, False
+    return (
+        Alerte.objects.create(
+            data=data,
+            session=session,
+            type=alert_type,
+            message=message,
+            niveau_severite=severity,
+            status="nouvelle",
+            timestamp=timestamp,
+        ),
+        True,
+    )
+
+
+def _resolve_alerts_for_device(device: Device, alert_type: str, timestamp):
+    """Mark unresolved alerts as resolved when telemetry returns to normal."""
+    return _open_alerts_for_device(device, alert_type).update(status="resolue", timestamp=timestamp)
+
+
+def _alert_resolution_candidates(payload: dict[str, Any]):
+    """Return alert types that can be resolved from this telemetry payload."""
+    state = str(payload.get("state") or "").lower()
+    candidates = []
+    if "state" in payload and state not in {"error", "emergency", "fault"}:
+        candidates.append("state_error")
+    if "door" in payload and (payload.get("door") is not False or state != "charging"):
+        candidates.append("intrusion")
+    if "cable" in payload and (payload.get("cable") is not False or state != "charging"):
+        candidates.append("cable_removed")
+    temperature = _as_float(payload.get("temperature"))
+    if temperature is not None and temperature < 60:
+        candidates.append("overheat")
+    current = _as_float(payload.get("current"))
+    if current is not None and current < 3.0:
+        candidates.append("overcurrent")
+    return candidates
+
+
+def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp, sensor_records: dict[str, CapteurData]):
+    """Create, update or resolve security alerts from critical telemetry states."""
+    triggered_alerts = []
     state = str(payload.get("state") or "").lower()
     if state in {"error", "emergency", "fault"}:
-        alerts.append(("state_error", f"Etat critique remonte par {device.mac_address}: {state}", "critique"))
+        triggered_alerts.append(("state_error", f"Etat critique remonte par {device.mac_address}: {state}", "critique", None))
     if payload.get("door") is False and state == "charging":
-        alerts.append(("intrusion", "Boitier ouvert pendant une charge active.", "critique"))
+        triggered_alerts.append(("intrusion", "Boitier ouvert pendant une charge active.", "critique", "door"))
     if payload.get("cable") is False and state == "charging":
-        alerts.append(("cable_removed", "Cable retire pendant une charge active.", "haute"))
+        triggered_alerts.append(("cable_removed", "Cable retire pendant une charge active.", "haute", "cable"))
 
     temperature = _as_float(payload.get("temperature"))
     if temperature is not None and temperature >= 60:
-        alerts.append(("overheat", f"Temperature elevee: {temperature:.1f} C.", "critique"))
+        triggered_alerts.append(("overheat", f"Temperature elevee: {temperature:.1f} C.", "critique", "temperature"))
 
     current = _as_float(payload.get("current"))
     if current is not None and current >= 3.0:
-        alerts.append(("overcurrent", f"Surconsommation detectee: {current:.2f} A.", "haute"))
+        triggered_alerts.append(("overcurrent", f"Surconsommation detectee: {current:.2f} A.", "haute", "current"))
 
     created = []
     session = _get_active_session(device.emplacement, payload.get("session_id"))
-    for alert_type, message, severity in alerts:
-        created.append(
-            Alerte.objects.create(
-                session=session,
-                type=alert_type,
-                message=message,
-                niveau_severite=severity,
-                status="nouvelle",
-                timestamp=timestamp,
-            )
+    triggered_types = {alert_type for alert_type, _message, _severity, _sensor_type in triggered_alerts}
+    for alert_type in _alert_resolution_candidates(payload):
+        if alert_type not in triggered_types:
+            _resolve_alerts_for_device(device, alert_type, timestamp)
+
+    for alert_type, message, severity, sensor_type in triggered_alerts:
+        alert, was_created = _upsert_active_alert(
+            device,
+            alert_type,
+            message,
+            severity,
+            sensor_type,
+            timestamp,
+            session,
+            sensor_records,
         )
+        if was_created:
+            created.append(alert)
     return created
 
 
@@ -166,11 +274,13 @@ def ingest_slot_telemetry(slot_id: str, payload: dict[str, Any]) -> TelemetryRes
     device.save(update_fields=["last_seen", "status"])
 
     capteur_records = []
+    sensor_records = {}
     for payload_key, (sensor_type, unit) in SENSOR_FIELDS.items():
         if payload_key in payload:
             record = _store_sensor(device, sensor_type, unit, payload[payload_key], timestamp)
             if record:
                 capteur_records.append(record)
+                sensor_records[sensor_type] = record
 
     session_telemetry_created = False
     current = _as_float(payload.get("current"))
@@ -187,7 +297,7 @@ def ingest_slot_telemetry(slot_id: str, payload: dict[str, Any]) -> TelemetryRes
         )
         session_telemetry_created = True
 
-    alerts = _create_alert_if_needed(device, payload, timestamp)
+    alerts = _create_alert_if_needed(device, payload, timestamp, sensor_records)
     return TelemetryResult(
         device=device,
         capteur_count=len(capteur_records),

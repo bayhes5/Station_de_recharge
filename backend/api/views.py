@@ -355,6 +355,7 @@ def _serialize_device_supervision(device, now=None):
     return {
         "id_device": str(device.id_device),
         "slot_id": device.mac_address or str(device.id_device),
+        "slot_label": f"{station.nom} - emplacement {emplacement.numero}",
         "type_device": device.type_device,
         "firmware_version": device.firmware_version,
         "ip_address": device.ip_address,
@@ -372,7 +373,9 @@ def _serialize_device_supervision(device, now=None):
 def _serialize_alert_supervision(alert):
     """Return one operational alert for the admin supervision screen."""
     session = alert.session
-    emplacement = session.emplacement if session else None
+    data = alert.data
+    device = data.capteur.device if data and data.capteur else None
+    emplacement = session.emplacement if session else device.emplacement if device else None
     station = emplacement.station if emplacement else None
     return {
         "id_alerte": str(alert.id_alerte),
@@ -393,13 +396,20 @@ def _serialize_sensor_data_supervision(sensor_data):
     device = capteur.device
     emplacement = device.emplacement if device else None
     station = emplacement.station if emplacement else None
+    display_value = None
+    if capteur.type == "door":
+        display_value = "Boitier ferme" if sensor_data.valeur == 1 else "Boitier ouvert"
+    elif capteur.type == "cable":
+        display_value = "Cable present" if sensor_data.valeur == 1 else "Cable retire"
     return {
         "id_data": str(sensor_data.id_data),
         "type": capteur.type,
         "unite": capteur.unite,
         "valeur": sensor_data.valeur,
+        "display_value": display_value,
         "timestamp": sensor_data.timestamp.isoformat() if sensor_data.timestamp else None,
         "slot_id": device.mac_address if device else "-",
+        "slot_label": f"{station.nom} - emplacement {emplacement.numero}" if emplacement and station else "-",
         "station_nom": station.nom if station else "-",
         "emplacement_numero": emplacement.numero if emplacement else "-",
     }
@@ -1886,6 +1896,12 @@ def reservation_availability(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    if date_debut_dt < timezone.now():
+        return Response(
+            {"detail": "La reservation doit commencer dans le futur."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     if (date_fin_dt - date_debut_dt) != timedelta(minutes=30):
         return Response(
             {"detail": "Une reservation bloque un emplacement pendant exactement 30 minutes."},
@@ -1968,6 +1984,12 @@ def reservations(request):
     if not _round_to_thirty_minutes(data["date_debut"]) or not _round_to_thirty_minutes(data["date_fin"]):
         return Response(
             {"detail": "Les horaires doivent etre alignes sur des tranches de 30 minutes."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if data["date_debut"] < timezone.now():
+        return Response(
+            {"detail": "La reservation doit commencer dans le futur."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 

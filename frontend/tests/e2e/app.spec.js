@@ -30,7 +30,7 @@ function jsonResponse(payload, { status = 200, headers = {} } = {}) {
   };
 }
 
-async function mockApi(page) {
+async function mockApi(page, { admin = false } = {}) {
   await page.route(`${apiOrigin}/api/**`, async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -53,10 +53,10 @@ async function mockApi(page) {
         {
           access: createAccessToken(),
           user: {
-            pseudo: "alice",
-            email: "alice@example.com",
+            pseudo: admin ? "admin" : "alice",
+            email: admin ? "admin@example.com" : "alice@example.com",
             statut: "actif",
-            is_staff: false,
+            is_staff: admin,
             is_technician: false,
           },
         },
@@ -77,12 +77,12 @@ async function mockApi(page) {
     if (url.pathname === "/api/me/") {
       await route.fulfill(jsonResponse({
         user: {
-          pseudo: "alice",
-          email: "alice@example.com",
+          pseudo: admin ? "admin" : "alice",
+          email: admin ? "admin@example.com" : "alice@example.com",
           statut: "actif",
-          is_staff: false,
+          is_staff: admin,
         },
-        profile: { nom: "Alice" },
+        profile: { nom: admin ? "Admin" : "Alice" },
       }));
       return;
     }
@@ -90,10 +90,11 @@ async function mockApi(page) {
     if (url.pathname === "/api/dashboard/") {
       await route.fulfill(jsonResponse({
         user: {
-          pseudo: "alice",
-          email: "alice@example.com",
+          id: admin ? "admin-id" : "user-id",
+          pseudo: admin ? "admin" : "alice",
+          email: admin ? "admin@example.com" : "alice@example.com",
           statut: "actif",
-          is_staff: false,
+          is_staff: admin,
         },
         stats: {
           sessions_total: 0,
@@ -105,6 +106,108 @@ async function mockApi(page) {
         upcoming_reservations: [],
         reservations_history: [],
       }));
+      return;
+    }
+
+    if (url.pathname === "/api/admin/overview/") {
+      await route.fulfill(jsonResponse({
+        stats: {
+          users_total: 2,
+          stations_total: 1,
+          emplacements_total: 2,
+          reservations_upcoming: 0,
+          sessions_active: 0,
+          sessions_archived: 0,
+        },
+        recent_users: [],
+        recent_stations: [],
+        recent_emplacements: [],
+      }));
+      return;
+    }
+
+    if (url.pathname === "/api/admin/supervision/") {
+      await route.fulfill(jsonResponse({
+        stats: {
+          devices_total: 1,
+          devices_online: 1,
+          devices_offline: 0,
+          active_alerts: 0,
+          critical_alerts: 0,
+          telemetry_samples_24h: 4,
+        },
+        devices: [],
+        alerts: [],
+        measurements: [],
+      }));
+      return;
+    }
+
+    if (url.pathname === "/api/admin/users/") {
+      await route.fulfill(jsonResponse({ results: [] }));
+      return;
+    }
+
+    if (url.pathname === "/api/admin/stations/") {
+      await route.fulfill(jsonResponse({
+        count: 1,
+        next: null,
+        previous: null,
+        results: [
+          {
+            id_station: "station-1",
+            nom: "Station Centre",
+            localisation_text: "Centre-ville",
+            latitude: 48.8566,
+            longitude: 2.3522,
+            statut: "active",
+          },
+        ],
+      }));
+      return;
+    }
+
+    if (url.pathname === "/api/admin/emplacements/") {
+      await route.fulfill(jsonResponse({
+        results: [
+          {
+            id_emplacement: "slot-1",
+            station: "station-1",
+            station_nom: "Station Centre",
+            numero: 1,
+            statut: "disponible",
+            lock_state: "verrouille",
+          },
+          {
+            id_emplacement: "slot-2",
+            station: "station-1",
+            station_nom: "Station Centre",
+            numero: 2,
+            statut: "maintenance",
+            lock_state: "deverrouille",
+          },
+        ],
+      }));
+      return;
+    }
+
+    if (url.pathname === "/api/admin/technicians/" || url.pathname === "/api/admin/maintenances/") {
+      await route.fulfill(jsonResponse({
+        count: 0,
+        next: null,
+        previous: null,
+        results: [],
+      }));
+      return;
+    }
+
+    if (url.pathname === "/api/admin/reservations/") {
+      await route.fulfill(jsonResponse({ upcoming: [], archived: [] }));
+      return;
+    }
+
+    if (url.pathname === "/api/admin/sessions/") {
+      await route.fulfill(jsonResponse({ active: [], archived: [] }));
       return;
     }
 
@@ -146,4 +249,34 @@ test("login flow uses mocked API and opens the dashboard", async ({ page }) => {
   await page.waitForURL("**/dashboard.html");
   await expect(page.locator("#dashboard-pseudo")).toHaveText("alice");
   await expect(page.getByText("Cookie HttpOnly actif")).toBeVisible();
+});
+
+test("admin infrastructure expands station emplacements", async ({ page }) => {
+  await mockApi(page, { admin: true });
+
+  await page.goto("/admin-dashboard.html#infrastructure");
+
+  await expect(page.getByRole("heading", { name: /Administration/i })).toBeVisible();
+  const stationToggle = page.getByRole("button", { name: /Afficher les emplacements de Station Centre/i });
+  await expect(stationToggle).toBeVisible();
+  await expect(page.getByText("Emplacement 1")).not.toBeVisible();
+
+  await stationToggle.click();
+
+  await expect(page.getByText("Emplacements de Station Centre")).toBeVisible();
+  await expect(page.getByText("Emplacement 1")).toBeVisible();
+  await expect(page.getByText("Emplacement 2")).toBeVisible();
+});
+
+test("admin supervision links directly to the Grafana dashboard", async ({ page }) => {
+  await mockApi(page, { admin: true });
+
+  await page.goto("/admin-dashboard.html#supervision");
+
+  const grafanaLink = page.getByRole("link", { name: "Ouvrir Grafana" });
+  await expect(grafanaLink).toHaveAttribute(
+    "href",
+    "http://127.0.0.1:3000/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s",
+  );
+  await expect(page.getByRole("button", { name: "Précédent" }).first()).toBeVisible();
 });

@@ -3,6 +3,7 @@ from datetime import timedelta
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 
 from api.models import Reservation
@@ -57,6 +58,21 @@ def test_availability_rejects_non_aligned_slot(authenticated_client, station, re
 
 
 @pytest.mark.django_db
+def test_availability_rejects_past_slot(authenticated_client, station):
+    start = timezone.now().replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
+    response = authenticated_client.get(
+        reverse("api-reservation-availability"),
+        {
+            "station": str(station.id_station),
+            "date_debut": start.isoformat(),
+            "date_fin": (start + timedelta(minutes=30)).isoformat(),
+        },
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.django_db
 def test_reservation_creation_rejects_unknown_station(authenticated_client, reservation_start):
     response = authenticated_client.post(
         reverse("api-reservations"),
@@ -69,6 +85,59 @@ def test_reservation_creation_rejects_unknown_station(authenticated_client, rese
     )
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.django_db
+def test_reservation_creation_rejects_past_slot(authenticated_client, station):
+    start = timezone.now().replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
+    response = authenticated_client.post(
+        reverse("api-reservations"),
+        {
+            "station": str(station.id_station),
+            "date_debut": start.isoformat(),
+            "auth_mode": "qr",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.django_db
+def test_reservation_creation_rejects_requested_overlapping_emplacement(
+    authenticated_client,
+    user,
+    station,
+    emplacements,
+    reservation_start,
+):
+    other_user = get_user_model().objects.create_user(
+        pseudo="overlap-owner",
+        email="overlap-owner@example.com",
+        password="OtherPass123!",
+    )
+    Reservation.objects.create(
+        utilisateur=other_user,
+        emplacement=emplacements[0],
+        reference_code="OVRLP1",
+        auth_choice="qr",
+        date_debut=reservation_start,
+        date_fin=reservation_start + timedelta(minutes=30),
+        statut="confirmee",
+    )
+
+    response = authenticated_client.post(
+        reverse("api-reservations"),
+        {
+            "station": str(station.id_station),
+            "emplacement": str(emplacements[0].id_emplacement),
+            "date_debut": reservation_start.isoformat(),
+            "auth_mode": "qr",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
 
 
 @pytest.mark.django_db

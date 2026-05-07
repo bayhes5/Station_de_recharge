@@ -147,6 +147,7 @@ Test d'ingestion backend :
 
    cd backend
    ..\.venv\Scripts\python.exe -m pytest api\tests\test_mqtt_ingestion.py
+   ..\.venv\Scripts\python.exe -m pytest api\tests\test_admin_api.py
 
 Test manuel d'une commande via Raspberry :
 
@@ -156,13 +157,28 @@ Test manuel d'une commande via Raspberry :
      -H "Content-Type: application/json" \
      -d '{"slot_id":"slot1","action":"START","session_id":"demo"}'
 
+Test local de télémétrie temps réel sans ESP32 :
+
+.. code-block:: bash
+
+   docker compose --profile simulation up -d mqtt-simulator
+   docker compose logs -f mqtt-simulator
+   docker compose logs -f mqtt-bridge
+   docker compose logs -f celery
+
+Contrôle rapide des mesures en base :
+
+.. code-block:: bash
+
+   docker compose exec backend python manage.py shell -c "from django.utils import timezone; from datetime import timedelta; from api.models import CapteurData; now=timezone.now(); print(CapteurData.objects.filter(timestamp__gte=now-timedelta(minutes=1)).count())"
+
 Test Wokwi vers Grafana :
 
 1. Configurer temporairement ``MQTT_HOST=test.mosquitto.org`` pour le bridge.
 2. Démarrer la stack Docker.
 3. Lancer ``esp32/wokwi/`` dans Wokwi.
 4. Vérifier les logs MQTT côté ``mqtt-bridge``.
-5. Ouvrir ``http://localhost/grafana/`` et consulter le dashboard technique.
+5. Ouvrir ``http://localhost/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s`` et consulter le dashboard technique.
 
 Scénarios manuels de recette
 ----------------------------
@@ -196,7 +212,9 @@ ESP32 / Wokwi :
 * retirer le câble pendant la charge ;
 * augmenter le courant au-dessus du seuil ;
 * augmenter la température au-dessus du seuil ;
-* vérifier les alertes dans la base et Grafana.
+* vérifier que les alertes passent de ``nouvelle`` à ``active`` puis
+  ``resolue`` quand la télémétrie revient à la normale ;
+* vérifier les alertes dans la base, l'interface admin et Grafana.
 
 Sécurité :
 

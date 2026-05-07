@@ -62,12 +62,15 @@ Couverture par partie
      - Brancher INA219 et capteurs réels dans le firmware.
    * - Alertes
      - Détection intrusion, câble retiré, surconsommation et surchauffe.
-       Stockage dans ``Alerte``.
-     - Ajouter notification email/SMS technicien.
+       Stockage dans ``Alerte`` avec cycle ``nouvelle`` -> ``active`` ->
+       ``resolue`` selon le retour à la normale.
+     - Ajouter notification email/SMS technicien et acquittement manuel si
+       besoin métier.
    * - Supervision
      - Grafana provisionné, datasource TimescaleDB/PostgreSQL, dashboard
-       technique initial.
-     - Ajouter dashboard métier dans l'application admin/technicien.
+       technique initial, interface admin de supervision et simulateur MQTT
+       local pour valider le flux sans ESP32 physique.
+     - Ajouter des vues métier plus détaillées pour techniciens.
    * - Archivage
      - Sessions de charge, télémétrie de session, données capteurs et alertes
        stockées en base.
@@ -98,7 +101,7 @@ Supervision et alertes
    ESP32
       -> publie température/courant/intrusion/câble
       -> mqtt-bridge ingère le message
-      -> Celery stocke et crée les alertes
+      -> Celery stocke les capteurs et crée/met à jour/résout les alertes
       -> Grafana affiche les mesures
       -> interface métier expose les alertes administrateur/technicien
 
