@@ -1,10 +1,9 @@
 Fonctionnalités et implantation
 ===============================
 
-Cette page sert de guide d'explication du projet. Elle relie chaque
-fonctionnalité visible à son implantation dans le code, aux modèles concernés et
-aux choix techniques qui ont été faits. L'objectif est de pouvoir expliquer le
-prototype sans devoir relire tout le dépôt pendant une présentation.
+Cette page constitue le dossier d'implantation fonctionnelle et technique. Elle
+relie chaque fonctionnalité livrée à son implantation dans le code, aux modèles
+concernés et aux choix d'architecture retenus pour répondre au besoin client.
 
 Vue d'ensemble
 --------------
@@ -29,10 +28,10 @@ Le flux le plus complet est le suivant :
    utilisateur réserve
       -> backend attribue un emplacement
       -> utilisateur s'identifie au kiosque
-      -> Raspberry publie START en MQTT
+      -> Raspberry publie START vers l'emplacement
       -> ESP32 démarre la charge
       -> ESP32 publie la télémétrie
-      -> mqtt-bridge transmet à Celery
+      -> le bridge d'ingestion transmet à Celery
       -> Django stocke capteurs, devices, alertes
       -> interface admin et Grafana affichent l'état
 
@@ -51,7 +50,7 @@ contient plusieurs emplacements ; chaque emplacement porte son état métier et
 son état de serrure.
 
 ``Reservation`` relie un utilisateur, un emplacement, un moyen
-d'authentification et une fenêtre de temps. La durée choisie dans le prototype
+d'authentification et une fenêtre de temps. La durée choisie dans la version actuelle
 est de 30 minutes pour simplifier l'expérience, le calcul de disponibilité et
 l'expiration des accès temporaires.
 
@@ -99,8 +98,8 @@ vérifier le mot de passe courant. L'export de compte est disponible via
 ``/api/me/export/``.
 
 Les actions sensibles côté administration et accès sont journalisées dans
-``JournalSecurite`` par ``_log_security_event``. Cela permet d'expliquer qu'un
-prototype académique peut déjà préparer une traçabilité minimale.
+``JournalSecurite`` par ``_log_security_event``. Cette traçabilité prépare les
+besoins d'audit, de support et d'exploitation d'une solution multi-utilisateurs.
 
 Réservation en ligne
 --------------------
@@ -167,12 +166,23 @@ Le kiosque se trouve dans ``raspberry/app/``.
 
 ``main.py`` sert l'interface statique et expose ``POST /mqtt/command``. Ce point
 d'entrée local publie une commande MQTT vers l'ESP32 après validation par l'API.
-``mqtt_client.py`` construit le topic ``station/<slot_id>/cmd`` et publie le
-payload ``START``, ``STOP``, ``LOCK`` ou ``UNLOCK``.
+``mqtt_client.py`` construit le canal ``station/<slot_id>/cmd`` et publie la
+commande ``START``, ``STOP``, ``LOCK`` ou ``UNLOCK``.
 
 Le choix d'un petit serveur local est volontaire : le Raspberry reste simple et
-joue le rôle d'un client edge. La décision métier reste dans Django ; le kiosque
+joue le rôle d'un client local de borne. La décision métier reste dans Django ; le kiosque
 ne fait que transmettre une commande validée.
+
+En mode nominal, le Raspberry ne décide pas seul d'ouvrir un emplacement. Il
+appelle d'abord l'API terminal, qui valide la réservation, le moyen d'accès, la
+station attendue et crée ou retrouve la session de charge. Après cette réponse,
+le Raspberry relaie la commande ``START`` vers l'ESP32 concerné.
+
+Le mode dégradé doit rester limité : si le backend devient indisponible, le
+Raspberry peut s'appuyer sur un cache local d'autorisations déjà synchronisées,
+avec une durée de vie courte et une portée limitée à la station. Ce cache permet
+de maintenir une continuité de service contrôlée sans transformer le kiosque en
+source de vérité.
 
 Validation terminal
 -------------------
@@ -194,7 +204,7 @@ peut retrouver le même état sans créer de session doublon.
 ESP32 et simulation Wokwi
 -------------------------
 
-Le prototype ESP32 est dans ``esp32/``. La simulation Wokwi est dans
+La logique ESP32 de référence est dans ``esp32/``. La simulation Wokwi est dans
 ``esp32/wokwi/``. Elle se connecte au WiFi Wokwi, s'abonne à
 ``station/slot1/cmd`` et publie sur :
 
@@ -215,31 +225,37 @@ est retiré, si le courant dépasse le seuil ou si la température dépasse le
 seuil. Ces règles locales représentent les réflexes de sécurité qui doivent
 rester possibles même si le backend est indisponible.
 
-MQTT et ingestion temps réel
-----------------------------
+Le stockage local ESP32, par exemple avec LittleFS, est prévu pour conserver les
+événements et mesures qui ne peuvent pas être transmis pendant une coupure. Au
+retour de la communication, ces traces sont rejouées vers le backend pour
+conserver l'historique central et la supervision.
+
+Télémétrie temps réel et ingestion
+----------------------------------
 
 Le broker local est Mosquitto. Les services concernés sont :
 
-* ``mqtt`` : broker ;
-* ``mqtt-bridge`` : client abonné aux télémétries ;
+* ``mqtt`` : broker de messagerie ;
+* ``mqtt-bridge`` : consommateur abonné aux télémétries ;
 * ``celery`` : traitement asynchrone ;
 * ``redis`` : broker Celery ;
 * ``db`` : stockage final.
 
-``backend/api/mqtt.py`` s'abonne aux topics de télémétrie et délègue à
+``backend/api/mqtt.py`` s'abonne aux canaux de télémétrie et délègue à
 ``api.process_mqtt_message``. Cette tâche est définie dans
-``backend/api/tasks.py``. Elle extrait le slot depuis le topic ou le payload,
+``backend/api/tasks.py``. Elle extrait l'emplacement depuis le canal ou le message,
 puis appelle ``ingest_slot_telemetry`` dans
 ``backend/api/services/telemetry.py``.
 
-Le choix Celery évite de bloquer le client MQTT pendant les écritures en base.
-Même si le volume du prototype est faible, cette architecture prépare le
+Le choix Celery évite de bloquer le consommateur de messages pendant les
+écritures en base.
+Même si le volume actuel reste limité, cette architecture prépare le
 filtrage, l'agrégation et les notifications.
 
 Stockage des capteurs
 ---------------------
 
-``ingest_slot_telemetry`` crée ou met à jour le ``Device`` associé au slot,
+``ingest_slot_telemetry`` crée ou met à jour le ``Device`` associé à l'emplacement,
 met à jour ``last_seen`` et stocke les mesures numériques dans ``CapteurData``.
 
 Les champs booléens ``door`` et ``cable`` sont convertis en ``1.0`` ou ``0.0``
@@ -349,9 +365,9 @@ Le frontend est volontairement multi-pages. Chaque page HTML charge un module
 sous ``frontend/src/pages/`` qui importe ensuite le script métier sous
 ``frontend/js/``. Le client API commun est ``frontend/js/api.js``.
 
-Ce choix garde la structure facile à expliquer : une page correspond à un
-parcours. Vite apporte le serveur de développement, le build de production et
-les tests Playwright sans imposer un framework SPA complet.
+Ce choix garde une structure lisible et maintenable : une page correspond à un
+parcours métier. Vite apporte le serveur de développement, le build de
+production et les tests Playwright sans imposer un framework SPA complet.
 
 Les pages principales sont :
 
@@ -386,8 +402,8 @@ démarrage standard.
 Qualité, tests et CI
 --------------------
 
-Les tests backend sont dans ``backend/api/tests/``. Les tests les plus
-importants pour expliquer les règles métier sont :
+Les tests backend sont dans ``backend/api/tests/``. Les tests couvrant les
+règles métier principales sont :
 
 * ``test_reservations.py`` pour disponibilité et réservation ;
 * ``test_terminal_auth.py`` pour QR/code/RFID et ouverture de session ;
@@ -409,7 +425,8 @@ documentation. La documentation publique est générée par le workflow
 DevSecOps
 ---------
 
-Le projet contient une chaîne DevSecOps adaptée à un prototype académique :
+Le projet contient une chaîne DevSecOps adaptée à un livrable applicatif
+professionnel :
 
 * CodeQL analyse Python et JavaScript ;
 * Dependabot propose les mises à jour ;
@@ -418,15 +435,16 @@ Le projet contient une chaîne DevSecOps adaptée à un prototype académique :
 * OpenVEX peut documenter les vulnérabilités non exploitables ;
 * GitHub Pages publie la documentation.
 
-Ces outils servent surtout à montrer que le projet est explicable et auditable :
-on sait quelles dépendances sont utilisées, quels checks protègent ``main`` et
-où se trouve la documentation publiée.
+Ces outils rendent le projet auditable : les dépendances utilisées sont
+inventoriées, les contrôles qui protègent ``main`` sont visibles et la
+documentation publiée reste reconstruite depuis les sources versionnées.
 
-Limites actuelles à expliquer
------------------------------
+Limites et périmètre actuel
+---------------------------
 
-Le prototype est fonctionnel pour démontrer le flux complet, mais certains
-éléments restent simulés ou volontairement simplifiés :
+La solution couvre le flux fonctionnel principal. Certains éléments restent
+volontairement hors périmètre de livraison ou simulés dans l'environnement
+local :
 
 * les relais, serrures et capteurs physiques ne remplacent pas encore toutes les
   simulations ;
@@ -437,13 +455,13 @@ Le prototype est fonctionnel pour démontrer le flux complet, mais certains
   pour l'instant ;
 * la gestion de conservation des historiques reste à définir.
 
-Ces limites ne sont pas des défauts cachés : elles marquent la frontière entre le
-prototype démontrable et une version de production.
+Ces limites définissent le périmètre actuel et les chantiers nécessaires avant
+un déploiement de production complet.
 
-Comment expliquer le projet rapidement
---------------------------------------
+Synthèse opérationnelle
+-----------------------
 
-Une explication courte peut suivre cet ordre :
+La solution peut être présentée selon la chaîne opérationnelle suivante :
 
 1. Le backend Django porte les règles métier et la base relationnelle.
 2. Le frontend Vite fournit les parcours utilisateur, admin et technicien.
@@ -455,5 +473,5 @@ Une explication courte peut suivre cet ordre :
 8. Grafana donne les graphes techniques.
 9. Les tests, CI, SBOM, CodeQL et Pages rendent le projet vérifiable.
 
-Cette lecture permet de relier chaque fonctionnalité à un fichier, un modèle et
-un choix technique clair.
+Cette lecture relie chaque capacité métier à un composant applicatif, un modèle
+de données et un choix technique vérifiable.

@@ -6,7 +6,8 @@ trace des raisons, des bénéfices, des limites assumées et des alternatives
 écartées quand elles ont été discutées.
 
 Pour une lecture orientée fonctionnalité par fonctionnalité, voir aussi
-``implementation_guide.rst``.
+``implementation_guide.rst``. Pour le détail du schéma relationnel et de son
+adaptation dans Django, voir ``data_model.rst``.
 
 Backend Django
 --------------
@@ -20,7 +21,7 @@ base robuste pour les modèles, les migrations, l'administration, la validation
 des mots de passe, les permissions et les commandes de gestion.
 
 Le compromis assumé est que Django impose une structure assez complète. Pour ce
-prototype, ce cadre est un avantage : il évite de réinventer l'authentification,
+la version actuelle, ce cadre est un avantage : il évite de réinventer l'authentification,
 les migrations et les conventions d'administration.
 
 API REST avec Django REST Framework
@@ -59,11 +60,11 @@ La stack Docker utilise l'image TimescaleDB compatible PostgreSQL.
 
 Ce choix garde le confort de PostgreSQL pour les modèles relationnels Django,
 tout en préparant le stockage des séries temporelles issues des ESP32 :
-température, courant, tension, énergie, câble, porte et état des slots.
+température, courant, tension, énergie, câble, porte et état des emplacements.
 L'application peut continuer à utiliser l'ORM Django, et Grafana peut lire les
 tables horodatées sans couche supplémentaire.
 
-Dans le prototype actuel, les tables restent des modèles Django standards. Les
+Dans la version actuelle, les tables restent des modèles Django standards. Les
 hypertables TimescaleDB pourront être activées plus tard par migration SQL si le
 volume de télémétrie le justifie.
 
@@ -157,7 +158,7 @@ réservation. Ce choix garde la règle de disponibilité au même endroit que le
 données, ce qui réduit les incohérences entre utilisateurs et évite que deux
 clients prennent une décision concurrente côté navigateur.
 
-Le compromis est que l'utilisateur a moins de contrôle fin. Pour le prototype,
+Le compromis est que l'utilisateur a moins de contrôle fin. Pour la version actuelle,
 la simplicité et la cohérence métier sont plus importantes.
 
 Fenêtre de réservation de 30 minutes
@@ -179,7 +180,7 @@ Le projet prévoit plusieurs modes d'authentification d'accès.
 
 Le RFID correspond au cas physique naturel pour une station. Le QR code et le
 code temporaire servent de solutions simples pour les utilisateurs sans badge ou
-pour une démonstration. Cette combinaison permet de tester le parcours complet
+pour un parcours sans badge physique. Cette combinaison permet de tester le parcours complet
 avant que tout le matériel soit disponible.
 
 Les secrets ne doivent pas être stockés en clair. Le modèle
@@ -223,9 +224,42 @@ Ce choix isole l'interface locale de la station du frontend utilisateur. Le
 kiosque peut simuler un terminal physique, appeler l'API et évoluer vers un
 déploiement embarqué sans coupler son cycle de vie au dashboard web.
 
-Le serveur actuel est volontairement minimal. Il est suffisant pour un
-prototype, mais un déploiement réel devra traiter le démarrage automatique, la
+Le serveur actuel est volontairement minimal. Il est suffisant pour la version
+actuelle, mais un déploiement réel devra traiter le démarrage automatique, la
 supervision, le mode hors ligne et la sécurité réseau locale.
+
+Continuité locale et mode dégradé
+---------------------------------
+
+Le choix d'architecture retient le backend comme source de vérité et non une
+communication directe Raspberry -> ESP32 comme chemin principal.
+
+Ce choix répond à trois enjeux du cahier des charges :
+
+* **sécurité** : l'API centralise la validation des réservations, des moyens
+  d'accès, des expirations et des révocations ;
+* **audit** : les décisions sensibles sont journalisées côté serveur et restent
+  corrélées aux utilisateurs, réservations et sessions ;
+* **performance d'exploitation** : le backend et Celery absorbent les écritures,
+  la supervision et les agrégations, tandis que le Raspberry reste concentré sur
+  l'interaction locale avec l'usager.
+
+Le Raspberry conserve toutefois un rôle de continuité. En cas de perte du
+serveur, il peut utiliser un cache local d'autorisations déjà obtenues auprès du
+backend. Ce cache doit être court, borné à la station, invalidable et limité aux
+actions nécessaires au service. Il ne doit pas permettre de créer une nouvelle
+réservation ni d'accorder un accès inconnu du système central.
+
+Les ESP32 doivent aussi conserver une autonomie de sécurité : arrêt de charge en
+cas d'ouverture du boîtier, retrait du câble, surchauffe ou surconsommation.
+Pour éviter la perte de traces pendant une coupure, les événements et mesures
+non transmis peuvent être stockés localement dans LittleFS, puis resynchronisés
+quand la messagerie redevient disponible.
+
+La communication Raspberry -> ESP32 est donc justifiée en mode dégradé ou pour
+relayer une commande déjà validée. Elle n'est pas le mode nominal, car elle
+court-circuiterait la source de vérité, compliquerait les révocations et
+multiplierait les règles de sécurité à maintenir.
 
 Parcours tactile du kiosque Raspberry
 -------------------------------------
@@ -263,7 +297,7 @@ Ce choix garde une trace explicite du lien entre un emplacement physique, son
 contrôleur embarqué et ses mesures. Il prépare la supervision technique :
 version de firmware, dernière présence, statut, capteurs et alertes.
 
-Le code embarqué reste un prototype. La priorité actuelle est de stabiliser le
+Le code embarqué reste une base d'intégration. La priorité actuelle est de stabiliser le
 contrat métier et les données attendues par le backend.
 
 Docker Compose
@@ -283,10 +317,10 @@ secrets pour un déploiement public.
 Commandes de bootstrap
 ----------------------
 
-Le backend initialise les données de démonstration au démarrage Docker.
+Le backend initialise les données locales au démarrage Docker.
 
-Ce choix rend le prototype immédiatement testable : compte administrateur,
-technicien, station, emplacements, devices et maintenance de démo sont prêts
+Ce choix rend la solution immédiatement testable : compte administrateur,
+technicien, station, emplacements, devices et maintenance de référence sont prêts
 sans manipulation manuelle. Il améliore aussi la reproductibilité des tests
 fonctionnels.
 
@@ -386,10 +420,11 @@ Le cache est invalidé lors des modifications de stations ou d'emplacements. Les
 réservations et les accès temporaires restent hors cache, car ils sont dynamiques
 et sensibles à l'utilisateur connecté.
 
-MQTT avec Mosquitto
--------------------
+Messagerie IoT avec Mosquitto
+-----------------------------
 
-MQTT est utilisé pour la télémétrie IoT et les commandes vers les ESP32.
+MQTT est utilisé comme protocole de messagerie pour la télémétrie IoT et les
+commandes vers les ESP32.
 
 Le broker Mosquitto est léger, open source et adapté à une architecture de
 station locale. Les ESP32 publient leurs mesures sur
@@ -405,9 +440,9 @@ segmentation réseau.
 Celery pour l'ingestion asynchrone
 ----------------------------------
 
-Le bridge MQTT backend délègue le traitement des messages à Celery.
+Le bridge d'ingestion backend délègue le traitement des messages à Celery.
 
-Ce choix évite de bloquer le client MQTT pendant l'écriture en base ou la
+Ce choix évite de bloquer le consommateur de messages pendant l'écriture en base ou la
 création d'alertes. Redis sert de broker Celery, ce qui reste cohérent avec le
 cache Django et le futur canal temps réel de Django Channels.
 
@@ -430,14 +465,14 @@ Grafana complète cette vue avec des séries temporelles : température, courant
 état des ESP32 et incidents récents.
 
 Ce choix évite de recréer un outil de graphes temps réel de zéro et s'appuie sur
-une solution open source connue. Dans le prototype, Grafana est accessible sur
+une solution open source connue. Dans la version actuelle, Grafana est accessible sur
 ``/grafana/`` via le reverse proxy local, avec un lien direct vers le dashboard
 ``/grafana/d/station-supervision/station-supervision-technique``.
 
 Reverse proxy Nginx
 -------------------
 
-Un reverse proxy Nginx local centralise les routes de démonstration.
+Un reverse proxy Nginx local centralise les routes d'accès.
 
 Il expose ``/`` pour le frontend, ``/api/`` et ``/admin/`` pour Django,
 ``/grafana/`` pour Grafana et ``/kiosk/`` pour le kiosque Raspberry. Les ports
@@ -468,7 +503,7 @@ vulnérabilités avec Grype.
 
 Ce choix donne de la visibilité sur la chaîne d'approvisionnement logicielle :
 dépendances installées, image backend, rapports JSON/SARIF et brouillon OpenVEX.
-Il est utile pour expliquer ce qui est présent dans l'application et suivre les
+Il est utile pour maîtriser le contenu logiciel livré et suivre les
 vulnérabilités.
 
 CodeQL complète ce contrôle avec une analyse statique Python et JavaScript. Il
@@ -509,7 +544,8 @@ avec ``scripts/summarize-vulnerabilities.ps1``.
 Limites assumées
 ----------------
 
-Le prototype privilégie les composants réellement utilisés dans le projet :
+Le périmètre actuel privilégie les composants réellement utilisés dans la
+solution :
 Django, Vite, PostgreSQL/TimescaleDB, Redis, Celery, Mosquitto, Grafana, Nginx,
 Raspberry Pi et ESP32.
 
@@ -523,5 +559,5 @@ Les sujets suivants restent volontairement hors périmètre immédiat :
 * TLS MQTT et certificats X.509 en développement local ;
 * remplacement complet des simulations par le câblage définitif.
 
-Cette limite garde le projet soutenable pour un prototype académique, tout en
-préservant une architecture extensible.
+Ce périmètre maintient une trajectoire de livraison réaliste, tout en préservant
+une architecture extensible vers une exploitation de production.
