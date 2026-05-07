@@ -1,20 +1,21 @@
-Supervision MQTT
-================
+Supervision technique des stations
+==================================
 
-Cette page documente le socle de supervision technique de la station. L'objectif
-est de séparer clairement les décisions métier, la télémétrie IoT et
-l'affichage de supervision.
+Cette page documente la supervision technique attendue pour exploiter les
+stations : remontée des mesures, commandes vers les emplacements, suivi des
+devices, alertes et visualisation Grafana. MQTT reste le protocole de transport
+retenu, mais le besoin couvert est la surveillance opérationnelle des bornes.
 
-Flux général
-------------
+Flux opérationnel
+-----------------
 
 Le flux normal de remontée capteurs est le suivant :
 
 .. code-block:: text
 
    ESP32
-      -> broker MQTT Mosquitto
-      -> bridge MQTT backend
+      -> broker de messagerie Mosquitto
+      -> bridge d'ingestion backend
       -> tâche Celery
       -> base TimescaleDB/PostgreSQL
       -> API Django / Grafana
@@ -23,20 +24,56 @@ Le flux de commande vers les emplacements passe dans l'autre sens :
 
 .. code-block:: text
 
-   API Django ou Raspberry fallback
-      -> broker MQTT Mosquitto
+   API Django ou Raspberry
+      -> broker de messagerie Mosquitto
       -> ESP32
       -> serrure / module de charge
 
-Dans le prototype actuel, le kiosque Raspberry expose aussi un endpoint local
+Dans la version actuelle, le kiosque Raspberry expose aussi un endpoint local
 ``POST /mqtt/command``. Après une authentification réussie auprès de l'API, le
 navigateur du kiosque appelle cet endpoint pour publier une commande ``START``
-vers le slot concerné.
+vers l'emplacement concerné.
 
 Le serveur Django reste la source de vérité pour les utilisateurs, les
 réservations et les droits d'accès. Les ESP32 exécutent les commandes validées et
 gardent seulement les réflexes de sécurité locale : arrêt en cas d'ouverture du
 boîtier, retrait du câble, surchauffe ou surconsommation.
+
+Continuité en mode dégradé
+--------------------------
+
+Le fonctionnement nominal passe par le backend : validation de l'identité,
+vérification de la réservation, contrôle de la station, création de la session,
+journalisation et supervision. Ce chemin centralisé garantit la cohérence des
+données et évite qu'un équipement local devienne seul responsable des décisions
+d'accès.
+
+La station doit néanmoins rester exploitable de façon limitée si le serveur ou
+la liaison applicative tombe. Le mode dégradé repose sur deux mécanismes locaux :
+
+* le Raspberry conserve un cache local des autorisations récemment synchronisées
+  et encore valides, par station et par emplacement ;
+* chaque ESP32 conserve localement les événements et mesures non transmis, par
+  exemple dans LittleFS, afin de les republier après rétablissement de la
+  communication.
+
+Le cache Raspberry ne doit pas créer de nouveaux droits. Il ne sert qu'à
+réutiliser des autorisations déjà émises par le backend, avec une durée de vie
+courte, une portée limitée à la station et une liste d'actions autorisées. En
+cas de doute, le comportement attendu est le refus d'accès plutôt que l'ouverture
+non vérifiée.
+
+Le journal local ESP32 protège la traçabilité : une coupure réseau ne doit pas
+faire disparaître les mesures de charge, les arrêts de sécurité ou les alertes.
+Au retour du réseau, les événements sont rejoués vers le backend, qui redevient
+la source consolidée pour l'historique et Grafana.
+
+Cette architecture est plus robuste qu'une communication directe Raspberry ->
+ESP32 utilisée comme chemin principal. Une communication directe nominale
+dupliquerait les règles métier dans le kiosque, rendrait la révocation des accès
+plus difficile, réduirait l'audit centralisé et augmenterait le risque de
+divergence entre stations. Le lien local reste donc un mécanisme de continuité,
+pas une source d'autorité.
 
 Services Docker
 ---------------
@@ -46,12 +83,12 @@ La stack locale contient les services de supervision suivants :
 * ``mqtt`` : broker Mosquitto local, exposé sur le port ``1883`` ;
 * ``redis`` : cache, broker Celery et support futur de Django Channels ;
 * ``celery`` : worker de traitement asynchrone ;
-* ``mqtt-bridge`` : client MQTT backend abonné aux télémétries ESP32 ;
+* ``mqtt-bridge`` : consommateur backend abonné aux télémétries ESP32 ;
 * ``grafana`` : supervision technique exposée sur ``http://localhost:3000`` ;
 * ``db`` : TimescaleDB/PostgreSQL, compatible avec les modèles Django existants.
 
-Topics MQTT
------------
+Canaux de télémétrie et de commande
+-----------------------------------
 
 Les ESP32 publient leur télémétrie sur :
 
@@ -59,7 +96,7 @@ Les ESP32 publient leur télémétrie sur :
 
    station/<slot_id>/telemetry
 
-Exemple de payload :
+Exemple de message :
 
 .. code-block:: json
 
@@ -81,7 +118,7 @@ Les commandes vers un ESP32 utilisent :
 
    station/<slot_id>/cmd
 
-Le payload de commande est un JSON simple :
+Le message de commande est un JSON simple :
 
 .. code-block:: json
 
@@ -90,8 +127,8 @@ Le payload de commande est un JSON simple :
      "session_id": "<uuid-session>"
    }
 
-Le Raspberry publie ce payload via son client MQTT local. Le backend dispose du
-même mécanisme côté serveur avec la commande ``send_slot_command``.
+Le Raspberry publie ce message via son client de messagerie local. Le backend
+dispose du même mécanisme côté serveur avec la commande ``send_slot_command``.
 
 Commandes utiles
 ----------------
@@ -106,13 +143,13 @@ Afficher l'etat des services de supervision :
    docker compose logs --tail=100 celery
    docker compose logs --tail=100 grafana
 
-Lancer le bridge MQTT backend hors Docker :
+Lancer le bridge d'ingestion backend hors Docker :
 
 .. code-block:: bash
 
    python manage.py run_mqtt_bridge
 
-Relancer le bridge MQTT dans Docker :
+Relancer le bridge d'ingestion dans Docker :
 
 .. code-block:: bash
 
@@ -133,7 +170,7 @@ Tester l'endpoint Raspberry local :
      -H "Content-Type: application/json" \
      -d '{"slot_id":"slot1","action":"START","session_id":"demo"}'
 
-Ecouter les messages publies sur les topics de la station :
+Ecouter les messages publies sur les canaux de la station :
 
 .. code-block:: bash
 
@@ -152,12 +189,12 @@ Verifier que Django et la base repondent :
    docker compose exec backend python manage.py check
    docker compose exec db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select now();"'
 
-Simulateur MQTT local
----------------------
+Simulateur local de télémétrie
+------------------------------
 
 Wokwi peut rester de cote pendant le developpement de la supervision. Le projet
 contient une commande Django capable de publier des donnees capteurs realistes
-sur les memes topics que les ESP32 :
+sur les memes canaux que les ESP32 :
 
 .. code-block:: powershell
 
@@ -166,7 +203,7 @@ sur les memes topics que les ESP32 :
 
 La commande publie sur ``station/<slot_id>/telemetry`` et utilise les variables
 ``MQTT_HOST``, ``MQTT_PORT`` et ``MQTT_BASE_TOPIC``. Le scenario ``mixed`` alterne
-des mesures normales et des anomalies pour tester la chaine d'alerting :
+des mesures normales et des anomalies pour tester la chaîne d'alertes :
 
 * intrusion : boitier ouvert pendant une charge ;
 * cable retire ;
@@ -174,7 +211,7 @@ des mesures normales et des anomalies pour tester la chaine d'alerting :
 * surconsommation ;
 * etat critique.
 
-Pour envoyer seulement quelques messages et verifier le format sans broker MQTT :
+Pour envoyer seulement quelques messages et verifier le format sans broker :
 
 .. code-block:: powershell
 
@@ -224,8 +261,8 @@ les alertes sont visibles dans l'API de supervision.
 Simulation Wokwi
 ----------------
 
-Le dossier ``esp32/wokwi/`` contient une simulation interactive du slot 1. Elle
-publie les mêmes payloads que le firmware MicroPython physique sur
+Le dossier ``esp32/wokwi/`` contient une simulation interactive de l'emplacement
+1. Elle publie les mêmes messages que le firmware MicroPython physique sur
 ``station/slot1/telemetry``.
 
 La simulation Wokwi utilise par défaut le broker public
@@ -253,7 +290,7 @@ La chaîne testée devient alors :
 Modèles alimentés
 -----------------
 
-L'ingestion MQTT alimente actuellement :
+L'ingestion des télémétries alimente actuellement :
 
 * ``Device`` : état courant et ``last_seen`` du device ESP32 ;
 * ``Capteur`` et ``CapteurData`` : valeurs horodatées des capteurs ;
@@ -278,8 +315,8 @@ automatiquement au statut ``resolue``.
 
 Les conditions de resolution automatique sont :
 
-* ``intrusion`` : ``door`` repasse a ``true`` ou le slot n'est plus en charge ;
-* ``cable_removed`` : ``cable`` repasse a ``true`` ou le slot n'est plus en
+* ``intrusion`` : ``door`` repasse a ``true`` ou l'emplacement n'est plus en charge ;
+* ``cable_removed`` : ``cable`` repasse a ``true`` ou l'emplacement n'est plus en
   charge ;
 * ``overheat`` : la temperature repasse sous ``60 C`` ;
 * ``overcurrent`` : le courant repasse sous ``3.0 A`` ;
@@ -298,7 +335,7 @@ Le dashboard est accessible directement via :
 
 Le dashboard initial affiche :
 
-* la température par slot ;
+* la température par emplacement ;
 * le courant de charge ;
 * les alertes récentes ;
 * l'état des ESP32.
@@ -310,12 +347,12 @@ visualiser rapidement les séries temporelles et les incidents techniques.
 Sécurité prévue
 ---------------
 
-La configuration de développement accepte MQTT sans authentification pour
-faciliter la démonstration locale. Pour une version de production, il faudra
+La configuration de développement accepte la messagerie IoT sans authentification
+pour faciliter les essais locaux. Pour une version de production, il faudra
 activer progressivement :
 
 * identifiants MQTT par équipement ;
 * TLS côté broker ;
 * segmentation réseau entre utilisateurs, serveur, Raspberry et ESP32 ;
-* limitation stricte des commandes acceptées par chaque slot ;
+* limitation stricte des commandes acceptées par chaque emplacement ;
 * journalisation des commandes sensibles.

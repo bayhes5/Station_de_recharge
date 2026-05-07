@@ -65,6 +65,21 @@ En `charging`, l'ESP32 arrete immediatement en cas de:
 - courant superieur au seuil
 - temperature superieure au seuil
 
+## Continuité locale
+
+Le chemin nominal reste la communication avec le backend : les reservations,
+droits d'acces et sessions sont valides cote serveur, puis l'ESP32 execute les
+commandes recues.
+
+En cas de coupure temporaire du serveur ou de la liaison applicative, l'ESP32
+doit conserver ses reflexes locaux de securite et journaliser les evenements qui
+ne peuvent pas etre transmis. LittleFS est le stockage embarque cible pour garder
+une file courte de mesures, alertes et changements d'etat a republier quand le
+broker ou le backend redevient disponible.
+
+Ce stockage local ne remplace pas la base centrale. Il sert a eviter une perte
+de traces et a faciliter la reconciliation apres incident.
+
 ## Simulation Wokwi
 
 Ouvrir `esp32/wokwi/` avec l'extension Wokwi.

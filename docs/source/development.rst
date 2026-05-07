@@ -47,7 +47,7 @@ MQTT, Redis, TimescaleDB/PostgreSQL, Celery, Grafana et le reverse proxy Nginx :
 
    docker compose up -d --build
 
-Le chemin local recommandé pour une démonstration proche production passe par
+Le parcours local recommandé pour une exécution proche production passe par
 Nginx :
 
 .. code-block:: text
@@ -99,7 +99,7 @@ Arreter la stack en conservant les donnees :
 
    docker compose down
 
-Lancer le simulateur MQTT local :
+Lancer le simulateur local de télémétrie :
 
 .. code-block:: bash
 
@@ -122,8 +122,8 @@ Verifier les reseaux attaches aux conteneurs :
    docker inspect mqtt_simulator --format '{{json .NetworkSettings.Networks}}'
    docker inspect mqtt_broker --format '{{json .NetworkSettings.Networks}}'
 
-Vérifier Nginx et MQTT
-----------------------
+Vérifier Nginx et la messagerie IoT
+-----------------------------------
 
 Valider la configuration Docker Compose :
 
@@ -137,7 +137,7 @@ Valider la syntaxe du reverse proxy :
 
    docker compose run --rm --no-deps reverse-proxy nginx -t
 
-Envoyer une commande MQTT via le Raspberry :
+Envoyer une commande d'emplacement via le Raspberry :
 
 .. code-block:: bash
 
@@ -145,7 +145,7 @@ Envoyer une commande MQTT via le Raspberry :
      -H "Content-Type: application/json" \
      -d '{"slot_id":"slot1","action":"START","session_id":"demo"}'
 
-Ecouter les telemetries MQTT recues par Mosquitto :
+Ecouter les telemetries recues par Mosquitto :
 
 .. code-block:: bash
 

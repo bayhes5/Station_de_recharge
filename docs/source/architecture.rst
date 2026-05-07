@@ -62,11 +62,29 @@ L'écran tactile cible une résolution de ``1024x600``. Les parcours critiques d
 kiosque doivent être validés sur cette taille, notamment l'accueil, la lecture
 RFID, la saisie code et l'association badge.
 
+Le serveur Django reste le chemin nominal : il valide les réservations, les
+moyens d'accès et la station attendue avant toute ouverture de charge. Le
+Raspberry intervient comme interface de borne et comme relais local de commande
+vers les ESP32.
+
+Un mode dégradé est prévu pour maintenir une continuité minimale si le serveur
+central ou la liaison applicative devient indisponible. Dans ce cas, le
+Raspberry peut s'appuyer sur un cache local de droits déjà synchronisés,
+strictement limité dans le temps, pour autoriser uniquement les actions prévues
+sur les emplacements de la station. Les ESP32 conservent de leur côté les
+événements et télémétries non transmis dans un journal local, par exemple via
+LittleFS, puis les republient lorsque la communication revient.
+
+Ce choix évite de faire de la communication directe Raspberry -> ESP32 le mode
+principal. Le backend reste la source de vérité pour la sécurité, l'audit et la
+cohérence des réservations ; le mode local sert uniquement de continuité
+opérationnelle.
+
 Reverse proxy local
 -------------------
 
 Le dossier ``nginx/`` contient une configuration de reverse proxy locale qui
-centralise les routes de démonstration :
+centralise les routes d'accès :
 
 * ``/`` vers le frontend Vite ;
 * ``/api/`` et ``/admin/`` vers Django ;
@@ -80,13 +98,13 @@ restent disponibles en développement.
 ESP32
 -----
 
-Le dossier ``esp32/`` contient le prototype de logique embarquée pour un
-emplacement de recharge. En configuration de démonstration, le backend crée
+Le dossier ``esp32/`` contient la logique embarquée de référence pour un
+emplacement de recharge. En configuration locale, le backend crée
 trois emplacements et associe un device ``ESP32`` à chacun d'eux.
 
 Les ESP32, la simulation Wokwi ou le service Docker ``mqtt-simulator`` publient
-les mesures sur ``station/<slot_id>/telemetry``. Le service ``mqtt-bridge``
-écoute ces topics, délègue le traitement à Celery, puis le backend stocke les
+les mesures sur le canal ``station/<slot_id>/telemetry``. Le service
+``mqtt-bridge`` écoute ces canaux, délègue le traitement à Celery, puis le backend stocke les
 échantillons dans ``CapteurData`` et met à jour ``Device.last_seen``. Cette
 chaîne alimente l'interface de supervision et le dashboard Grafana en quasi temps
 réel.
@@ -95,6 +113,12 @@ Les alertes opérationnelles sont créées depuis la télémétrie : intrusion,
 câble retiré, surchauffe, surconsommation et état critique. Une alerte démarre
 au statut ``nouvelle``, passe à ``active`` si l'anomalie continue, puis à
 ``resolue`` quand une télémétrie normale confirme le retour à l'état attendu.
+
+Les ESP32 doivent aussi pouvoir réagir localement sans attendre le serveur pour
+les sécurités physiques : arrêt de charge, déverrouillage contrôlé, émission
+d'un événement d'alerte et journalisation locale. Le stockage embarqué ne
+remplace pas la base centrale ; il évite la perte de traces pendant une coupure
+temporaire.
 
 Cache Redis
 -----------

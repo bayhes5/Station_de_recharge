@@ -1,6 +1,8 @@
 # Station de recharge intelligente
 
-Prototype académique de station de recharge sécurisée pour vélos électriques.
+Solution de station de recharge sécurisée pour vélos électriques, conçue pour
+couvrir la réservation, le contrôle d'accès, la supervision technique et
+l'exploitation des équipements connectés.
 
 Documentation publiée : https://bayhes5.github.io/Station_de_recharge/
 
@@ -12,7 +14,7 @@ Le projet couvre trois blocs :
 
 ## Objectifs
 
-Le prototype doit permettre :
+La solution doit permettre :
 
 - la réservation en ligne d'un emplacement de recharge ;
 - l'identification par QR code, badge RFID ou code alphanumérique ;
@@ -33,7 +35,8 @@ Utilisateur
 
 Kiosque Raspberry
   -> API Django pour valider l'accès
-  -> MQTT pour commander les ESP32
+  -> messagerie locale pour commander les ESP32
+  -> cache local limite en mode degrade
 
 ESP32
   -> MQTT telemetry/status/alert
@@ -41,13 +44,14 @@ ESP32
   -> Celery
   -> Base de données
   -> Grafana
+  -> journal local embarque en cas de coupure
 ```
 
 Services principaux :
 
-- `backend/` : Django, API REST, modèles, Celery, bridge MQTT ;
+- `backend/` : Django, API REST, modèles, Celery, ingestion des télémétries ;
 - `frontend/` : application Vite multi-pages ;
-- `raspberry/app/` : interface kiosque locale et client MQTT edge ;
+- `raspberry/app/` : interface kiosque locale et client de commande des emplacements ;
 - `esp32/` : firmware MicroPython et simulation Wokwi ;
 - `nginx/` : reverse proxy local ;
 - `grafana/` : datasource et dashboard provisionnés ;
@@ -90,7 +94,7 @@ Ports directs de développement :
 3000  -> Grafana
 ```
 
-## Comptes de démonstration
+## Comptes locaux préconfigurés
 
 Les comptes sont créés au démarrage Docker depuis `.env` :
 
@@ -102,7 +106,7 @@ technicien  -> DEMO_TECH_PSEUDO / DEMO_TECH_PASSWORD
 Les valeurs de `.env.example` sont suffisantes en local, mais doivent être
 changées hors développement.
 
-## Flux MQTT
+## Télémétrie et commandes des emplacements
 
 Télémétrie ESP32 :
 
@@ -152,10 +156,18 @@ curl -X POST http://localhost:9000/mqtt/command \
   -d '{"slot_id":"slot1","action":"START","session_id":"demo"}'
 ```
 
-## Simulation MQTT locale
+Le backend reste le chemin nominal : il valide la réservation et le moyen
+d'accès avant qu'une commande soit envoyée à l'ESP32. Le Raspberry est prévu pour
+assurer une continuité locale limitée si le serveur est indisponible, à partir
+d'autorisations déjà synchronisées. Les ESP32 doivent conserver les mesures et
+événements non transmis dans un journal local, par exemple via LittleFS, puis les
+resynchroniser au retour de la communication.
+
+## Simulation locale de télémétrie
 
 Wokwi peut rester de cote pendant que la supervision avance. Le backend fournit
-une commande qui publie de fausses donnees capteurs sur les vrais topics MQTT :
+une commande qui publie des donnees capteurs simulees sur les memes canaux que
+les ESP32 :
 
 ```powershell
 cd backend
@@ -197,7 +209,7 @@ docker compose restart mqtt-bridge
 docker compose up -d --force-recreate mqtt-bridge
 ```
 
-Diagnostiquer le broker MQTT :
+Diagnostiquer la messagerie IoT :
 
 ```bash
 docker compose exec mqtt mosquitto_sub -h localhost -t 'station/#' -v -C 5 -W 10
@@ -269,7 +281,7 @@ cd backend
 ..\.venv\Scripts\python.exe -m pytest
 ```
 
-Tests ciblés MQTT et terminal :
+Tests ciblés télémétrie et terminal :
 
 ```powershell
 cd backend
@@ -305,9 +317,10 @@ La documentation technique Sphinx est dans `docs/source/`.
 Pages principales :
 
 - `architecture.rst` : architecture globale ;
-- `implementation_guide.rst` : fonctionnalités, implantation et choix à expliquer ;
+- `implementation_guide.rst` : fonctionnalités, implantation et choix d'architecture ;
+- `data_model.rst` : modèle de données, correspondance MCD et implémentation Django ;
 - `requirements_traceability.rst` : correspondance avec le cahier des charges ;
-- `supervision_mqtt.rst` : flux MQTT, Grafana, Wokwi ;
+- `station_supervision.rst` : supervision technique, télémétrie, alertes, Grafana ;
 - `testing_strategy.rst` : stratégie de tests ;
 - `technical_choices.rst` : justification des choix techniques ;
 - `api_openapi.rst` : documentation API ;

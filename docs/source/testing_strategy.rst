@@ -2,7 +2,7 @@ Stratégie de tests
 ==================
 
 Cette page décrit les tests à lancer pendant le développement, les tests
-automatisés existants et les scénarios manuels à prévoir pour la soutenance.
+automatisés existants et les scénarios manuels de recette.
 
 Objectifs
 ---------
@@ -12,7 +12,7 @@ Les tests doivent vérifier :
 * la cohérence des réservations et des accès ;
 * la sécurité de l'authentification ;
 * la robustesse du terminal Raspberry ;
-* l'ingestion MQTT et la création d'alertes ;
+* l'ingestion des télémétries et la création d'alertes ;
 * la validité du frontend ;
 * la documentation et la configuration Docker/Nginx ;
 * les scénarios matériels simulés avant intégration physique.
@@ -52,7 +52,7 @@ Tests couverts actuellement :
 * administration utilisateurs/réservations ;
 * génération et révocation QR/code/RFID ;
 * authentification terminal QR/code/RFID ;
-* ingestion MQTT vers capteurs/alertes ;
+* ingestion des télémétries vers capteurs/alertes ;
 * performance de requêtes ciblées.
 
 Qualité backend
@@ -138,8 +138,8 @@ Variante fiable si ``sphinx-build`` n'est pas dans le ``PATH`` :
 La sortie est générée dans ``docs/build/html``. Ce dossier est un artefact local
 et ne doit pas être committé.
 
-Tests MQTT et supervision
--------------------------
+Tests télémétrie, commandes et supervision
+------------------------------------------
 
 Test d'ingestion backend :
 
@@ -177,7 +177,7 @@ Test Wokwi vers Grafana :
 1. Configurer temporairement ``MQTT_HOST=test.mosquitto.org`` pour le bridge.
 2. Démarrer la stack Docker.
 3. Lancer ``esp32/wokwi/`` dans Wokwi.
-4. Vérifier les logs MQTT côté ``mqtt-bridge``.
+4. Vérifier les logs d'ingestion côté ``mqtt-bridge``.
 5. Ouvrir ``http://localhost/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s`` et consulter le dashboard technique.
 
 Scénarios manuels de recette
@@ -203,7 +203,7 @@ Kiosque Raspberry :
 * tester l'accueil en ``1024x600`` ;
 * tester QR, code et RFID ;
 * vérifier mauvais code, mauvais moyen d'accès et mauvaise station ;
-* vérifier l'envoi de ``START`` au slot MQTT.
+* vérifier l'envoi de ``START`` à l'emplacement.
 
 ESP32 / Wokwi :
 

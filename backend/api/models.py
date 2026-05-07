@@ -383,6 +383,7 @@ class SessionTelemetry(models.Model):
         db_table = "session_telemetry"
         indexes = [
             models.Index(fields=["session", "timestamp"], name="idx_telemetry_time"),
+            models.Index(fields=["-timestamp"], name="idx_session_tel_ts"),
         ]
 
 
@@ -427,6 +428,9 @@ class Capteur(models.Model):
 
     class Meta:
         db_table = "capteur"
+        indexes = [
+            models.Index(fields=["type", "device"], name="idx_capteur_type_dev"),
+        ]
 
 
 class CapteurData(models.Model):
@@ -446,6 +450,7 @@ class CapteurData(models.Model):
         db_table = "capteur_data"
         indexes = [
             models.Index(fields=["capteur", "timestamp"], name="idx_capteur_data_time"),
+            models.Index(fields=["-timestamp"], name="idx_capteur_data_ts"),
         ]
 
 
@@ -480,6 +485,7 @@ class Alerte(models.Model):
         indexes = [
             models.Index(fields=["status", "timestamp"], name="idx_alert_status_time"),
             models.Index(fields=["session", "timestamp"], name="idx_alert_session_time"),
+            models.Index(fields=["-timestamp"], name="idx_alert_ts"),
         ]
 
 
