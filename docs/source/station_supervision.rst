@@ -223,17 +223,21 @@ lancer par defaut :
 
 .. code-block:: bash
 
-   docker compose --profile simulation up -d mqtt-simulator
-   docker compose logs -f mqtt-simulator
+   docker compose up -d mqtt
+   docker compose --profile simulation run --rm mqtt-simulator
 
-Si le simulateur ne redemarre pas apres une recreation de la stack et que Docker
-signale ``network ... not found``, le conteneur arrete reference probablement un
-ancien reseau Compose. Supprimer uniquement ce conteneur suffit :
+Le simulateur tourne en conteneur ephemere. A l'arret, Docker le supprime
+automatiquement ; il ne garde donc pas de reference vers un reseau Compose
+supprime apres un rebuild.
+
+Si Docker signale encore ``network ... not found`` pour un ancien conteneur
+arrete, supprimer uniquement le simulateur puis relancer la commande ephemere :
 
 .. code-block:: bash
 
-   docker compose rm -f mqtt-simulator
-   docker compose --profile simulation up -d mqtt-simulator
+   docker compose rm -sf mqtt-simulator
+   docker compose up -d mqtt
+   docker compose --profile simulation run --rm mqtt-simulator
 
 Pour comparer les reseaux attaches aux conteneurs :
 

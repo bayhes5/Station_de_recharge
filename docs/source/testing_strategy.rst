@@ -161,8 +161,8 @@ Test local de télémétrie temps réel sans ESP32 :
 
 .. code-block:: bash
 
-   docker compose --profile simulation up -d mqtt-simulator
-   docker compose logs -f mqtt-simulator
+   docker compose up -d mqtt
+   docker compose --profile simulation run --rm mqtt-simulator
    docker compose logs -f mqtt-bridge
    docker compose logs -f celery
 

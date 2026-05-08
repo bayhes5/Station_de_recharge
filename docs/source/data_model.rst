@@ -22,6 +22,8 @@ projet :
 Il ne doit cependant pas etre applique tel quel comme script SQL dans le projet.
 La source de verite de la base est le modele Django situe dans
 ``backend/api/models.py`` et ses migrations dans ``backend/api/migrations/``.
+Le detail table par table, le script PostgreSQL de creation et le diagramme
+Mermaid sont disponibles dans :doc:`database_mcd`.
 
 Cette decision evite de maintenir deux schemas concurrents : un schema SQL
 manuel et un schema genere par Django. Toute evolution structurelle doit passer
@@ -107,7 +109,7 @@ meme si le compte utilisateur est supprime ou anonymise.
 
 Les mecanismes PostgreSQL avances du MCD, comme l'extension ``anon``, les
 ``SECURITY LABEL`` et les vues SQL d'export, ne sont pas encore actives. Le
-la solution gere pour l'instant l'export et la suppression cote API Django.
+projet gere pour l'instant l'export et la suppression cote API Django.
 
 Stations et emplacements
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -223,8 +225,10 @@ hypertables.
 
 Les index deja presents couvrent les requetes les plus importantes :
 
+* emplacements par station et statut operationnel ;
 * reservations par utilisateur, statut, emplacement et dates ;
 * sessions par emplacement et dates ;
+* devices par derniere activite ;
 * telemetrie par session et timestamp ;
 * donnees capteurs par capteur et timestamp ;
 * alertes par statut, session et timestamp ;
@@ -238,6 +242,24 @@ Une migration complementaire ajoute aussi des index orientes exploitation :
   temporelles Grafana ;
 * ``session_telemetry(timestamp DESC)`` pour les analyses temporelles de session ;
 * ``alerte(date DESC)`` pour les alertes recentes affichees en supervision.
+
+Une seconde migration complete cette logique avec des index metier plus proches
+des ecrans d'exploitation et des filtres API :
+
+* ``emplacement(statut_cadenas, etat)`` pour identifier rapidement les points de
+  charge selon l'etat du cadenas et l'etat operationnel ;
+* ``reservation(date_debut, date_fin)`` pour les recherches de disponibilite sur
+  une fenetre de temps ;
+* ``charging_session(start_time, end_time)`` pour les sessions ouvertes, fermees
+  ou analysees par periode ;
+* ``device(status, last_seen)`` pour detecter les equipements indisponibles ou
+  silencieux ;
+* ``alerte(niveau_severite, date)`` pour prioriser les incidents ;
+* ``alerte(type, date)`` pour suivre les familles d'anomalies dans le temps.
+
+Ces index ne changent pas le modele fonctionnel. Ils rendent les parcours
+critiques plus previsibles lorsque le volume augmente : supervision temps reel,
+historique d'exploitation, diagnostic terrain et tableaux de bord.
 
 Les optimisations du MCD cible, comme ``create_hypertable``, compression,
 retention et vues materialisees, sont pertinentes pour une phase production ou
@@ -281,6 +303,33 @@ Les vues SQL et l'anonymisation PostgreSQL pourront etre ajoutees plus tard si l
 projet doit fournir des exports directs depuis la base ou une separation stricte
 entre roles SQL.
 
+Vue ``session_anonyme``
+------------------------
+
+La premiere vue SQL ajoutee cote PostgreSQL est ``session_anonyme``. Elle expose
+un jeu de donnees dedie aux statistiques de sessions sans publier directement
+l'identifiant utilisateur.
+
+La vue s'appuie sur les tables reelles de l'application :
+
+* ``charging_session`` pour les dates de debut et de fin ;
+* ``reservation`` pour retrouver l'utilisateur lie a la session ;
+* ``session_telemetry`` pour calculer la consommation observee.
+
+Le champ ``user_hash`` est produit avec ``md5(id_user::text)`` lorsque la session
+est encore rattachee a un utilisateur. Si le lien utilisateur a disparu, la vue
+utilise l'identifiant de session comme valeur de repli afin de conserver une
+ligne statistique sans recreer de donnee personnelle.
+
+Cette vue ne remplace pas les controles d'acces applicatifs. Elle sert de base a
+des rapports d'usage anonymises ou pseudonymises, par exemple pour analyser le
+nombre de sessions, les plages horaires et les consommations sans exposer email,
+pseudo, nom ou telephone.
+
+La migration est volontairement limitee a PostgreSQL. Les tests unitaires du
+projet utilisent SQLite ; la migration devient donc un no-op sur SQLite afin de
+garder la suite rapide et portable.
+
 Synthese
 --------
 
@@ -296,10 +345,11 @@ L'implementation Django est le modele operationnel actuel parce qu'elle :
 * evite un double schema SQL/ORM ;
 * prepare les evolutions PostgreSQL et TimescaleDB sans les imposer trop tot.
 
-La bonne trajectoire est progressive :
+La trajectoire reste progressive :
 
-1. documenter les correspondances et ecarts entre MCD et ORM ;
-2. ajouter les index manquants si les requetes le justifient ;
-3. ajouter des vues SQL simples pour les exports ou statistiques ;
+1. conserver le modele Django comme source de verite applicative ;
+2. ajouter les optimisations SQL lorsqu'elles repondent a un usage mesure ou
+   clairement identifie ;
+3. enrichir les vues SQL pour les exports ou statistiques ;
 4. activer les hypertables TimescaleDB quand le volume de telemetrie augmente ;
 5. envisager RLS, anonymizer, compression et retention pour une version durcie.

@@ -22,6 +22,7 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx_autodoc_typehints",
+    "sphinxcontrib.mermaid",
 ]
 
 templates_path = ["_templates"]
@@ -34,3 +35,5 @@ autodoc_inherit_docstrings = False
 
 html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
+
+mermaid_init_js = "mermaid.initialize({startOnLoad:true, theme:'neutral'});"

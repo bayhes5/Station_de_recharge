@@ -103,16 +103,21 @@ Lancer le simulateur local de télémétrie :
 
 .. code-block:: bash
 
-   docker compose --profile simulation up -d mqtt-simulator
-   docker compose logs -f mqtt-simulator
+   docker compose up -d mqtt
+   docker compose --profile simulation run --rm mqtt-simulator
 
-Si Docker signale ``network ... not found`` pour un conteneur arrete, supprimer
-uniquement le conteneur concerne puis le recreer :
+Le simulateur est lance en conteneur ephemere. A l'arret, Docker supprime le
+conteneur et ne conserve pas de reference vers un ancien reseau Compose apres un
+rebuild.
+
+Si Docker signale encore ``network ... not found`` pour un ancien conteneur
+arrete, supprimer uniquement le simulateur puis relancer la commande ephemere :
 
 .. code-block:: bash
 
-   docker compose rm -f mqtt-simulator
-   docker compose --profile simulation up -d mqtt-simulator
+   docker compose rm -sf mqtt-simulator
+   docker compose up -d mqtt
+   docker compose --profile simulation run --rm mqtt-simulator
 
 Verifier les reseaux attaches aux conteneurs :
 
