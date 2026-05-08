@@ -159,7 +159,7 @@ X_FRAME_OPTIONS = os.environ.get("X_FRAME_OPTIONS", "DENY")
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:5173")
+FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "https://localhost")
 
 API_DEFAULT_PAGE_SIZE = env_int("API_DEFAULT_PAGE_SIZE", 50)
 API_MAX_PAGE_SIZE = env_int("API_MAX_PAGE_SIZE", 200)
@@ -236,6 +236,8 @@ DATABASES = {
 CORS_ALLOWED_ORIGINS = env_list(
     "CORS_ALLOWED_ORIGINS",
     [
+        "https://localhost",
+        "https://127.0.0.1",
         "http://localhost:8080",
         "http://127.0.0.1:8080",
         "http://localhost:5173",

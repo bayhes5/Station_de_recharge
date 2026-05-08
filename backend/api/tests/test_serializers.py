@@ -4,7 +4,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-from api.models import ProfilUtilisateur
+from api.models import Consentement, ProfilUtilisateur
 from api.serializers import RegisterSerializer, ReservationCreateSerializer
 
 
@@ -16,6 +16,9 @@ def test_register_serializer_creates_user_and_profile():
             "email": "alice@example.com",
             "telephone": "0601020304",
             "password": "ValidPass123!",
+            "cgu_accepted": True,
+            "privacy_policy_accepted": True,
+            "notifications_accepted": False,
         }
     )
 
@@ -29,6 +32,33 @@ def test_register_serializer_creates_user_and_profile():
     profile = ProfilUtilisateur.objects.get(utilisateur=user)
     assert profile.nom == "alice"
     assert profile.telephone == "0601020304"
+
+    consentements = {
+        consentement.type: consentement.statut
+        for consentement in Consentement.objects.filter(utilisateur=user)
+    }
+    assert consentements == {
+        "cgu": "accepte",
+        "politique_confidentialite": "accepte",
+        "notifications": "refuse",
+    }
+
+
+@pytest.mark.django_db
+def test_register_serializer_requires_mandatory_consents():
+    serializer = RegisterSerializer(
+        data={
+            "pseudo": "charlie",
+            "email": "charlie@example.com",
+            "password": "ValidPass123!",
+            "cgu_accepted": False,
+            "privacy_policy_accepted": False,
+        }
+    )
+
+    assert not serializer.is_valid()
+    assert "cgu_accepted" in serializer.errors
+    assert "privacy_policy_accepted" in serializer.errors
 
 
 @pytest.mark.django_db
@@ -44,6 +74,8 @@ def test_register_serializer_rejects_duplicate_pseudo_case_insensitive():
             "pseudo": "alice",
             "email": "second@example.com",
             "password": "AnotherPass123!",
+            "cgu_accepted": True,
+            "privacy_policy_accepted": True,
         }
     )
 

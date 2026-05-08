@@ -178,7 +178,7 @@ Test Wokwi vers Grafana :
 2. Démarrer la stack Docker.
 3. Lancer ``esp32/wokwi/`` dans Wokwi.
 4. Vérifier les logs d'ingestion côté ``mqtt-bridge``.
-5. Ouvrir ``http://localhost/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s`` et consulter le dashboard technique.
+5. Ouvrir ``https://localhost/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s`` et consulter le dashboard technique.
 
 Scénarios manuels de recette
 ----------------------------

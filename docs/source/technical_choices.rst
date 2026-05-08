@@ -424,7 +424,10 @@ Messagerie IoT avec Mosquitto
 -----------------------------
 
 MQTT est utilisé comme protocole de messagerie pour la télémétrie IoT et les
-commandes vers les ESP32.
+commandes vers les ESP32. Ce choix est cohérent avec le cahier des charges :
+les équipements embarqués disposent de ressources limitées, publient de petits
+messages fréquents et doivent continuer à fonctionner même lorsque le réseau est
+moins stable qu'un réseau serveur classique.
 
 Le broker Mosquitto est léger, open source et adapté à une architecture de
 station locale. Les ESP32 publient leurs mesures sur
@@ -432,6 +435,21 @@ station locale. Les ESP32 publient leurs mesures sur
 ``station/<slot_id>/cmd``. Cette séparation permet de découpler l'embarqué du
 backend : l'ESP32 reste un exécutant local, tandis que Django et le Raspberry
 gardent les décisions métier.
+
+MQTT apporte plusieurs avantages par rapport à des appels HTTP directs entre
+chaque composant :
+
+* **découplage** : les ESP32 publient un événement sans connaître les détails de
+  l'API Django ;
+* **sobriété réseau** : les messages sont compacts et adaptés à des échanges
+  fréquents de capteurs ;
+* **communication bidirectionnelle** : le même broker transporte les mesures
+  montantes et les commandes descendantes ;
+* **résilience locale** : le Raspberry et le broker local peuvent maintenir une
+  continuité opérationnelle même si le backend central est temporairement
+  indisponible ;
+* **observabilité** : les topics ``station/#`` facilitent le diagnostic avec
+  ``mosquitto_sub`` et la simulation locale.
 
 Le développement local accepte MQTT sans authentification pour faciliter la
 simulation. En production, le broker devra être protégé par identifiants, TLS et
@@ -477,9 +495,15 @@ Un reverse proxy Nginx local centralise les routes d'accès.
 Il expose ``/`` pour le frontend, ``/api/`` et ``/admin/`` pour Django,
 ``/grafana/`` pour Grafana et ``/kiosk/`` pour le kiosque Raspberry. Les ports
 directs restent disponibles en développement, mais Nginx prépare la mise en
-production : un seul point d'entrée HTTP, possibilité de terminer TLS, ajout de
-headers de sécurité et future protection de Grafana derrière l'authentification
+production : un seul point d'entrée, terminaison TLS, ajout de headers de
+sécurité et future protection de Grafana derrière l'authentification
 admin/technicien.
+
+La configuration locale active HTTPS par défaut avec un certificat auto-signé
+pour ``localhost``. Ce certificat n'a pas vocation à être utilisé en production,
+mais il permet de tester dès maintenant les comportements dépendants du contexte
+sécurisé : cookies de session, redirection HTTP vers HTTPS, génération des liens
+applicatifs et en-têtes ``X-Forwarded-Proto`` transmis aux services internes.
 
 Headers cache des assets Vite
 -----------------------------

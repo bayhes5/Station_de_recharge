@@ -180,6 +180,50 @@ a {
     padding: 48px;
 }
 
+.legal-shell {
+    align-items: flex-start;
+}
+
+.legal-card {
+    max-width: 920px;
+}
+
+.legal-updated {
+    margin: 14px 0 0;
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.legal-section {
+    margin-top: 34px;
+    padding-top: 26px;
+    border-top: 1px solid var(--panel-border);
+}
+
+.legal-section h2 {
+    margin: 0 0 14px;
+    font-size: 1.28rem;
+}
+
+.legal-section p,
+.legal-section li {
+    color: var(--muted);
+    line-height: 1.75;
+}
+
+.legal-section p {
+    margin: 0 0 12px;
+}
+
+.legal-section ul {
+    margin: 0;
+    padding-left: 22px;
+}
+
+.legal-section li + li {
+    margin-top: 8px;
+}
+
 .eyebrow {
     margin: 0 0 14px;
     font-size: 0.86rem;

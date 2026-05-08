@@ -1642,6 +1642,27 @@ label:has(input[type="checkbox"]) {
     background: var(--surface);
 }
 
+.consent-field a {
+    color: var(--primary-strong);
+    font-weight: 800;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.consent-field .field-feedback {
+    min-height: 0;
+}
+
+.consent-field.is-valid label:has(input[type="checkbox"]) {
+    border-color: rgba(20, 125, 82, 0.28);
+    background: var(--success-soft);
+}
+
+.consent-field.is-invalid label:has(input[type="checkbox"]) {
+    border-color: rgba(194, 57, 52, 0.28);
+    background: var(--danger-soft);
+}
+
 input[type="checkbox"] {
     width: 16px;
     height: 16px;

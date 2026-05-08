@@ -115,6 +115,61 @@ function renderAuthHistory(listElement, history) {
     });
 }
 
+function formatConsentStatus(status) {
+    const labels = {
+        accepte: "Accepté",
+        refuse: "Refusé",
+        retire: "Retiré",
+        non_renseigne: "Non renseigné",
+    };
+    return labels[status] || status;
+}
+
+function formatConsentDate(value) {
+    if (!value) {
+        return "Aucune date enregistrée";
+    }
+
+    return new Intl.DateTimeFormat("fr-FR", {
+        dateStyle: "medium",
+        timeStyle: "short",
+    }).format(new Date(value));
+}
+
+function renderConsents(listElement, consents) {
+    listElement.innerHTML = "";
+
+    consents.forEach((consent) => {
+        const item = document.createElement("article");
+        item.className = "list-item";
+
+        const head = document.createElement("div");
+        head.className = "list-item-head";
+
+        const title = document.createElement("strong");
+        title.textContent = consent.label;
+
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.textContent = formatConsentStatus(consent.statut);
+
+        const meta = document.createElement("p");
+        meta.textContent = consent.required
+            ? "Consentement requis pour le service."
+            : "Préférence optionnelle modifiable.";
+
+        const date = document.createElement("p");
+        date.textContent = formatConsentDate(consent.date_consentement);
+
+        head.appendChild(title);
+        head.appendChild(badge);
+        item.appendChild(head);
+        item.appendChild(meta);
+        item.appendChild(date);
+        listElement.appendChild(item);
+    });
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
     const status = document.getElementById("profile-status");
     const logoutBtn = document.getElementById("logout-btn");
@@ -127,6 +182,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     const rfidLinkCode = document.getElementById("rfid-link-code");
     const authHistoryList = document.getElementById("auth-history-list");
     const authHistoryPreview = document.getElementById("auth-history-preview");
+    const consentForm = document.getElementById("consent-form");
+    const consentSummary = document.getElementById("consent-summary");
     const adminLink = document.getElementById("profile-admin-link");
     const tabButtons = [...document.querySelectorAll("[data-tab-button]")];
     const tabPanels = [...document.querySelectorAll("[data-tab-panel]")];
@@ -196,6 +253,15 @@ document.addEventListener("DOMContentLoaded", async () => {
         renderAuthHistory(authHistoryPreview, preview);
     }
 
+    async function loadConsents() {
+        const result = await window.AuthAPI.getConsents();
+        const consents = result.current || [];
+        const notifications = consents.find((consent) => consent.type === "notifications");
+
+        renderConsents(consentSummary, consents);
+        consentForm.notificationsAccepted.checked = notifications?.statut === "accepte";
+    }
+
     tabButtons.forEach((button) => {
         button.addEventListener("click", () => setTab(button.dataset.tabButton));
     });
@@ -212,7 +278,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     try {
-        await Promise.all([loadProfile(), loadAuthMethods(), loadAuthHistory()]);
+        await Promise.all([loadProfile(), loadAuthMethods(), loadAuthHistory(), loadConsents()]);
         setTab("account");
     } catch (_error) {
         setStatus("Impossible de charger le profil ou l’historique d’authentification.", true);
@@ -301,6 +367,26 @@ document.addEventListener("DOMContentLoaded", async () => {
             } else {
                 setStatus(error.message || "Erreur lors du changement de mot de passe.", true);
             }
+        } finally {
+            submitButton.disabled = false;
+        }
+    });
+
+    consentForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        setStatus("");
+
+        const submitButton = consentForm.querySelector('button[type="submit"]');
+        submitButton.disabled = true;
+
+        try {
+            await window.AuthAPI.updateConsents({
+                notifications_accepted: consentForm.notificationsAccepted.checked,
+            });
+            await loadConsents();
+            setStatus("Préférences de consentement mises à jour.");
+        } catch (error) {
+            setStatus(error.message || "Impossible de mettre à jour les consentements.", true);
         } finally {
             submitButton.disabled = false;
         }

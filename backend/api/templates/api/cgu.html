@@ -1,0 +1,129 @@
+{% extends "api/base.html" %}
+
+{% block title %}Conditions g&eacute;n&eacute;rales d'utilisation | M&eacute;tropole Verte{% endblock %}
+
+{% block content %}
+<main class="page-shell legal-shell">
+    <article class="content-card legal-card">
+        <p class="eyebrow">M&eacute;tropole Verte</p>
+        <h1>Conditions g&eacute;n&eacute;rales d'utilisation</h1>
+        <p class="lead">
+            Les pr&eacute;sentes conditions encadrent l'acc&egrave;s et l'utilisation du service
+            M&eacute;tropole Verte, application de r&eacute;servation et de supervision de stations
+            de recharge pour v&eacute;los &eacute;lectriques.
+        </p>
+        <p class="legal-updated">Derni&egrave;re mise &agrave; jour : 8 mai 2026</p>
+
+        <section class="legal-section">
+            <h2>1. Objet du service</h2>
+            <p>
+                M&eacute;tropole Verte permet aux utilisateurs de consulter les stations disponibles,
+                de r&eacute;server un emplacement de recharge, de choisir un moyen d'acc&egrave;s compatible
+                et de suivre leurs r&eacute;servations.
+            </p>
+            <ul>
+                <li>cr&eacute;ation et gestion d'un compte utilisateur ;</li>
+                <li>r&eacute;servation d'un emplacement sur une station ;</li>
+                <li>acc&egrave;s par badge RFID, QR code ou code temporaire ;</li>
+                <li>consultation de l'historique de r&eacute;servation et de charge ;</li>
+                <li>supervision technique par les administrateurs habilit&eacute;s.</li>
+            </ul>
+        </section>
+
+        <section class="legal-section">
+            <h2>2. Compte utilisateur</h2>
+            <p>
+                L'acc&egrave;s &agrave; certaines fonctionnalit&eacute;s n&eacute;cessite la cr&eacute;ation d'un
+                compte personnel. L'utilisateur s'engage &agrave; fournir des informations exactes,
+                &agrave; jour et compl&egrave;tes.
+            </p>
+            <p>
+                L'utilisateur est responsable de la confidentialit&eacute; de ses identifiants et
+                de toute action r&eacute;alis&eacute;e depuis son compte. En cas de suspicion d'acc&egrave;s
+                non autoris&eacute;, il doit modifier son mot de passe ou contacter l'exploitant du service.
+            </p>
+        </section>
+
+        <section class="legal-section">
+            <h2>3. R&eacute;servations et utilisation des stations</h2>
+            <p>
+                Une r&eacute;servation donne acc&egrave;s &agrave; un emplacement d&eacute;termin&eacute; pendant une
+                plage horaire d&eacute;finie. L'utilisateur s'engage &agrave; respecter les horaires,
+                les &eacute;quipements mis &agrave; disposition et les consignes affich&eacute;es sur site.
+            </p>
+            <p>
+                Le service peut refuser ou annuler une r&eacute;servation en cas d'indisponibilit&eacute;
+                technique, de maintenance, d'usage abusif ou de non-respect des pr&eacute;sentes conditions.
+            </p>
+            <p>
+                Les moyens d'acc&egrave;s g&eacute;n&eacute;r&eacute;s pour une r&eacute;servation sont personnels,
+                temporaires et ne doivent pas &ecirc;tre transmis &agrave; un tiers.
+            </p>
+        </section>
+
+        <section class="legal-section">
+            <h2>4. Disponibilit&eacute; du service</h2>
+            <p>
+                L'exploitant met en oeuvre les moyens raisonnables pour assurer la disponibilit&eacute;
+                du service. Des interruptions peuvent intervenir en cas de maintenance, incident technique,
+                mise &agrave; jour ou &eacute;v&eacute;nement ind&eacute;pendant de sa volont&eacute;.
+            </p>
+            <p>
+                En cas de perte de connexion avec le serveur central, certains &eacute;quipements peuvent
+                fonctionner temporairement en mode d&eacute;grad&eacute; afin de maintenir les fonctions essentielles
+                de contr&ocirc;le local et d'enregistrement technique.
+            </p>
+        </section>
+
+        <section class="legal-section">
+            <h2>5. Obligations de l'utilisateur</h2>
+            <p>L'utilisateur s'interdit tout usage frauduleux, abusif ou contraire &agrave; la r&eacute;glementation.</p>
+            <ul>
+                <li>tenter de contourner les m&eacute;canismes d'authentification ;</li>
+                <li>endommager ou perturber les &eacute;quipements de recharge ;</li>
+                <li>acc&eacute;der aux donn&eacute;es ou comptes d'autres utilisateurs ;</li>
+                <li>transmettre ses moyens d'acc&egrave;s &agrave; une personne non autoris&eacute;e.</li>
+            </ul>
+        </section>
+
+        <section class="legal-section">
+            <h2>6. S&eacute;curit&eacute; et responsabilit&eacute;</h2>
+            <p>
+                Le service utilise des mesures de s&eacute;curit&eacute; destin&eacute;es &agrave; prot&eacute;ger les
+                comptes, les moyens d'acc&egrave;s et les donn&eacute;es techniques. L'utilisateur conserve toutefois
+                la responsabilit&eacute; de son terminal, de son mot de passe et de l'usage de son compte.
+            </p>
+            <p>
+                L'exploitant ne peut &ecirc;tre tenu responsable des dommages r&eacute;sultant d'une mauvaise
+                utilisation du service, d'une information erron&eacute;e fournie par l'utilisateur ou d'un
+                &eacute;v&eacute;nement ext&eacute;rieur au service.
+            </p>
+        </section>
+
+        <section class="legal-section">
+            <h2>7. Donn&eacute;es personnelles</h2>
+            <p>
+                L'utilisation du service implique le traitement de donn&eacute;es personnelles. Les modalit&eacute;s
+                de collecte, d'utilisation, de conservation et d'exercice des droits sont d&eacute;crites dans la
+                <a class="text-link" href="{% url 'privacy' %}">Politique de confidentialit&eacute;</a>.
+            </p>
+        </section>
+
+        <section class="legal-section">
+            <h2>8. Evolution des conditions</h2>
+            <p>
+                Les pr&eacute;sentes conditions peuvent &ecirc;tre mises &agrave; jour afin de tenir compte de
+                l'&eacute;volution du service, de la r&eacute;glementation ou des mesures de s&eacute;curit&eacute;. En cas
+                de modification substantielle, les utilisateurs seront inform&eacute;s par un moyen appropri&eacute;.
+            </p>
+        </section>
+
+        <section class="legal-section">
+            <h2>9. Contact</h2>
+            <p>Pour toute question relative au service : contact@metropole-verte.example</p>
+        </section>
+
+        <a class="inline-link" href="{% url 'home' %}">Retour &agrave; l'accueil</a>
+    </article>
+</main>
+{% endblock %}

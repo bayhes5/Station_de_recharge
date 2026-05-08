@@ -52,15 +52,23 @@ Nginx :
 
 .. code-block:: text
 
-   http://localhost/          -> frontend
-   http://localhost/api/      -> API Django
-   http://localhost/admin/    -> admin Django
-   http://localhost/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s
+   https://localhost/          -> frontend
+   https://localhost/api/      -> API Django
+   https://localhost/admin/    -> admin Django
+   https://localhost/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s
                          -> dashboard Grafana de supervision
-   http://localhost/kiosk/    -> kiosque Raspberry
+   https://localhost/kiosk/    -> kiosque Raspberry
 
-Les ports directs ``8000``, ``5173``, ``3000`` et ``9000`` restent exposés pour
-le diagnostic pendant le développement.
+Le reverse proxy redirige ``http://localhost`` vers ``https://localhost``. Le
+certificat fourni est auto-signé et réservé au développement local : le
+navigateur peut donc afficher un avertissement lors du premier accès. Les ports
+directs ``8000``, ``5173``, ``3000`` et ``9000`` restent exposés pour le
+diagnostic pendant le développement.
+
+Si le fichier ``.env`` local a été créé avant l'activation de HTTPS, reprendre
+les valeurs de ``.env.example`` pour ``FRONTEND_BASE_URL``,
+``CORS_ALLOWED_ORIGINS``, ``JWT_REFRESH_COOKIE_SECURE``,
+``SESSION_COOKIE_SECURE`` et ``CSRF_COOKIE_SECURE``.
 
 Commandes Docker courantes
 --------------------------
@@ -141,6 +149,12 @@ Valider la syntaxe du reverse proxy :
 .. code-block:: bash
 
    docker compose run --rm --no-deps reverse-proxy nginx -t
+
+Vérifier la terminaison HTTPS locale :
+
+.. code-block:: bash
+
+   curl -k https://localhost/
 
 Envoyer une commande d'emplacement via le Raspberry :
 

@@ -9,6 +9,7 @@ import re
 
 from .models import (
     Authentification,
+    Consentement,
     Emplacement,
     Maintenance,
     ProfilUtilisateur,
@@ -27,14 +28,38 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     telephone = serializers.CharField(write_only=True, required=False, allow_blank=True)
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
+    cgu_accepted = serializers.BooleanField(write_only=True, required=True)
+    privacy_policy_accepted = serializers.BooleanField(write_only=True, required=True)
+    notifications_accepted = serializers.BooleanField(write_only=True, required=False, default=False)
 
     class Meta:
         model = get_user_model()
-        fields = ("pseudo", "email", "telephone", "statut", "password")
+        fields = (
+            "pseudo",
+            "email",
+            "telephone",
+            "statut",
+            "password",
+            "cgu_accepted",
+            "privacy_policy_accepted",
+            "notifications_accepted",
+        )
         extra_kwargs = {
             "telephone": {"required": False, "allow_blank": True},
             "statut": {"required": False},
         }
+
+    def validate_cgu_accepted(self, value):
+        """Require explicit acceptance of the terms before account creation."""
+        if not value:
+            raise serializers.ValidationError("L'acceptation des CGU est obligatoire.")
+        return value
+
+    def validate_privacy_policy_accepted(self, value):
+        """Require explicit acknowledgement of the privacy policy."""
+        if not value:
+            raise serializers.ValidationError("La politique de confidentialité doit être acceptée.")
+        return value
 
     def validate_pseudo(self, value):
         """Normalize and ensure pseudo uniqueness."""
@@ -80,11 +105,25 @@ class RegisterSerializer(serializers.ModelSerializer):
         """Create a user account and its profile in one transaction."""
         password = validated_data.pop("password")
         telephone = validated_data.pop("telephone", "")
+        validated_data.pop("cgu_accepted")
+        validated_data.pop("privacy_policy_accepted")
+        notifications_accepted = validated_data.pop("notifications_accepted", False)
         user = self.Meta.model.objects.create_user(password=password, **validated_data)
         ProfilUtilisateur.objects.create(
             utilisateur=user,
             nom=user.pseudo,
             telephone=telephone,
+        )
+        Consentement.objects.bulk_create(
+            [
+                Consentement(utilisateur=user, type="cgu", statut="accepte"),
+                Consentement(utilisateur=user, type="politique_confidentialite", statut="accepte"),
+                Consentement(
+                    utilisateur=user,
+                    type="notifications",
+                    statut="accepte" if notifications_accepted else "refuse",
+                ),
+            ]
         )
         return user
 
@@ -192,6 +231,12 @@ class PasswordChangeSerializer(serializers.Serializer):
         if attrs["new_password"] != attrs["confirm_password"]:
             raise serializers.ValidationError({"confirm_password": "Les mots de passe ne correspondent pas."})
         return attrs
+
+
+class ConsentPreferenceSerializer(serializers.Serializer):
+    """Validate editable consent preferences from the user profile."""
+
+    notifications_accepted = serializers.BooleanField(required=True)
 
 
 class AdminUserSerializer(serializers.ModelSerializer):
