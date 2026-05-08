@@ -184,9 +184,13 @@ cd backend
 Avec Docker :
 
 ```bash
-docker compose --profile simulation up -d mqtt-simulator
-docker compose logs -f mqtt-simulator
+docker compose up -d mqtt
+docker compose --profile simulation run --rm mqtt-simulator
 ```
+
+Le simulateur est lance en conteneur ephemere avec `run --rm`. A l'arret, le
+conteneur est supprime automatiquement et ne conserve pas de reference vers un
+ancien reseau Docker apres un rebuild.
 
 ## Commandes utiles et diagnostic
 
@@ -224,12 +228,13 @@ docker compose exec backend python manage.py check
 docker compose exec backend python manage.py spectacular --validate
 ```
 
-Si Docker signale un reseau introuvable pour un conteneur arrete, supprimer
-uniquement ce conteneur puis le recreer :
+Si Docker signale encore un reseau introuvable pour un ancien conteneur arrete,
+supprimer uniquement le simulateur puis relancer la commande ephemere :
 
 ```bash
-docker compose rm -f mqtt-simulator
-docker compose --profile simulation up -d mqtt-simulator
+docker compose rm -sf mqtt-simulator
+docker compose up -d mqtt
+docker compose --profile simulation run --rm mqtt-simulator
 ```
 
 Verifier les reseaux Docker :

@@ -271,6 +271,7 @@ class Emplacement(models.Model):
         unique_together = ("station", "numero")
         indexes = [
             models.Index(fields=["station", "statut"], name="idx_emp_station_statut"),
+            models.Index(fields=["lock_state", "statut"], name="idx_emp_lock_state"),
         ]
 
     def __str__(self):
@@ -323,6 +324,7 @@ class Reservation(models.Model):
             models.Index(fields=["emplacement", "date_debut", "date_fin"], name="idx_reservation_emp_dates"),
             models.Index(fields=["utilisateur", "date_debut"], name="idx_res_user_date"),
             models.Index(fields=["statut", "date_debut"], name="idx_res_statut_date"),
+            models.Index(fields=["date_debut", "date_fin"], name="idx_res_dates"),
         ]
 
 
@@ -357,6 +359,7 @@ class Session(models.Model):
             models.Index(fields=["emplacement"], name="idx_session_emplacement"),
             models.Index(fields=["start_time"], name="idx_session_start"),
             models.Index(fields=["end_time"], name="idx_session_end"),
+            models.Index(fields=["start_time", "end_time"], name="idx_session_window"),
         ]
 
 
@@ -408,6 +411,7 @@ class Device(models.Model):
         db_table = "device"
         indexes = [
             models.Index(fields=["last_seen"], name="idx_device_last_seen"),
+            models.Index(fields=["status", "last_seen"], name="idx_device_status_seen"),
         ]
 
 
@@ -486,6 +490,8 @@ class Alerte(models.Model):
             models.Index(fields=["status", "timestamp"], name="idx_alert_status_time"),
             models.Index(fields=["session", "timestamp"], name="idx_alert_session_time"),
             models.Index(fields=["-timestamp"], name="idx_alert_ts"),
+            models.Index(fields=["niveau_severite", "timestamp"], name="idx_alert_sev_time"),
+            models.Index(fields=["type", "timestamp"], name="idx_alert_type_time"),
         ]
 
 

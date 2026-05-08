@@ -14,6 +14,7 @@ https://bayhes5.github.io/Station_de_recharge/
    architecture
    implementation_guide
    data_model
+   database_mcd
    requirements_traceability
    station_supervision
    testing_strategy
