@@ -74,13 +74,20 @@ docker compose up -d --build
 Routes recommandées via Nginx :
 
 ```text
-http://localhost/          -> frontend
-http://localhost/api/      -> API Django
-http://localhost/admin/    -> administration Django
-http://localhost/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s
+https://localhost/          -> frontend
+https://localhost/api/      -> API Django
+https://localhost/admin/    -> administration Django
+https://localhost/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s
                          -> dashboard Grafana de supervision
-http://localhost/kiosk/    -> kiosque Raspberry
+https://localhost/kiosk/    -> kiosque Raspberry
 ```
+
+Le reverse proxy redirige `http://localhost` vers `https://localhost`. Le
+certificat livré est auto-signé pour le développement local ; le navigateur peut
+donc demander une confirmation au premier accès.
+Si un fichier `.env` local existait avant l'activation HTTPS, aligner
+`FRONTEND_BASE_URL`, `CORS_ALLOWED_ORIGINS`, `JWT_REFRESH_COOKIE_SECURE`,
+`SESSION_COOKIE_SECURE` et `CSRF_COOKIE_SECURE` avec `.env.example`.
 
 Ports directs de développement :
 
@@ -355,13 +362,13 @@ Mesures déjà présentes :
 - JWT avec refresh token en cookie `HttpOnly` ;
 - rôles utilisateur, technicien et administrateur ;
 - journalisation d'actions sensibles ;
-- reverse proxy Nginx local ;
+- reverse proxy Nginx local avec HTTPS auto-signé ;
 - protection de branche GitHub avec CI obligatoire ;
 - CodeQL et rapports supply chain.
 
 À durcir pour une production :
 
-- HTTPS/TLS ;
+- certificat HTTPS public et politique HSTS adaptée ;
 - identifiants MQTT et TLS broker ;
 - segmentation réseau ;
 - secrets forts ;

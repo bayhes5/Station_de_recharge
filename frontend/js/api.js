@@ -288,6 +288,19 @@ async function changePassword(data) {
     });
 }
 
+async function getConsents() {
+    return doRequest("/me/consentements/", {
+        method: "GET",
+    });
+}
+
+async function updateConsents(data) {
+    return doRequest("/me/consentements/", {
+        method: "PATCH",
+        body: JSON.stringify(data),
+    });
+}
+
 async function exportAccount() {
     return doRequest("/me/export/", {
         method: "GET",
@@ -621,6 +634,8 @@ window.AuthAPI = {
     getProfile,
     updateProfile,
     changePassword,
+    getConsents,
+    updateConsents,
     exportAccount,
     getAuthMethods,
     getAuthHistory,

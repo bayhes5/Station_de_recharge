@@ -335,7 +335,7 @@ Le dashboard est accessible directement via :
 
 .. code-block:: text
 
-   http://localhost/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s
+   https://localhost/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s
 
 Le dashboard initial affiche :
 
@@ -360,3 +360,10 @@ activer progressivement :
 * segmentation réseau entre utilisateurs, serveur, Raspberry et ESP32 ;
 * limitation stricte des commandes acceptées par chaque emplacement ;
 * journalisation des commandes sensibles.
+
+Le choix MQTT reste pertinent pour cette chaîne IoT : les messages sont courts,
+fréquents et naturellement organisés par topics. Les ESP32 n'ont pas besoin de
+connaître les endpoints HTTP du backend ; ils publient leurs états sur
+``station/<slot_id>/telemetry`` et écoutent les commandes sur
+``station/<slot_id>/cmd``. Le broker local sert ainsi de point de découplage
+entre l'embarqué, le Raspberry, la simulation et l'ingestion Django.

@@ -8,7 +8,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from api.models import Emplacement, Reservation, Station
+from api.models import Consentement, Emplacement, Reservation, Station
 
 
 @pytest.mark.django_db
@@ -20,6 +20,9 @@ def test_register_endpoint_returns_tokens_and_user_payload():
             "email": "bob@example.com",
             "telephone": "0600000000",
             "password": "ValidPass123!",
+            "cgu_accepted": True,
+            "privacy_policy_accepted": True,
+            "notifications_accepted": True,
         },
         format="json",
     )
@@ -29,6 +32,67 @@ def test_register_endpoint_returns_tokens_and_user_payload():
     assert "access" in response.data
     assert "refresh" not in response.data
     assert settings.JWT_REFRESH_COOKIE_NAME in response.cookies
+
+    consentements = {
+        consentement.type: consentement.statut
+        for consentement in Consentement.objects.filter(utilisateur__pseudo="bob")
+    }
+    assert consentements == {
+        "cgu": "accepte",
+        "politique_confidentialite": "accepte",
+        "notifications": "accepte",
+    }
+
+
+@pytest.mark.django_db
+def test_user_can_read_and_update_optional_consents(authenticated_client, user):
+    Consentement.objects.create(utilisateur=user, type="cgu", statut="accepte")
+    Consentement.objects.create(
+        utilisateur=user,
+        type="politique_confidentialite",
+        statut="accepte",
+    )
+    Consentement.objects.create(utilisateur=user, type="notifications", statut="accepte")
+
+    get_response = authenticated_client.get(reverse("api-consentements"))
+
+    assert get_response.status_code == status.HTTP_200_OK
+    assert {
+        item["type"]: item["statut"]
+        for item in get_response.data["current"]
+    } == {
+        "cgu": "accepte",
+        "politique_confidentialite": "accepte",
+        "notifications": "accepte",
+    }
+
+    patch_response = authenticated_client.patch(
+        reverse("api-consentements"),
+        {"notifications_accepted": False},
+        format="json",
+    )
+
+    assert patch_response.status_code == status.HTTP_200_OK
+    assert Consentement.objects.filter(
+        utilisateur=user,
+        type="notifications",
+        statut="refuse",
+    ).exists()
+    assert Consentement.objects.filter(utilisateur=user, type="notifications").count() == 2
+
+
+@pytest.mark.django_db
+def test_user_consent_update_does_not_duplicate_unchanged_status(authenticated_client, user):
+    Consentement.objects.create(utilisateur=user, type="notifications", statut="refuse")
+
+    response = authenticated_client.patch(
+        reverse("api-consentements"),
+        {"notifications_accepted": False},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert Consentement.objects.filter(utilisateur=user, type="notifications").count() == 1
 
 
 @pytest.mark.django_db

@@ -88,6 +88,29 @@
                         <p id="password-confirm-feedback" class="field-feedback" aria-live="polite"></p>
                     </div>
 
+                    <div class="field consent-field" data-field="cgu">
+                        <label for="cgu-accepted">
+                            <input id="cgu-accepted" name="cguAccepted" type="checkbox" required aria-describedby="cgu-feedback">
+                            <span>J&rsquo;accepte les <a href="/conditions-generales-utilisation/" target="_blank" rel="noopener">conditions g&eacute;n&eacute;rales d&rsquo;utilisation</a>.</span>
+                        </label>
+                        <p id="cgu-feedback" class="field-feedback" aria-live="polite"></p>
+                    </div>
+
+                    <div class="field consent-field" data-field="privacy">
+                        <label for="privacy-policy-accepted">
+                            <input id="privacy-policy-accepted" name="privacyPolicyAccepted" type="checkbox" required aria-describedby="privacy-feedback">
+                            <span>J&rsquo;ai pris connaissance de la <a href="/politique-confidentialite/" target="_blank" rel="noopener">politique de confidentialit&eacute;</a>.</span>
+                        </label>
+                        <p id="privacy-feedback" class="field-feedback" aria-live="polite"></p>
+                    </div>
+
+                    <div class="field consent-field optional" data-field="notifications">
+                        <label for="notifications-accepted">
+                            <input id="notifications-accepted" name="notificationsAccepted" type="checkbox">
+                            <span>J&rsquo;accepte de recevoir des notifications optionnelles li&eacute;es au service.</span>
+                        </label>
+                    </div>
+
                     <button id="register-submit" class="btn btn-primary" type="submit" disabled>Créer mon compte</button>
                     <p id="register-status" class="status" aria-live="polite"></p>
                 </form>

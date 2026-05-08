@@ -1,74 +1,248 @@
-MCD PostgreSQL
-===============
+Référence du MCD et du schéma PostgreSQL
+========================================
 
-Cette page presente le modele conceptuel et relationnel cible de la base de
-donnees. Elle sert de reference pour expliquer les tables, leurs responsabilites,
-les champs stockes et les valeurs attendues dans le cadre de l'exploitation
-d'une station de recharge securisee.
+Cette page ouvre la partie modèle de données. Elle présente d’abord la cible
+fonctionnelle : schéma relationnel, champs, valeurs attendues, relations et
+script PostgreSQL représentatif. La page :doc:`data_model` vient ensuite pour
+expliquer les arbitrages entre cette cible et l’implémentation Django réellement
+utilisée par l’application.
 
-Le schema est aligne avec le modele Django actuel. Les tables techniques ajoutees
-par Django pour les groupes et permissions ne sont pas detaillees ici : elles
-font partie du socle d'administration Django, pas du domaine metier de la
+Le schéma est aligné avec le modèle Django actuel. Les tables techniques ajoutées
+par Django pour les groupes et permissions ne sont pas détaillées ici : elles
+font partie du socle d’administration Django, pas du domaine métier de la
 station.
 
-Principes de modelisation
+Principes de modélisation
 -------------------------
 
-La base est organisee autour de cinq ensembles fonctionnels :
+La base est organisée autour de cinq ensembles fonctionnels :
 
-* **comptes et securite** : utilisateurs, profils, roles, moyens
-  d'authentification, consentements et journal de securite ;
+* **comptes et sécurité** : utilisateurs, profils, rôles, moyens
+  d’authentification, consentements et journal de sécurité ;
 * **infrastructure terrain** : stations, emplacements de charge, devices ESP32
   et capteurs ;
-* **reservation et session** : reservation utilisateur, authentification choisie
+* **réservation et session** : réservation utilisateur, authentification choisie
   et session de charge effective ;
-* **telemetrie et alertes** : mesures capteurs, mesures electriques et alertes
-  operationnelles ;
-* **maintenance** : techniciens et interventions planifiees.
+* **télémétrie et alertes** : mesures capteurs, mesures électriques et alertes
+  opérationnelles ;
+* **maintenance** : techniciens et interventions planifiées.
 
 Les valeurs textuelles comme ``statut``, ``status`` ou ``type`` restent des
-chaines dans la base. Cela garde de la souplesse pour l'API et les simulations.
-Les valeurs indiquees ci-dessous sont donc les valeurs fonctionnelles attendues,
+chaînes dans la base. Cela garde de la souplesse pour l’API et les simulations.
+Les valeurs indiquées ci-dessous sont donc les valeurs fonctionnelles attendues,
 pas toujours des contraintes SQL strictes.
 
 Diagramme Mermaid
 -----------------
 
-Le bloc suivant est un diagramme Mermaid. Il peut etre colle tel quel dans un
-visualiseur Mermaid ou dans un outil compatible pour obtenir le diagramme ER.
+Le bloc suivant est rendu par Sphinx avec l’extension Mermaid. Il contient les
+tables, les champs structurants, les clés et les relations. Il peut aussi être
+copié dans un visualiseur Mermaid ou dans un outil compatible pour obtenir le
+diagramme ER.
 
 .. mermaid::
 
    erDiagram
-       utilisateur ||--o| profil_utilisateur : possede
-       utilisateur ||--o{ utilisateur_role : recoit
-       role ||--o{ utilisateur_role : definit
+       utilisateur {
+           UUID id_user PK
+           VARCHAR pseudo UK
+           VARCHAR email UK
+           VARCHAR password
+           VARCHAR statut
+           TIMESTAMP created_at
+           TIMESTAMP last_login
+           INTEGER failed_attempts
+           BOOLEAN is_active
+           BOOLEAN is_staff
+           BOOLEAN is_superuser
+           TIMESTAMP date_joined
+       }
+
+       profil_utilisateur {
+           UUID id_profil PK
+           UUID id_user FK
+           VARCHAR nom
+           VARCHAR telephone
+       }
+
+       role {
+           UUID id_role PK
+           VARCHAR nom UK
+           TEXT description
+       }
+
+       utilisateur_role {
+           UUID id_user PK,FK
+           UUID id_role PK,FK
+           TIMESTAMP assigned_at
+       }
+
+       consentement {
+           UUID id_consentement PK
+           UUID id_user FK
+           VARCHAR type
+           VARCHAR statut
+           TIMESTAMP date_consentement
+       }
+
+       journal_securite {
+           UUID id_log PK
+           UUID id_user FK
+           INET ip
+           VARCHAR action
+           VARCHAR statut
+           TIMESTAMP date_action
+       }
+
+       type_auth {
+           UUID id_type PK
+           VARCHAR libelle UK
+           SMALLINT factor_level
+       }
+
+       auth_method {
+           UUID id_auth PK
+           UUID id_user FK
+           UUID id_type FK
+           TEXT secret_hash
+           VARCHAR display_value
+           JSONB metadata
+           TIMESTAMP expiration
+           BOOLEAN is_active
+           TIMESTAMP created_at
+       }
+
+       station {
+           UUID id_station PK
+           VARCHAR nom
+           VARCHAR localisation
+           DOUBLE latitude
+           DOUBLE longitude
+           VARCHAR statut
+           TIMESTAMP created_at
+       }
+
+       emplacement {
+           UUID id_emplacement PK
+           UUID id_station FK
+           INTEGER numero
+           VARCHAR etat
+           VARCHAR statut_cadenas
+       }
+
+       device {
+           UUID id_device PK
+           UUID id_emplacement FK
+           VARCHAR type_device
+           VARCHAR firmware_version
+           INET ip_address
+           VARCHAR mac_address
+           TIMESTAMP last_seen
+           VARCHAR status
+       }
+
+       capteur {
+           UUID id_capteur PK
+           UUID id_device FK
+           VARCHAR type
+           VARCHAR unite
+       }
+
+       capteur_data {
+           UUID id_data PK
+           UUID id_capteur FK
+           DOUBLE valeur
+           TIMESTAMP timestamp
+       }
+
+       reservation {
+           UUID id_reservation PK
+           VARCHAR reference_code UK
+           UUID id_user FK
+           UUID id_emplacement FK
+           UUID id_auth FK
+           VARCHAR auth_choice
+           TIMESTAMP date_debut
+           TIMESTAMP date_fin
+           VARCHAR statut
+       }
+
+       charging_session {
+           UUID id_session PK
+           UUID id_reservation FK,UK
+           UUID id_emplacement FK
+           TIMESTAMP start_time
+           TIMESTAMP end_time
+       }
+
+       session_telemetry {
+           UUID id_telemetry PK
+           UUID id_session FK
+           DOUBLE courant
+           DOUBLE tension
+           DOUBLE energie_kwh
+           TIMESTAMP timestamp
+       }
+
+       alerte {
+           UUID id_alerte PK
+           UUID id_data FK
+           UUID id_session FK
+           VARCHAR type
+           TEXT message
+           VARCHAR niveau_severite
+           VARCHAR status
+           TIMESTAMP date
+       }
+
+       technicien {
+           UUID id_tech PK
+           UUID id_user FK,UK
+           VARCHAR nom
+           VARCHAR email UK
+           VARCHAR telephone
+       }
+
+       maintenance {
+           UUID id_maintenance PK
+           UUID id_station FK
+           UUID id_technicien FK
+           VARCHAR type
+           TEXT description
+           VARCHAR status
+           TIMESTAMP date_planifiee
+           TIMESTAMP date_realisee
+       }
+
+       utilisateur ||--o| profil_utilisateur : possède
+       utilisateur ||--o{ utilisateur_role : reçoit
+       role ||--o{ utilisateur_role : définit
        utilisateur ||--o{ consentement : donne
-       utilisateur ||--o{ journal_securite : declenche
-       utilisateur ||--o{ auth_method : possede
+       utilisateur ||--o{ journal_securite : déclenche
+       utilisateur ||--o{ auth_method : possède
        type_auth ||--o{ auth_method : classe
-       utilisateur ||--o{ reservation : reserve
-       auth_method ||--o{ reservation : securise
+       utilisateur ||--o{ reservation : réserve
+       auth_method ||--o{ reservation : sécurise
        station ||--o{ emplacement : contient
-       emplacement ||--o| device : equipe
+       emplacement ||--o| device : équipe
        device ||--o{ capteur : mesure
        capteur ||--o{ capteur_data : produit
        emplacement ||--o{ reservation : concerne
        reservation ||--o| charging_session : ouvre
        emplacement ||--o{ charging_session : accueille
        charging_session ||--o{ session_telemetry : mesure
-       charging_session ||--o{ alerte : genere
+       charging_session ||--o{ alerte : génère
        capteur_data ||--o{ alerte : explique
-       utilisateur ||--o| technicien : peut_etre
-       station ||--o{ maintenance : necessite
-       technicien ||--o{ maintenance : realise
+       utilisateur ||--o| technicien : peut_être
+       station ||--o{ maintenance : nécessite
+       technicien ||--o{ maintenance : réalise
 
-Script de creation PostgreSQL
+Script de création PostgreSQL
 -----------------------------
 
-Ce script de creation represente le schema metier attendu sur PostgreSQL. Dans
-le projet, les migrations Django restent la source operationnelle pour creer et
-faire evoluer la base.
+Ce script de création représente le schéma métier attendu sur PostgreSQL. Dans
+le projet, les migrations Django restent la source opérationnelle pour créer et
+faire évoluer la base.
 
 .. code-block:: sql
 
@@ -295,111 +469,134 @@ faire evoluer la base.
    LEFT JOIN session_telemetry st ON st.id_session = cs.id_session
    GROUP BY cs.id_session, cs.start_time, cs.end_time, r.id_user;
 
-Dictionnaire de donnees
+Dictionnaire de données
 -----------------------
 
 ``utilisateur``
 ~~~~~~~~~~~~~~~
 
-Compte applicatif utilise pour l'authentification, le portail utilisateur,
-l'administration et le lien eventuel avec un technicien.
+Compte applicatif utilisé pour l’authentification, le portail utilisateur,
+l’administration et le lien éventuel avec un technicien.
 
 * ``id_user`` : UUID primaire. Exemple : ``7df7f18e-7b75-4c2f-93bc-4f6d2f4eab15``.
 * ``pseudo`` : identifiant de connexion unique. Exemple : ``sarah.martin``.
 * ``email`` : adresse email unique. Exemple : ``sarah.martin@example.com``.
-* ``password`` : mot de passe hache par Django, jamais stocke en clair.
-* ``statut`` : etat fonctionnel du compte. Valeurs attendues :
+* ``password`` : mot de passe haché par Django, jamais stocké en clair.
+* ``statut`` : état fonctionnel du compte. Valeurs attendues :
   ``actif``, ``suspendu``, ``archive``.
-* ``created_at`` : date de creation metier du compte.
-* ``last_login`` : derniere connexion connue, optionnelle.
-* ``failed_attempts`` : compteur d'echecs d'authentification.
-* ``is_active`` : booleen Django autorisant ou bloquant la connexion.
-* ``is_staff`` : acces a l'administration Django.
+* ``created_at`` : date de création métier du compte.
+* ``last_login`` : dernière connexion connue, optionnelle.
+* ``failed_attempts`` : compteur d’échecs d’authentification.
+* ``is_active`` : booléen Django autorisant ou bloquant la connexion.
+* ``is_staff`` : accès à l’administration Django.
 * ``is_superuser`` : droits administrateur complets.
-* ``date_joined`` : date d'inscription Django.
+* ``date_joined`` : date d’inscription Django.
 
 ``profil_utilisateur``
 ~~~~~~~~~~~~~~~~~~~~~~
 
-Extension personnelle du compte. La separation avec ``utilisateur`` facilite les
-traitements RGPD et les evolutions du profil.
+Extension personnelle du compte. La séparation avec ``utilisateur`` facilite les
+traitements RGPD et les évolutions du profil.
 
 * ``id_profil`` : UUID primaire.
 * ``id_user`` : lien unique vers ``utilisateur``.
-* ``nom`` : nom affiche dans l'interface. Exemple : ``Sarah Martin``.
-* ``telephone`` : numero de contact. Exemple : ``+33601020304``.
+* ``nom`` : nom affiché dans l’interface. Exemple : ``Sarah Martin``.
+* ``telephone`` : numéro de contact. Exemple : ``+33601020304``.
 
 ``role``
 ~~~~~~~~
 
-Catalogue des roles fonctionnels attribuables aux utilisateurs.
+Catalogue des rôles fonctionnels attribuables aux utilisateurs.
 
 * ``id_role`` : UUID primaire.
-* ``nom`` : role unique. Valeurs attendues : ``client``, ``technicien``,
+* ``nom`` : rôle unique. Valeurs attendues : ``client``, ``technicien``,
   ``administrateur``.
-* ``description`` : finalite du role. Exemple : ``Acces aux interventions``.
+* ``description`` : finalité du rôle. Exemple : ``Accès aux interventions``.
 
 ``utilisateur_role``
 ~~~~~~~~~~~~~~~~~~~~
 
-Table d'association entre comptes et roles.
+Table d’association entre comptes et rôles.
 
-* ``id_user`` : utilisateur concerne.
-* ``id_role`` : role attribue.
-* ``assigned_at`` : date d'attribution.
+* ``id_user`` : utilisateur concerné.
+* ``id_role`` : rôle attribué.
+* ``assigned_at`` : date d’attribution.
 
 ``consentement``
 ~~~~~~~~~~~~~~~~
 
-Historise les decisions utilisateur sur les traitements de donnees.
+Historise les décisions utilisateur sur les traitements de données.
 
 * ``id_consentement`` : UUID primaire.
-* ``id_user`` : utilisateur concerne.
+* ``id_user`` : utilisateur concerné.
 * ``type`` : nature du consentement. Valeurs attendues : ``cgu``,
-  ``donnees_personnelles``, ``notifications``.
-* ``statut`` : decision. Valeurs attendues : ``accepte``, ``refuse``,
+  ``politique_confidentialite``, ``notifications``, ``mesure_audience``.
+* ``statut`` : décision. Valeurs attendues : ``accepte``, ``refuse``,
   ``retire``.
-* ``date_consentement`` : date de decision.
+* ``date_consentement`` : date de décision.
+
+Cette table est utile si elle est exploitée comme preuve de choix utilisateur.
+Elle ne remplace pas les autres bases légales RGPD : la création de compte, la
+réservation, la facturation ou la sécurité peuvent relever du contrat, de
+l’intérêt légitime ou d’une obligation légale. Le consentement doit être réservé
+aux traitements optionnels, par exemple les notifications non indispensables ou
+les mesures d’audience.
+
+Dans l’application actuelle, ``consentement`` est modélisée, visible dans
+l’administration Django, exportée dans les données personnelles du compte et
+alimentée automatiquement à l’inscription. Le formulaire collecte les choix
+RGPD explicites et l’API crée une ligne historisée par décision :
+
+* ``cgu/accepte`` pour les conditions générales d’utilisation ;
+* ``politique_confidentialite/accepte`` pour la prise de connaissance de
+  l’information RGPD ;
+* ``notifications/accepte`` ou ``notifications/refuse`` pour les communications
+  optionnelles liées au service.
+
+Le profil utilisateur permet ensuite de modifier le choix lié aux notifications.
+Chaque changement ajoute une nouvelle ligne datée, par exemple
+``notifications/refuse`` après une acceptation initiale. Cette approche conserve
+la preuve datée de chaque décision.
 
 ``journal_securite``
 ~~~~~~~~~~~~~~~~~~~~
 
-Journal d'audit des actions sensibles.
+Journal d’audit des actions sensibles.
 
 * ``id_log`` : UUID primaire.
-* ``id_user`` : utilisateur associe, conserve a ``NULL`` si le compte disparait.
-* ``action`` : action tracee. Exemple : ``login:success`` ou
+* ``id_user`` : utilisateur associé, conservé à ``NULL`` si le compte disparaît.
+* ``action`` : action tracée. Exemple : ``login:success`` ou
   ``rfid:revoked``.
 * ``ip`` : adresse IP source. Exemple : ``192.168.1.25``.
-* ``statut`` : resultat. Valeurs attendues : ``success``, ``failure``.
-* ``date_action`` : horodatage de l'evenement.
+* ``statut`` : résultat. Valeurs attendues : ``success``, ``failure``.
+* ``date_action`` : horodatage de l’événement.
 
 ``type_auth``
 ~~~~~~~~~~~~~
 
-Catalogue des moyens d'authentification.
+Catalogue des moyens d’authentification.
 
 * ``id_type`` : UUID primaire.
-* ``libelle`` : libelle unique. Valeurs attendues : ``RFID``, ``qr``,
+* ``libelle`` : libellé unique. Valeurs attendues : ``RFID``, ``qr``,
   ``code``.
-* ``factor_level`` : niveau d'assurance. Exemple : ``1`` pour RFID,
+* ``factor_level`` : niveau d’assurance. Exemple : ``1`` pour RFID,
   ``2`` pour code temporaire.
 
 ``auth_method``
 ~~~~~~~~~~~~~~~
 
-Moyen d'authentification lie a un utilisateur. Les secrets sont haches.
+Moyen d’authentification lié à un utilisateur. Les secrets sont hachés.
 
 * ``id_auth`` : UUID primaire.
-* ``id_user`` : proprietaire du moyen d'acces.
-* ``id_type`` : type d'authentification.
-* ``secret_hash`` : secret hache. Exemple : hash du badge RFID ou du token QR.
-* ``display_value`` : valeur affichable lorsque le parcours l'autorise, par
+* ``id_user`` : propriétaire du moyen d’accès.
+* ``id_type`` : type d’authentification.
+* ``secret_hash`` : secret haché. Exemple : hash du badge RFID ou du token QR.
+* ``display_value`` : valeur affichable lorsque le parcours l’autorise, par
   exemple un code temporaire.
-* ``metadata`` : metadonnees JSON. Exemple : ``{"reservation_code": "A1B2C3"}``.
-* ``expiration`` : date de fin de validite, surtout pour QR/code temporaire.
-* ``is_active`` : moyen actif ou revoque.
-* ``created_at`` : date de creation.
+* ``metadata`` : métadonnées JSON. Exemple : ``{"reservation_code": "A1B2C3"}``.
+* ``expiration`` : date de fin de validité, surtout pour QR/code temporaire.
+* ``is_active`` : moyen actif ou révoqué.
+* ``created_at`` : date de création.
 
 ``station``
 ~~~~~~~~~~~
@@ -409,51 +606,51 @@ Site physique de recharge.
 * ``id_station`` : UUID primaire.
 * ``nom`` : nom public. Exemple : ``Station Centre Ville``.
 * ``localisation`` : adresse ou description. Exemple : ``12 rue de Paris``.
-* ``latitude`` : coordonnee GPS optionnelle. Exemple : ``48.8566``.
-* ``longitude`` : coordonnee GPS optionnelle. Exemple : ``2.3522``.
-* ``statut`` : etat du site. Valeurs attendues : ``active``,
+* ``latitude`` : coordonnée GPS optionnelle. Exemple : ``48.8566``.
+* ``longitude`` : coordonnée GPS optionnelle. Exemple : ``2.3522``.
+* ``statut`` : état du site. Valeurs attendues : ``active``,
   ``maintenance``, ``hors_service``.
-* ``created_at`` : date d'enregistrement.
+* ``created_at`` : date d’enregistrement.
 
 ``emplacement``
 ~~~~~~~~~~~~~~~
 
-Point de charge numerote dans une station.
+Point de charge numéroté dans une station.
 
 * ``id_emplacement`` : UUID primaire.
 * ``id_station`` : station parente.
-* ``numero`` : numero visible sur site. Exemple : ``1``.
-* ``etat`` : disponibilite operationnelle. Valeurs attendues :
+* ``numero`` : numéro visible sur site. Exemple : ``1``.
+* ``etat`` : disponibilité opérationnelle. Valeurs attendues :
   ``disponible``, ``reserve``, ``occupe``, ``maintenance``, ``hors_service``.
-* ``statut_cadenas`` : etat du verrou. Valeurs attendues : ``verrouille``,
+* ``statut_cadenas`` : état du verrou. Valeurs attendues : ``verrouille``,
   ``deverrouille``, ``inconnu``.
 
 ``device``
 ~~~~~~~~~~
 
-Equipement embarque associe a un emplacement, typiquement un ESP32.
+Équipement embarqué associé à un emplacement, typiquement un ESP32.
 
 * ``id_device`` : UUID primaire.
-* ``id_emplacement`` : emplacement equipe, unique.
-* ``type_device`` : type materiel. Exemple : ``ESP32``.
-* ``firmware_version`` : version embarquee. Exemple : ``1.2.0``.
+* ``id_emplacement`` : emplacement équipé, unique.
+* ``type_device`` : type matériel. Exemple : ``ESP32``.
+* ``firmware_version`` : version embarquée. Exemple : ``1.2.0``.
 * ``ip_address`` : adresse IP locale si disponible. Exemple : ``192.168.1.42``.
-* ``mac_address`` : adresse MAC ou identifiant materiel. Exemple :
+* ``mac_address`` : adresse MAC ou identifiant matériel. Exemple :
   ``AA:BB:CC:DD:EE:FF``.
-* ``last_seen`` : derniere telemetrie recue.
-* ``status`` : etat remonte. Valeurs observees : ``online``, ``offline``,
+* ``last_seen`` : dernière télémétrie reçue.
+* ``status`` : état remonté. Valeurs observées : ``online``, ``offline``,
   ``charging``.
 
 ``capteur``
 ~~~~~~~~~~~
 
-Capteur logique expose par un device.
+Capteur logique exposé par un device.
 
 * ``id_capteur`` : UUID primaire.
 * ``id_device`` : device porteur.
 * ``type`` : type de mesure. Valeurs attendues : ``temperature``,
   ``door``, ``cable``, ``current``, ``voltage``.
-* ``unite`` : unite de mesure. Exemples : ``C``, ``bool``, ``A``, ``V``.
+* ``unite`` : unité de mesure. Exemples : ``C``, ``bool``, ``A``, ``V``.
 
 ``capteur_data``
 ~~~~~~~~~~~~~~~~
@@ -462,124 +659,125 @@ Mesure brute produite par un capteur.
 
 * ``id_data`` : UUID primaire.
 * ``id_capteur`` : capteur source.
-* ``valeur`` : valeur numerique. Exemple : ``1`` pour ``door`` ouvert,
-  ``0`` pour ferme, ``31.7`` pour une temperature.
-* ``timestamp`` : date de reception de la mesure.
+* ``valeur`` : valeur numérique. Exemple : ``1`` pour ``door`` ouvert,
+  ``0`` pour fermé, ``31.7`` pour une température.
+* ``timestamp`` : date de réception de la mesure.
 
 ``reservation``
 ~~~~~~~~~~~~~~~
 
-Reservation d'un emplacement sur un creneau donne.
+Réservation d’un emplacement sur un créneau donné.
 
 * ``id_reservation`` : UUID primaire.
-* ``reference_code`` : code court unique affiche a l'utilisateur. Exemple :
+* ``reference_code`` : code court unique affiché à l’utilisateur. Exemple :
   ``R7K2Q9``.
 * ``id_user`` : utilisateur demandeur, nullable pour conserver l'historique
-  apres suppression ou anonymisation.
-* ``id_emplacement`` : emplacement reserve.
-* ``id_auth`` : moyen d'acces associe, nullable si le moyen est revoque.
-* ``auth_choice`` : mode choisi. Valeurs fermees cote API : ``rfid``, ``qr``,
+  après suppression ou anonymisation.
+* ``id_emplacement`` : emplacement réservé.
+* ``id_auth`` : moyen d’accès associé, nullable si le moyen est révoqué.
+* ``auth_choice`` : mode choisi. Valeurs fermées côté API : ``rfid``, ``qr``,
   ``code``.
-* ``date_debut`` : debut du creneau.
-* ``date_fin`` : fin du creneau, strictement apres ``date_debut``.
-* ``statut`` : cycle de vie. Valeurs observees : ``confirmee``, ``active``,
+* ``date_debut`` : début du créneau.
+* ``date_fin`` : fin du créneau, strictement après ``date_debut``.
+* ``statut`` : cycle de vie. Valeurs observées : ``confirmee``, ``active``,
   ``annulee``, ``terminee``, ``expiree``.
 
 ``charging_session``
 ~~~~~~~~~~~~~~~~~~~~
 
-Session de charge effective ouverte a partir d'une reservation.
+Session de charge effective ouverte à partir d’une réservation.
 
 * ``id_session`` : UUID primaire.
-* ``id_reservation`` : reservation source, unique.
-* ``id_emplacement`` : emplacement utilise.
-* ``start_time`` : debut reel de charge.
-* ``end_time`` : fin reelle de charge, ``NULL`` tant que la session est active.
+* ``id_reservation`` : réservation source, unique.
+* ``id_emplacement`` : emplacement utilisé.
+* ``start_time`` : début réel de charge.
+* ``end_time`` : fin réelle de charge, ``NULL`` tant que la session est active.
 
 ``session_telemetry``
 ~~~~~~~~~~~~~~~~~~~~~
 
-Telemetrie electrique associee a une session.
+Télémétrie électrique associée à une session.
 
 * ``id_telemetry`` : UUID primaire.
-* ``id_session`` : session concernee.
-* ``courant`` : intensite en amperes. Exemple : ``12.4``.
+* ``id_session`` : session concernée.
+* ``courant`` : intensité en ampères. Exemple : ``12.4``.
 * ``tension`` : tension en volts. Exemple : ``230.0``.
-* ``energie_kwh`` : energie cumulee. Exemple : ``4.72``.
+* ``energie_kwh`` : énergie cumulée. Exemple : ``4.72``.
 * ``timestamp`` : date de mesure.
 
 ``alerte``
 ~~~~~~~~~~
 
-Incident operationnel issu d'une mesure capteur ou d'une session.
+Incident opérationnel issu d’une mesure capteur ou d’une session.
 
 * ``id_alerte`` : UUID primaire.
-* ``id_data`` : mesure source si l'alerte vient d'un capteur.
-* ``id_session`` : session concernee si l'alerte est liee a une charge.
-* ``type`` : famille d'alerte. Valeurs observees : ``intrusion``,
+* ``id_data`` : mesure source si l’alerte vient d’un capteur.
+* ``id_session`` : session concernée si l’alerte est liée à une charge.
+* ``type`` : famille d’alerte. Valeurs observées : ``intrusion``,
   ``cable_removed``.
 * ``message`` : message lisible. Exemple : ``Cable retire pendant une charge active.``.
-* ``niveau_severite`` : priorite. Valeurs observees : ``critique``,
+* ``niveau_severite`` : priorité. Valeurs observées : ``critique``,
   ``haute``, ``critical``.
-* ``status`` : cycle de vie. Valeurs observees : ``nouvelle``, ``active``,
+* ``status`` : cycle de vie. Valeurs observées : ``nouvelle``, ``active``,
   ``resolue``, ``closed``, ``fermee``.
-* ``date`` : date de creation ou de derniere mise a jour.
+* ``date`` : date de création ou de dernière mise à jour.
 
 ``technicien``
 ~~~~~~~~~~~~~~
 
-Profil operationnel d'un intervenant de maintenance.
+Profil opérationnel d’un intervenant de maintenance.
 
 * ``id_tech`` : UUID primaire.
-* ``id_user`` : compte applicatif associe, optionnel.
-* ``nom`` : nom de l'intervenant. Exemple : ``Nadia Leroy``.
+* ``id_user`` : compte applicatif associé, optionnel.
+* ``nom`` : nom de l’intervenant. Exemple : ``Nadia Leroy``.
 * ``email`` : email professionnel unique.
-* ``telephone`` : numero de contact.
+* ``telephone`` : numéro de contact.
 
 ``maintenance``
 ~~~~~~~~~~~~~~~
 
-Intervention planifiee ou realisee sur une station.
+Intervention planifiée ou réalisée sur une station.
 
 * ``id_maintenance`` : UUID primaire.
-* ``id_station`` : station concernee.
-* ``id_technicien`` : technicien assigne.
-* ``type`` : nature de l'intervention. Valeurs attendues : ``preventive``,
+* ``id_station`` : station concernée.
+* ``id_technicien`` : technicien assigné.
+* ``type`` : nature de l’intervention. Valeurs attendues : ``preventive``,
   ``corrective``, ``diagnostic``.
-* ``description`` : detail de l'intervention.
+* ``description`` : détail de l’intervention.
 * ``status`` : avancement. Valeurs attendues : ``planifiee``, ``en_cours``,
   ``realisee``, ``annulee``.
-* ``date_planifiee`` : date prevue.
+* ``date_planifiee`` : date prévue.
 * ``date_realisee`` : date effective, optionnelle tant que l'intervention n'est
-  pas terminee.
+  pas terminée.
 
 Vue ``session_anonyme``
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-Vue d'exploitation statistique sans identifiant utilisateur direct.
+Vue d’exploitation statistique sans identifiant utilisateur direct.
 
-* ``id_session`` : session analysee.
-* ``date_debut`` : debut reel de session.
-* ``date_fin`` : fin reelle, optionnelle.
-* ``consommation_kwh`` : consommation estimee depuis la telemetrie.
-* ``user_hash`` : hachage stable de l'utilisateur, ou valeur de repli si le lien
-  utilisateur n'existe plus.
+* ``id_session`` : session analysée.
+* ``date_debut`` : début réel de session.
+* ``date_fin`` : fin réelle, optionnelle.
+* ``consommation_kwh`` : consommation estimée depuis la télémétrie.
+* ``user_hash`` : hachage stable de l’utilisateur, ou valeur de repli si le lien
+  utilisateur n’existe plus.
 
 Lecture fonctionnelle
 ---------------------
 
-Le MCD privilegie une separation nette entre la reservation et la session. Une
-reservation represente un droit d'acces planifie ; une session represente
-l'usage reel du point de charge. Cette distinction permet de gerer les annulations,
-les absences, les demarrages tardifs et les sessions encore ouvertes.
+Le MCD privilégie une séparation nette entre la réservation et la session. Une
+réservation représente un droit d’accès planifié ; une session représente
+l’usage réel du point de charge. Cette distinction permet de gérer les
+annulations, les absences, les démarrages tardifs et les sessions encore
+ouvertes.
 
-Les mesures capteurs sont conservees independamment des alertes. Une alerte peut
-donc pointer vers la mesure qui l'a declenchee, tout en portant son propre cycle
-de vie. Cela evite de transformer chaque mesure anormale en incident distinct :
-une anomalie persistante peut faire evoluer une alerte existante de ``nouvelle``
-vers ``active``, puis ``resolue`` lorsque la telemetrie revient a la normale.
+Les mesures capteurs sont conservées indépendamment des alertes. Une alerte peut
+donc pointer vers la mesure qui l’a déclenchée, tout en portant son propre cycle
+de vie. Cela évite de transformer chaque mesure anormale en incident distinct :
+une anomalie persistante peut faire évoluer une alerte existante de ``nouvelle``
+vers ``active``, puis ``resolue`` lorsque la télémétrie revient à la normale.
 
-Les moyens d'authentification sont separes des reservations afin de prendre en
-charge plusieurs modes d'acces : RFID durable, QR code temporaire et code court.
-Le secret reste hache ; la valeur affichable est limitee aux parcours ou elle est
-necessaire a l'utilisateur.
+Les moyens d’authentification sont séparés des réservations afin de prendre en
+charge plusieurs modes d’accès : RFID durable, QR code temporaire et code court.
+Le secret reste haché ; la valeur affichable est limitée aux parcours où elle est
+nécessaire à l’utilisateur.

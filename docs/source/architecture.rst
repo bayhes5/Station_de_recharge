@@ -92,8 +92,11 @@ centralise les routes d'accès :
 * ``/kiosk/`` vers le kiosque Raspberry.
 
 Cette configuration prépare la mise en production en isolant progressivement les
-services internes derrière un point d'entrée HTTP unique. Les ports directs
-restent disponibles en développement.
+services internes derrière un point d'entrée unique. En développement, Nginx
+écoute ``80`` et ``443`` : le trafic HTTP est redirigé vers HTTPS et le
+certificat auto-signé local permet de valider les cookies sécurisés, les routes
+proxy et les en-têtes ``X-Forwarded-Proto`` dans des conditions proches d'un
+déploiement réel. Les ports directs restent disponibles pour le diagnostic.
 
 ESP32
 -----

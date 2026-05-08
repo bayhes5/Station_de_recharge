@@ -119,6 +119,21 @@
             <section class="section-block" role="tabpanel" data-tab-panel="rgpd" hidden>
                 <div class="dashboard-grid">
                     <section class="dashboard-panel">
+                        <p class="panel-title">Consentements</p>
+                        <p class="lead">Consultez les consentements enregistr&eacute;s et ajustez les notifications optionnelles du service.</p>
+                        <div id="consent-summary" class="stacked-list section-stack"></div>
+                        <form id="consent-form" class="account-form section-stack">
+                            <div class="field consent-field" data-field="notifications">
+                                <label for="profile-notifications-accepted">
+                                    <input id="profile-notifications-accepted" name="notificationsAccepted" type="checkbox">
+                                    <span>Recevoir les notifications optionnelles li&eacute;es au service.</span>
+                                </label>
+                            </div>
+                            <button class="btn btn-primary" type="submit">Enregistrer les pr&eacute;f&eacute;rences</button>
+                        </form>
+                    </section>
+
+                    <section class="dashboard-panel">
                         <p class="panel-title">Données personnelles</p>
                         <p class="lead">Récupérez une copie de votre compte ou supprimez-le définitivement.</p>
                         <div class="cta-row">

@@ -32,6 +32,7 @@ from .models import (
     Alerte,
     Authentification,
     CapteurData,
+    Consentement,
     Device,
     Emplacement,
     JournalSecurite,
@@ -48,6 +49,7 @@ from .serializers import (
     AdminUserUpdateSerializer,
     AdminUserSerializer,
     AuthMethodSerializer,
+    ConsentPreferenceSerializer,
     EmplacementSerializer,
     MaintenanceAdminSerializer,
     PasswordChangeSerializer,
@@ -73,6 +75,23 @@ TEMPORARY_CODE_LENGTH = 12
 RFID_LINK_CODE_LENGTH = 4
 RFID_LINK_CODE_TTL_SECONDS = 10 * 60
 DEVICE_ONLINE_GRACE_MINUTES = getattr(settings, "DEVICE_ONLINE_GRACE_MINUTES", 5)
+CONSENT_DEFINITIONS = {
+    "cgu": {
+        "label": "Conditions générales d'utilisation",
+        "required": True,
+        "modifiable": False,
+    },
+    "politique_confidentialite": {
+        "label": "Politique de confidentialité",
+        "required": True,
+        "modifiable": False,
+    },
+    "notifications": {
+        "label": "Notifications optionnelles",
+        "required": False,
+        "modifiable": True,
+    },
+}
 
 
 def _refresh_cookie_kwargs():
@@ -213,6 +232,48 @@ def _get_or_create_profile(user):
         defaults={"nom": user.pseudo, "telephone": ""},
     )
     return profile
+
+
+def _serialize_consent(consent):
+    """Return a compact consent history entry."""
+    return {
+        "id": str(consent.id_consentement),
+        "type": consent.type,
+        "label": CONSENT_DEFINITIONS.get(consent.type, {}).get("label", consent.type),
+        "statut": consent.statut,
+        "date_consentement": consent.date_consentement.isoformat() if consent.date_consentement else None,
+    }
+
+
+def _serialize_user_consents(user):
+    """Return the latest consent state per known type plus full history."""
+    history = list(user.consentements.all().order_by("-date_consentement"))
+    latest_by_type = {}
+    for consent in history:
+        latest_by_type.setdefault(consent.type, consent)
+
+    current = []
+    for consent_type, definition in CONSENT_DEFINITIONS.items():
+        latest = latest_by_type.get(consent_type)
+        current.append(
+            {
+                "type": consent_type,
+                "label": definition["label"],
+                "statut": latest.statut if latest else "non_renseigne",
+                "date_consentement": (
+                    latest.date_consentement.isoformat()
+                    if latest and latest.date_consentement
+                    else None
+                ),
+                "required": definition["required"],
+                "modifiable": definition["modifiable"],
+            }
+        )
+
+    return {
+        "current": current,
+        "history": [_serialize_consent(consent) for consent in history],
+    }
 
 
 def _as_bool(value):
@@ -1168,6 +1229,42 @@ def profile(request):
     return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
 
+@_schema("Lire ou modifier les consentements", request=ConsentPreferenceSerializer, tags=["Compte"])
+@api_view(["GET", "PATCH"])
+@permission_classes([IsAuthenticated])
+def consentements(request):
+    """Expose consent history and append editable preference changes."""
+    user = request.user
+
+    if request.method == "GET":
+        return Response(_serialize_user_consents(user))
+
+    serializer = ConsentPreferenceSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    target_status = "accepte" if serializer.validated_data["notifications_accepted"] else "refuse"
+    latest = (
+        user.consentements.filter(type="notifications")
+        .order_by("-date_consentement")
+        .first()
+    )
+    changed = latest is None or latest.statut != target_status
+
+    if changed:
+        Consentement.objects.create(
+            utilisateur=user,
+            type="notifications",
+            statut=target_status,
+        )
+
+    return Response(
+        {
+            "message": "Consentements mis a jour" if changed else "Consentements inchanges",
+            **_serialize_user_consents(user),
+        }
+    )
+
+
 @_schema("Changer le mot de passe", request=PasswordChangeSerializer, tags=["Compte"])
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -1710,7 +1807,7 @@ def contact(request):
     """Render the informational contact page."""
     return render(
         request,
-        "api/simple_page.html",
+        "api/privacy.html",
         {
             "title": "Contact",
             "description": (
@@ -2558,11 +2655,16 @@ def terminal_authenticate(request):
     )
 
 
+def cgu(request):
+    """Render the terms of use page."""
+    return render(request, "api/cgu.html")
+
+
 def privacy(request):
     """Render the privacy policy page."""
     return render(
         request,
-        "api/simple_page.html",
+        "api/privacy.html",
         {
             "title": "Politique de confidentialite",
             "description": (

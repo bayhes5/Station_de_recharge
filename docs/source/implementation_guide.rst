@@ -97,6 +97,13 @@ Le changement de mot de passe passe par ``/api/me/change-password/`` afin de
 vérifier le mot de passe courant. L'export de compte est disponible via
 ``/api/me/export/``.
 
+Les consentements sont consultables et pilotables via
+``GET/PATCH /api/me/consentements/``. Les CGU et la politique de confidentialité
+sont affichées comme décisions obligatoires prises à l'inscription. Les
+notifications restent optionnelles : le profil permet de les accepter ou de les
+refuser, et chaque changement ajoute une nouvelle ligne historisée dans
+``consentement``.
+
 Les actions sensibles côté administration et accès sont journalisées dans
 ``JournalSecurite`` par ``_log_security_event``. Cette traçabilité prépare les
 besoins d'audit, de support et d'exploitation d'une solution multi-utilisateurs.
@@ -398,6 +405,11 @@ une modification Python qui touche un processus long comme Celery ou
 Le profil ``simulation`` démarre ``mqtt-simulator`` seulement quand on en a
 besoin. Cela évite de polluer la base avec de la télémétrie continue lors d'un
 démarrage standard.
+
+Le reverse proxy Nginx est le point d'entrée recommandé. Il expose HTTPS sur
+``https://localhost`` avec un certificat auto-signé de développement et redirige
+le trafic HTTP vers HTTPS. Le frontend Docker utilise ``/api`` comme URL d'API
+afin de rester sur le même domaine et d'éviter les appels mixtes HTTP/HTTPS.
 
 Qualité, tests et CI
 --------------------

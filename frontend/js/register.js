@@ -8,6 +8,9 @@ document.addEventListener("DOMContentLoaded", () => {
         email: form.email,
         password: form.password,
         passwordConfirm: form.passwordConfirm,
+        cgu: form.cguAccepted,
+        privacy: form.privacyPolicyAccepted,
+        notifications: form.notificationsAccepted,
     };
 
     const feedback = {
@@ -15,6 +18,8 @@ document.addEventListener("DOMContentLoaded", () => {
         email: document.getElementById("email-feedback"),
         password: document.getElementById("password-feedback"),
         passwordConfirm: document.getElementById("password-confirm-feedback"),
+        cgu: document.getElementById("cgu-feedback"),
+        privacy: document.getElementById("privacy-feedback"),
     };
 
     const state = {
@@ -22,6 +27,8 @@ document.addEventListener("DOMContentLoaded", () => {
         email: false,
         password: false,
         passwordConfirm: false,
+        cgu: false,
+        privacy: false,
     };
 
     const debounceTimers = {};
@@ -124,6 +131,22 @@ document.addEventListener("DOMContentLoaded", () => {
         updateSubmitState();
     }
 
+    function validateConsent(name) {
+        const valid = fields[name].checked;
+        state[name] = valid;
+
+        if (valid) {
+            setFieldState(name, "valid", "");
+        } else {
+            const message = name === "cgu"
+                ? "L'acceptation des conditions est obligatoire."
+                : "La prise de connaissance de la politique de confidentialité est obligatoire.";
+            setFieldState(name, "invalid", message);
+        }
+
+        updateSubmitState();
+    }
+
     async function checkAvailability(name, value) {
         const trimmed = value.trim();
 
@@ -176,6 +199,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     fields.password.addEventListener("input", validatePassword);
     fields.passwordConfirm.addEventListener("input", validatePasswordConfirm);
+    fields.cgu.addEventListener("change", () => validateConsent("cgu"));
+    fields.privacy.addEventListener("change", () => validateConsent("privacy"));
     initializePasswordToggles();
 
     form.addEventListener("submit", async (event) => {
@@ -193,6 +218,9 @@ document.addEventListener("DOMContentLoaded", () => {
             pseudo: fields.pseudo.value.trim(),
             email: fields.email.value.trim(),
             password: fields.password.value,
+            cgu_accepted: fields.cgu.checked,
+            privacy_policy_accepted: fields.privacy.checked,
+            notifications_accepted: fields.notifications.checked,
         };
 
         try {
@@ -216,6 +244,14 @@ document.addEventListener("DOMContentLoaded", () => {
             if (error.payload?.password) {
                 state.password = false;
                 setFieldState("password", "invalid", error.payload.password.join(" "));
+            }
+            if (error.payload?.cgu_accepted) {
+                state.cgu = false;
+                setFieldState("cgu", "invalid", error.payload.cgu_accepted.join(" "));
+            }
+            if (error.payload?.privacy_policy_accepted) {
+                state.privacy = false;
+                setFieldState("privacy", "invalid", error.payload.privacy_policy_accepted.join(" "));
             }
             setStatus(error.message || "Erreur lors de l’inscription.", "error");
             updateSubmitState();
