@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1f8f55">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icons/pwa-icon.svg" type="image/svg+xml">
     <title>Station de recharge | M&eacute;tropole Verte</title>
     <link rel="stylesheet" href="/css/auth.css">
     <script type="module" src="/src/pages/home.js"></script>
@@ -27,7 +30,7 @@
                 <h1 id="home-title">R&eacute;servez votre borne en quelques secondes.</h1>
                 <p class="lead home-lead">
                     Un espace simple pour choisir un emplacement, lancer l&rsquo;acc&egrave;s par badge,
-                    QR code ou code temporaire, puis suivre vos recharges.
+                    QR code ou code SMS temporaire, puis suivre vos recharges.
                 </p>
             </div>
 
@@ -38,7 +41,7 @@
                     <a id="home-register-link" class="btn btn-primary btn-hero" href="/register.html">S&rsquo;inscrire</a>
                     <a id="home-login-link" class="btn btn-secondary btn-hero" href="/login.html">Se connecter</a>
                 </div>
-                <p class="helper">Cr&eacute;ez un compte pour r&eacute;server une borne ou connectez-vous pour retrouver vos sessions.</p>
+                <p class="helper">Cr&eacute;ez un compte pour r&eacute;server un emplacement ou connectez-vous pour retrouver vos sessions.</p>
             </aside>
 
             <aside class="home-summary" aria-label="Aper&ccedil;u du service">
@@ -48,13 +51,18 @@
                 </div>
                 <div class="summary-stat">
                     <span class="summary-value">RFID</span>
-                    <span class="summary-label">Badge, QR code ou code temporaire</span>
+                    <span class="summary-label">Badge, QR code ou code SMS temporaire</span>
                 </div>
                 <div class="summary-stat">
                     <span class="summary-value">24/7</span>
                     <span class="summary-label">Suivi des sessions et de l&rsquo;historique</span>
                 </div>
             </aside>
+
+            <footer class="home-legal-links" aria-label="Liens l&eacute;gaux">
+                <a href="/conditions-generales-utilisation/">Conditions g&eacute;n&eacute;rales d&rsquo;utilisation</a>
+                <a href="/politique-confidentialite/">Politique de confidentialit&eacute;</a>
+            </footer>
         </section>
     </main>
 </body>

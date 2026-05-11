@@ -52,26 +52,28 @@ Les moyens d'accès sont séparés selon leur durée de vie :
   ``/api/admin/users/<user_id>/auth-methods/``;
 * la révocation d'un badge RFID passe par
   ``/api/admin/users/<user_id>/auth-methods/<auth_id>/revoke/``;
-* l'utilisateur affiche le QR/code courant de sa réservation avec
+* l'utilisateur affiche le QR courant ou les métadonnées du code SMS avec
   ``/api/reservations/<reservation_id>/access-payload/`` sans rotation du secret;
-* les QR codes et codes temporaires sont gérés sur la réservation avec
+* l'utilisateur déclenche l'envoi du code SMS temporaire avec
+  ``/api/reservations/<reservation_id>/send-access-code/``;
+* les QR codes et codes SMS temporaires sont gérés sur la réservation avec
   ``/api/admin/reservations/<reservation_id>/access-payload/`` pour régénérer
   une valeur temporaire sans l'afficher dans une fenêtre de copie côté admin;
-* la révocation d'un QR/code temporaire passe par
+* la révocation d'un QR/code SMS temporaire passe par
   ``/api/admin/reservations/<reservation_id>/revoke-access/``.
 
 Ces endpoints exigent un utilisateur authentifié avec les droits staff. Ils ne
-renvoient jamais la valeur complète d'un badge RFID. Les QR codes et codes
-temporaires sont dérivés côté serveur : l'utilisateur peut afficher ou masquer
-le même accès, tandis que l'administration dispose d'une action explicite de
-régénération qui invalide l'ancienne valeur. Si l'accès est déjà visible côté
-utilisateur, l'interface récupère automatiquement la valeur courante après la
-régénération.
+renvoient jamais la valeur complète d'un badge RFID. Les QR codes et codes SMS
+temporaires sont dérivés côté serveur. Le QR est consultable immédiatement dans
+l'application. Le code SMS n'est pas renvoyé en clair par l'endpoint d'affichage:
+il est transmis par le canal SMS et l'envoi est journalisé dans
+``JournalSecurite``.
 
 Le jeton de rafraîchissement JWT n'est pas exposé au JavaScript du frontend. Les
 endpoints ``/api/register/`` et ``/api/login/`` renvoient le jeton d'accès et
 posent le refresh token dans un cookie ``HttpOnly``. ``/api/token/refresh/`` lit
 ce cookie pour renouveler l'accès, et ``/api/logout/`` le supprime.
 
-L'endpoint admin de régénération de QR/code temporaire ne renvoie pas le secret
-régénéré. Il confirme seulement l'opération et renvoie la réservation à jour.
+L'endpoint admin de régénération de QR/code SMS temporaire ne renvoie pas le
+secret régénéré. Il confirme seulement l'opération et renvoie la réservation à
+jour.

@@ -1,6 +1,28 @@
 document.addEventListener("DOMContentLoaded", () => {
     const form = document.getElementById("login-form");
     const status = document.getElementById("login-status");
+    const nextUrl = new URLSearchParams(window.location.search).get("next");
+    const allowedNextPaths = new Set([
+        "/admin-dashboard.html",
+        "/dashboard.html",
+        "/profile.html",
+        "/reservation.html",
+        "/technician-dashboard.html",
+    ]);
+    const safeNextUrl = (() => {
+        if (!nextUrl) {
+            return "";
+        }
+        try {
+            const parsed = new URL(nextUrl, window.location.origin);
+            const relativePath = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+            return parsed.origin === window.location.origin && allowedNextPaths.has(parsed.pathname)
+                ? relativePath
+                : "";
+        } catch (_error) {
+            return "";
+        }
+    })();
 
     form.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -26,7 +48,9 @@ document.addEventListener("DOMContentLoaded", () => {
             window.AuthAPI.setTokens(result);
             status.textContent = "Connexion réussie.";
             window.setTimeout(() => {
-                if (result.user?.is_staff) {
+                if (safeNextUrl) {
+                    window.location.href = safeNextUrl;
+                } else if (result.user?.is_staff) {
                     window.location.href = "/admin-dashboard.html";
                 } else if (result.user?.is_technician) {
                     window.location.href = "/technician-dashboard.html";

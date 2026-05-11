@@ -126,6 +126,8 @@ services:
     container_name: django_app
     env_file:
       - .env
+    environment:
+      TERMINAL_API_SECRET: ${TERMINAL_API_SECRET:-dev-terminal-secret}
     volumes:
       - ./backend:/app
     ports:
@@ -185,6 +187,7 @@ services:
     volumes:
       - ./backend:/app
     environment:
+      BACKEND_API_BASE_URL: http://backend:8000/api
       MQTT_HOST: mqtt
       MQTT_PORT: 1883
       MQTT_BASE_TOPIC: station
@@ -253,6 +256,10 @@ services:
       MQTT_PORT: 1883
       MQTT_BASE_TOPIC: station
       MQTT_RASPBERRY_CLIENT_ID: raspberry-kiosk
+      MQTT_ACK_TIMEOUT_SECONDS: ${MQTT_ACK_TIMEOUT_SECONDS:-2.5}
+      MQTT_ACK_REQUIRED: ${MQTT_ACK_REQUIRED:-false}
+      BACKEND_API_BASE_URL: http://backend:8000/api
+      TERMINAL_API_SECRET: ${TERMINAL_API_SECRET:-dev-terminal-secret}
     command: sh -c "pip install --no-cache-dir -r requirements.txt && python main.py"
     depends_on:
       - backend

@@ -1,11 +1,11 @@
 {% extends "api/base.html" %}
 
-{% block title %}{{ title }} | Station de recharge{% endblock %}
+{% block title %}{{ title }} | M&eacute;tropole Verte{% endblock %}
 
 {% block content %}
 <main class="page-shell">
     <section class="content-card">
-        <p class="eyebrow">Station de recharge</p>
+        <p class="eyebrow">M&eacute;tropole Verte</p>
         <h1>{{ title }}</h1>
         <p class="lead">{{ description }}</p>
         <div class="cta-row">
@@ -16,7 +16,7 @@
                 <a class="btn btn-secondary" href="{{ secondary_cta_url }}">{{ secondary_cta_label }}</a>
             {% endif %}
         </div>
-        <a class="inline-link" href="{% url 'home' %}">Retour a l'accueil</a>
+        <a class="inline-link" href="{% url 'home' %}">Retour &agrave; l'accueil</a>
     </section>
 </main>
 {% endblock %}

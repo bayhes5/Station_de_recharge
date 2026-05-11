@@ -61,13 +61,13 @@ class Command(BaseCommand):
                 defaults={
                     "type_device": "ESP32",
                     "firmware_version": esp32_firmware_version,
-                    "status": "online",
+                    "status": "provisioned",
                 },
             )
             device.type_device = "ESP32"
             device.firmware_version = esp32_firmware_version
             device.mac_address = f"slot{numero}"
-            device.status = "online"
+            device.status = "provisioned"
             device.save(update_fields=["type_device", "firmware_version", "mac_address", "status"])
 
         user = Utilisateur.objects.filter(pseudo=tech_pseudo).first()

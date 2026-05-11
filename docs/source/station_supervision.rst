@@ -104,6 +104,7 @@ Exemple de message :
      "state": "charging",
      "current": 1.2,
      "voltage": 12.0,
+     "power": 14.4,
      "energy_kwh": 0.04,
      "temperature": 32.5,
      "humidity": 45,
@@ -123,12 +124,37 @@ Le message de commande est un JSON simple :
 .. code-block:: json
 
    {
+     "command_id": "<uuid-commande>",
      "action": "START",
      "session_id": "<uuid-session>"
    }
 
 Le Raspberry publie ce message via son client de messagerie local. Le backend
 dispose du même mécanisme côté serveur avec la commande ``send_slot_command``.
+
+Le Raspberry attend aussi une confirmation ESP32 sur :
+
+.. code-block:: text
+
+   station/<slot_id>/ack
+
+L'accuse de reception attendu reprend le ``command_id`` :
+
+.. code-block:: json
+
+   {
+     "command_id": "<uuid-commande>",
+     "action": "START",
+     "status": "accepted",
+     "message": "Emplacement reserve.",
+     "state": "reserved",
+     "slot_id": "slot1",
+     "session_id": "<uuid-session>"
+   }
+
+En developpement, ``MQTT_ACK_REQUIRED=False`` laisse la commande reussir sans
+ESP32 branche. En production, ``MQTT_ACK_REQUIRED=True`` permet de refuser le
+demarrage si le relais ne confirme pas.
 
 Commandes utiles
 ----------------
@@ -296,7 +322,7 @@ Modèles alimentés
 
 L'ingestion des télémétries alimente actuellement :
 
-* ``Device`` : état courant et ``last_seen`` du device ESP32 ;
+* ``Device`` : dernier état reçu et ``last_seen`` du device ESP32 ;
 * ``Capteur`` et ``CapteurData`` : valeurs horodatées des capteurs ;
 * ``SessionTelemetry`` : courant, tension et énergie si une session active
   existe sur l'emplacement ;
@@ -307,6 +333,13 @@ Les capteurs booleens ``door`` et ``cable`` sont stockes numeriquement dans
 ``CapteurData`` : ``1`` signifie vrai et ``0`` signifie faux. L'API de
 supervision expose en plus un libelle lisible pour l'interface :
 ``Boitier ferme`` / ``Boitier ouvert`` et ``Cable present`` / ``Cable retire``.
+
+Dans l'interface administrateur, la colonne ``Connexion`` indique si l'ESP32 a
+émis une télémétrie récente. Elle est calculée à partir de ``Device.last_seen``
+et non à partir du champ ``status``. La colonne ``Dernier état reçu`` affiche la
+dernière valeur métier transmise par l'équipement, par exemple ``charging`` pour
+une charge en cours. Un ESP32 provisionné mais jamais vu reste donc hors ligne et
+affiche ``Aucune télémétrie reçue`` tant qu'aucun message réel n'a été ingéré.
 
 Cycle des alertes
 -----------------
@@ -340,7 +373,10 @@ Le dashboard est accessible directement via :
 Le dashboard initial affiche :
 
 * la température par emplacement ;
+* l'humidité ;
 * le courant de charge ;
+* la tension ;
+* la puissance ;
 * les alertes récentes ;
 * l'état des ESP32.
 

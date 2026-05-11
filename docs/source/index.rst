@@ -13,10 +13,13 @@ https://bayhes5.github.io/Station_de_recharge/
 
    architecture
    implementation_guide
+   raspberry_kiosk
+   esp32_firmware
    database_mcd
    data_model
    requirements_traceability
    station_supervision
+   operations_runbook
    testing_strategy
    git_github_workflow
    technical_choices

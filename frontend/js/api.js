@@ -1,3 +1,5 @@
+import "./pwa.js";
+
 const API_BASE_URL = window.__API_BASE_URL__ || import.meta.env?.VITE_API_BASE_URL || "http://localhost:8000/api";
 const LEGACY_ACCESS_TOKEN_KEY = "station_access_token";
 const LEGACY_REFRESH_TOKEN_KEY = "station_refresh_token";
@@ -258,6 +260,48 @@ async function cancelReservation(id) {
 async function getReservationAccessPayload(id) {
     return doRequest(`/reservations/${id}/access-payload/`, {
         method: "POST",
+    });
+}
+
+async function sendReservationAccessCode(id) {
+    return doRequest(`/reservations/${id}/send-access-code/`, {
+        method: "POST",
+    });
+}
+
+async function createTerminalMobileSession(data = {}) {
+    return doRequest("/terminal/mobile-sessions/", {
+        method: "POST",
+        auth: false,
+        body: JSON.stringify(data),
+    });
+}
+
+async function getTerminalMobileSession(token) {
+    return doRequest(`/terminal/mobile-sessions/${encodeURIComponent(token)}/`, {
+        method: "GET",
+        auth: false,
+    });
+}
+
+async function consumeTerminalMobileSession(token, data = {}) {
+    return doRequest(`/terminal/mobile-sessions/${encodeURIComponent(token)}/consume/`, {
+        method: "POST",
+        auth: false,
+        body: JSON.stringify(data),
+    });
+}
+
+async function getMobileSession(token) {
+    return doRequest(`/mobile-sessions/${encodeURIComponent(token)}/`, {
+        method: "GET",
+    });
+}
+
+async function authorizeMobileSession(token, reservationId) {
+    return doRequest(`/mobile-sessions/${encodeURIComponent(token)}/authorize/`, {
+        method: "POST",
+        body: JSON.stringify({ reservation_id: reservationId }),
     });
 }
 
@@ -630,6 +674,12 @@ window.AuthAPI = {
     createReservation,
     cancelReservation,
     getReservationAccessPayload,
+    sendReservationAccessCode,
+    createTerminalMobileSession,
+    getTerminalMobileSession,
+    consumeTerminalMobileSession,
+    getMobileSession,
+    authorizeMobileSession,
     getReservationAvailability,
     getProfile,
     updateProfile,

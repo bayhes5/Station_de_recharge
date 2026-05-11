@@ -4,6 +4,7 @@ import { defineConfig } from "vite";
 const pageNames = [
   "index",
   "login",
+  "mobile-session",
   "register",
   "dashboard",
   "profile",

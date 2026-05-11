@@ -7,7 +7,7 @@ It publishes telemetry to MQTT and listens for backend/Raspberry commands.
 import time
 import ujson
 import network
-from machine import Pin
+from machine import I2C, Pin
 from umqtt.simple import MQTTClient
 
 
@@ -26,10 +26,16 @@ HALL_PIN = 19
 DOOR_PIN = 18
 LOCK_PIN = 23
 CHARGE_PIN = 22
+DHT_PIN = 4
+INA219_SDA_PIN = 21
+INA219_SCL_PIN = 25
+INA219_ADDRESS = 0x40
+INA219_SHUNT_OHMS = 0.1
 
 TELEMETRY_INTERVAL_SECONDS = 2
 MAX_CURRENT_A = 3.0
 MAX_TEMPERATURE_C = 50.0
+SIMULATE_SENSORS_ON_ERROR = True
 
 
 hall = Pin(HALL_PIN, Pin.IN, Pin.PULL_UP)
@@ -40,6 +46,8 @@ charge_relay = Pin(CHARGE_PIN, Pin.OUT)
 state = "idle"
 session_id = ""
 last_telemetry = 0
+last_environment = {"read_at": -999, "temperature": None, "humidity": None}
+last_power_sample = {"read_at": -999, "current": None, "voltage": None, "power": None}
 
 
 def topic(suffix):
@@ -48,6 +56,7 @@ def topic(suffix):
 
 
 TOPIC_CMD = topic("cmd")
+TOPIC_ACK = topic("ack")
 TOPIC_STATUS = topic("status")
 TOPIC_ALERT = topic("alert")
 TOPIC_TELEMETRY = topic("telemetry")
@@ -76,19 +85,152 @@ def read_door_closed():
     return door.value() == 0
 
 
-def read_current_a():
-    """Return simulated current until the INA219 driver is wired."""
+def init_dht22():
+    """Initialize the DHT22 if the MicroPython module is available."""
+    try:
+        from dht import DHT22 as Dht22Sensor
+    except ImportError:
+        print("DHT module not available; using simulated environment values.")
+        return None
+    try:
+        return Dht22Sensor(Pin(DHT_PIN))
+    except Exception as exc:
+        print("DHT22 init failed:", exc)
+        return None
+
+
+def init_ina219():
+    """Initialize the INA219 I2C bus if the sensor answers."""
+    try:
+        bus = I2C(0, sda=Pin(INA219_SDA_PIN), scl=Pin(INA219_SCL_PIN), freq=400000)
+        if INA219_ADDRESS not in bus.scan():
+            print("INA219 not found on I2C; using simulated electrical values.")
+            return None
+        return bus
+    except Exception as exc:
+        print("INA219 init failed:", exc)
+        return None
+
+
+def read_u16_register(i2c, address, register):
+    """Read one big-endian 16-bit register."""
+    data = i2c.readfrom_mem(address, register, 2)
+    return (data[0] << 8) | data[1]
+
+
+def signed_16(value):
+    """Convert a raw 16-bit value to signed integer."""
+    return value - 65536 if value & 0x8000 else value
+
+
+def simulated_current_a():
+    """Return a simulated current when INA219 is absent."""
     return 1.2 if state == "charging" else 0.0
 
 
+def simulated_voltage_v():
+    """Return a simulated voltage when INA219 is absent."""
+    return 41.5 if state == "charging" else 0.0
+
+
+def simulated_temperature_c():
+    """Return a simulated temperature when DHT22 is absent."""
+    return 28.0
+
+
+def simulated_humidity_percent():
+    """Return a simulated humidity when DHT22 is absent."""
+    return 45.0
+
+
+def read_environment():
+    """Return cached DHT22 temperature/humidity, with simulation fallback."""
+    global last_environment
+
+    now = time.time()
+    if now - last_environment["read_at"] < 2 and last_environment["temperature"] is not None:
+        return last_environment
+
+    if dht_sensor is not None:
+        try:
+            dht_sensor.measure()
+            last_environment = {
+                "read_at": now,
+                "temperature": float(dht_sensor.temperature()),
+                "humidity": float(dht_sensor.humidity()),
+            }
+            return last_environment
+        except Exception as exc:
+            print("DHT22 read failed:", exc)
+
+    if last_environment["temperature"] is not None and not SIMULATE_SENSORS_ON_ERROR:
+        return last_environment
+
+    last_environment = {
+        "read_at": now,
+        "temperature": simulated_temperature_c(),
+        "humidity": simulated_humidity_percent(),
+    }
+    return last_environment
+
+
+def read_power_sample():
+    """Return cached INA219 current/voltage/power, with simulation fallback."""
+    global last_power_sample
+
+    now = time.time()
+    if now - last_power_sample["read_at"] < 1 and last_power_sample["current"] is not None:
+        return last_power_sample
+
+    if ina219_i2c is not None:
+        try:
+            shunt_raw = signed_16(read_u16_register(ina219_i2c, INA219_ADDRESS, 0x01))
+            bus_raw = read_u16_register(ina219_i2c, INA219_ADDRESS, 0x02)
+            voltage = ((bus_raw >> 3) * 0.004)
+            current = (shunt_raw * 0.00001) / INA219_SHUNT_OHMS
+            power = voltage * current
+            last_power_sample = {
+                "read_at": now,
+                "current": current,
+                "voltage": voltage,
+                "power": power,
+            }
+            return last_power_sample
+        except Exception as exc:
+            print("INA219 read failed:", exc)
+
+    if last_power_sample["current"] is not None and not SIMULATE_SENSORS_ON_ERROR:
+        return last_power_sample
+
+    voltage = simulated_voltage_v()
+    current = simulated_current_a()
+    last_power_sample = {
+        "read_at": now,
+        "current": current,
+        "voltage": voltage,
+        "power": voltage * current,
+    }
+    return last_power_sample
+
+
+def read_current_a():
+    """Return current measured by INA219, or a simulated value."""
+    return read_power_sample()["current"]
+
+
 def read_voltage_v():
-    """Return simulated voltage until the INA219 driver is wired."""
-    return 12.0 if state == "charging" else 0.0
+    """Return voltage measured by INA219, or a simulated value."""
+    return read_power_sample()["voltage"]
 
 
 def read_temperature_c():
-    """Return simulated temperature until the DHT/BME sensor is wired."""
-    return 28.0
+    """Return temperature measured by DHT22, or a simulated value."""
+    return read_environment()["temperature"]
+
+
+def read_humidity_percent():
+    """Return humidity measured by DHT22, or a simulated value."""
+    return read_environment()["humidity"]
 
 
 def lock_slot():
@@ -126,6 +268,23 @@ def publish_status(client, event, reason=""):
             "event": event,
             "reason": reason,
             "state": state,
+            "session_id": session_id,
+        },
+    )
+
+
+def publish_ack(client, payload, status, message=""):
+    """Confirm command execution to the Raspberry kiosk."""
+    publish_json(
+        client,
+        TOPIC_ACK,
+        {
+            "command_id": payload.get("command_id") or "",
+            "action": str(payload.get("action") or "").upper(),
+            "status": status,
+            "message": message,
+            "state": state,
+            "slot_id": SLOT_ID,
             "session_id": session_id,
         },
     )
@@ -177,14 +336,20 @@ def on_message(topic_bytes, message):
     action = str(payload.get("action", "")).upper()
     if action == "START":
         handle_start(mqtt_client, payload)
+        publish_ack(mqtt_client, payload, "accepted", "Emplacement reserve.")
     elif action == "STOP":
         handle_stop(mqtt_client)
+        publish_ack(mqtt_client, payload, "stopped", "Charge arretee.")
     elif action == "LOCK":
         lock_slot()
         publish_status(mqtt_client, "locked")
+        publish_ack(mqtt_client, payload, "locked", "Boitier verrouille.")
     elif action == "UNLOCK":
         unlock_slot()
         publish_status(mqtt_client, "unlocked")
+        publish_ack(mqtt_client, payload, "unlocked", "Boitier deverrouille.")
+    else:
+        publish_ack(mqtt_client, payload, "error", "Commande inconnue.")
 
 
 def connect_mqtt():
@@ -231,25 +396,31 @@ def update_state(client):
 
 def publish_telemetry(client):
     """Publish the current telemetry sample."""
+    power_sample = read_power_sample()
+    environment = read_environment()
     payload = {
         "slot_id": SLOT_ID,
         "session_id": session_id,
         "state": state,
-        "current": read_current_a(),
-        "voltage": read_voltage_v(),
+        "current": power_sample["current"],
+        "voltage": power_sample["voltage"],
+        "power": power_sample["power"],
         "energy_kwh": 0.0,
-        "temperature": read_temperature_c(),
-        "humidity": 45.0,
+        "temperature": environment["temperature"],
+        "humidity": environment["humidity"],
         "door": read_door_closed(),
         "cable": read_cable_present(),
     }
     publish_json(client, TOPIC_TELEMETRY, payload)
 
 
+dht_sensor = init_dht22()
+ina219_i2c = init_ina219()
+
 connect_wifi()
 mqtt_client = connect_mqtt()
-unlock_slot()
 stop_charge()
+lock_slot()
 publish_status(mqtt_client, "boot")
 
 while True:

@@ -17,7 +17,7 @@ Le projet couvre trois blocs :
 La solution doit permettre :
 
 - la réservation en ligne d'un emplacement de recharge ;
-- l'identification par QR code, badge RFID ou code alphanumérique ;
+- l'identification par QR code, badge RFID ou code SMS temporaire ;
 - la validation de la réservation sur une borne locale ;
 - le pilotage d'une serrure électromagnétique et du démarrage de charge ;
 - la remontée de télémétrie : température, courant, tension, câble, boîtier ;
@@ -136,6 +136,7 @@ Payload type :
   "state": "charging",
   "current": 1.2,
   "voltage": 12.0,
+  "power": 14.4,
   "energy_kwh": 0.04,
   "temperature": 32.5,
   "humidity": 45,
@@ -162,6 +163,18 @@ curl -X POST http://localhost:9000/mqtt/command \
   -H "Content-Type: application/json" \
   -d '{"slot_id":"slot1","action":"START","session_id":"demo"}'
 ```
+
+Tester un scan RFID local sans lecteur physique :
+
+```bash
+curl -X POST http://localhost:9000/rfid/scan \
+  -H "Content-Type: application/json" \
+  -d '{"uid":"04A3BC89F2"}'
+```
+
+Le kiosque consomme ce flux comme un vrai lecteur : un badge lu depuis l'accueil
+lance l'authentification RFID directe, et un badge lu depuis l'écran
+d'association remplit l'UID avant l'appel backend.
 
 Le backend reste le chemin nominal : il valide la réservation et le moyen
 d'accès avant qu'une commande soit envoyée à l'ESP32. Le Raspberry est prévu pour
@@ -329,10 +342,13 @@ La documentation technique Sphinx est dans `docs/source/`.
 Pages principales :
 
 - `architecture.rst` : architecture globale ;
+- `raspberry_kiosk.rst` : installation, RFID ACR122U, mode degrade et commandes du kiosque ;
+- `esp32_firmware.rst` : firmware MicroPython, DHT22, INA219, ACK MQTT et deploiement Thonny ;
 - `implementation_guide.rst` : fonctionnalités, implantation et choix d'architecture ;
 - `data_model.rst` : modèle de données, correspondance MCD et implémentation Django ;
 - `requirements_traceability.rst` : correspondance avec le cahier des charges ;
 - `station_supervision.rst` : supervision technique, télémétrie, alertes, Grafana ;
+- `operations_runbook.rst` : commandes de demarrage, diagnostic et verifications de demonstration ;
 - `testing_strategy.rst` : stratégie de tests ;
 - `technical_choices.rst` : justification des choix techniques ;
 - `api_openapi.rst` : documentation API ;

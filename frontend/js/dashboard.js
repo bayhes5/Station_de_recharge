@@ -80,7 +80,11 @@ function appendAccessPayload(container, result) {
     if (access.mode === "code") {
         const codeLine = document.createElement("div");
         codeLine.className = "empty-state access-code";
-        codeLine.textContent = `Code temporaire : ${access.value}`;
+        if (access.sent_at) {
+            codeLine.textContent = `Code SMS temporaire envoyé au ${access.recipient_hint || "numéro enregistré"}.`;
+        } else {
+            codeLine.textContent = "Code SMS temporaire généré. Utilisez le bouton d'envoi avant votre passage à la borne.";
+        }
         container.appendChild(codeLine);
     }
 }
@@ -125,7 +129,7 @@ function renderReservationCard(reservation, onCancel, onAccess) {
             accessButton.className = "btn btn-secondary";
             accessButton.type = "button";
             accessButton.dataset.accessToggle = reservation.id_reservation;
-            accessButton.textContent = reservation.auth_mode === "qr" ? "+ Afficher le QR" : "+ Afficher le code";
+            accessButton.textContent = reservation.auth_mode === "qr" ? "+ Afficher le QR" : "Recevoir le code SMS";
             accessButton.addEventListener("click", () => onAccess(reservation, item, accessButton));
             actions.appendChild(accessButton);
         }
@@ -204,11 +208,31 @@ document.addEventListener("DOMContentLoaded", async () => {
         const accessContainer = card.querySelector(".reservation-access-host");
         if (!accessContainer) return;
 
+        if (reservation.auth_mode === "code") {
+            try {
+                if (triggerButton) triggerButton.disabled = true;
+                const result = await window.AuthAPI.sendReservationAccessCode(reservation.id_reservation);
+                accessContainer.innerHTML = "";
+                appendAccessPayload(accessContainer, result);
+                accessContainer.dataset.visible = "true";
+                if (triggerButton) {
+                    triggerButton.textContent = "Renvoyer le code SMS";
+                }
+                setStatus("Code SMS temporaire envoyé.");
+                setActiveTab("reservations");
+            } catch (error) {
+                setStatus(error.message || "Impossible d'envoyer le code SMS temporaire.", true);
+            } finally {
+                if (triggerButton) triggerButton.disabled = false;
+            }
+            return;
+        }
+
         if (accessContainer.dataset.visible === "true") {
             accessContainer.innerHTML = "";
             accessContainer.dataset.visible = "false";
             if (triggerButton) {
-                triggerButton.textContent = reservation.auth_mode === "qr" ? "+ Afficher le QR" : "+ Afficher le code";
+                triggerButton.textContent = "+ Afficher le QR";
             }
             return;
         }
@@ -219,9 +243,9 @@ document.addEventListener("DOMContentLoaded", async () => {
             appendAccessPayload(accessContainer, result);
             accessContainer.dataset.visible = "true";
             if (triggerButton) {
-                triggerButton.textContent = reservation.auth_mode === "qr" ? "- Masquer le QR" : "- Masquer le code";
+                triggerButton.textContent = "- Masquer le QR";
             }
-            setStatus(reservation.auth_mode === "qr" ? "QR code affiché." : "Code temporaire affiché.");
+            setStatus("QR code affiché.");
             setActiveTab("reservations");
         } catch (error) {
             setStatus(error.message || "Impossible d'afficher l'accès temporaire.", true);
@@ -235,7 +259,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         for (const accessContainer of visibleContainers) {
             const reservationId = accessContainer.dataset.reservationId;
             const accessMode = accessContainer.dataset.accessMode;
-            if (!reservationId || !["qr", "code"].includes(accessMode)) continue;
+            if (!reservationId || accessMode !== "qr") continue;
 
             try {
                 const result = await window.AuthAPI.getReservationAccessPayload(reservationId);
@@ -245,7 +269,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 accessContainer.dataset.visible = "false";
                 const toggleButton = document.querySelector(`[data-access-toggle="${reservationId}"]`);
                 if (toggleButton) {
-                    toggleButton.textContent = accessMode === "qr" ? "+ Afficher le QR" : "+ Afficher le code";
+                    toggleButton.textContent = "+ Afficher le QR";
                 }
             }
         }

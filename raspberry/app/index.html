@@ -28,8 +28,8 @@
                 <p class="eyebrow">Borne de proximit&eacute;</p>
                 <h1 id="home-title">D&eacute;marrer une charge</h1>
                 <p>
-                    Pr&eacute;sentez votre badge ou votre QR code. Le code manuel reste disponible
-                    si vous n'avez pas votre badge ou votre t&eacute;l&eacute;phone.
+                    Pr&eacute;sentez votre badge RFID. Sans badge, utilisez votre t&eacute;l&eacute;phone
+                    pour confirmer la r&eacute;servation depuis la PWA.
                 </p>
                 <div class="route-band" aria-label="Parcours utilisateur">
                     <span>Identification</span>
@@ -42,17 +42,22 @@
                 <button class="action-card primary-action" data-go="rfid" type="button">
                     <span class="action-icon">RF</span>
                     <strong>Badge RFID</strong>
-                    <small>Posez simplement votre badge sur le lecteur.</small>
+                    <small>Acc&egrave;s direct avec le badge enregistr&eacute; dans votre profil.</small>
                 </button>
-                <button class="action-card" data-go="qr" type="button">
+                <button class="action-card" data-go="mobile" type="button">
+                    <span class="action-icon">MB</span>
+                    <strong>Utiliser mon t&eacute;l&eacute;phone</strong>
+                    <small>Scannez le QR affich&eacute; ici, puis confirmez sur la PWA.</small>
+                </button>
+                <button class="action-card optional-action" data-go="qr" type="button">
                     <span class="action-icon">QR</span>
-                    <strong>Scanner un QR code</strong>
-                    <small>Le plus rapide si votre t&eacute;l&eacute;phone est disponible.</small>
+                    <strong>Lecteur QR borne</strong>
+                    <small>Option disponible si la borne poss&egrave;de un scanner QR.</small>
                 </button>
-                <button class="action-card" data-go="code" type="button">
+                <button class="action-card fallback-action" data-go="code" type="button">
                     <span class="action-icon">A1</span>
-                    <strong>Entrer un code</strong>
-                    <small>Solution de secours avec les codes de votre r&eacute;servation.</small>
+                    <strong>Code SMS</strong>
+                    <small>Secours avec clavier tactile ou clavier matriciel.</small>
                 </button>
                 <button class="action-card support-action" data-go="link" type="button">
                     <span class="action-icon">+</span>
@@ -65,9 +70,9 @@
         <section id="screen-qr" class="screen" aria-labelledby="qr-title">
             <div class="screen-copy">
                 <button class="ghost back-home" type="button">Accueil</button>
-                <p class="eyebrow">QR code</p>
-                <h2 id="qr-title">Pr&eacute;sentez le QR code</h2>
-                <p>Approchez l'&eacute;cran du lecteur. La borne retrouve automatiquement la r&eacute;servation associ&eacute;e.</p>
+                <p class="eyebrow">Lecteur QR optionnel</p>
+                <h2 id="qr-title">Scannez le QR de r&eacute;servation</h2>
+                <p>Si la borne poss&egrave;de un lecteur QR, affichez le QR de votre r&eacute;servation et pr&eacute;sentez-le au scanner.</p>
                 <div class="hint-line">Validation automatique quand le scanner envoie Entr&eacute;e.</div>
             </div>
             <form id="qr-form" class="input-panel">
@@ -77,12 +82,30 @@
             </form>
         </section>
 
+        <section id="screen-mobile" class="screen" aria-labelledby="mobile-title">
+            <div class="screen-copy">
+                <button class="ghost back-home" type="button">Accueil</button>
+                <p class="eyebrow">Session mobile</p>
+                <h2 id="mobile-title">Scannez avec votre t&eacute;l&eacute;phone</h2>
+                <p>La borne affiche son QR. Le t&eacute;l&eacute;phone ouvre la PWA, vous choisissez la r&eacute;servation, puis la borne d&eacute;marre.</p>
+                <div id="mobile-status" class="status">Cr&eacute;ation de la session mobile...</div>
+            </div>
+            <div class="terminal-panel mobile-pairing-panel">
+                <div id="mobile-qr" class="mobile-qr-frame" aria-label="QR code de session mobile"></div>
+                <output id="mobile-url" class="mobile-url"></output>
+                <div class="key-actions">
+                    <button id="mobile-refresh" class="ghost" type="button">Nouveau QR</button>
+                    <button id="mobile-cancel" class="submit-button" type="button">Annuler</button>
+                </div>
+            </div>
+        </section>
+
         <section id="screen-code" class="screen" aria-labelledby="code-title">
             <div class="screen-copy">
                 <button class="ghost back-home" type="button">Accueil</button>
-                <p class="eyebrow">Code temporaire</p>
+                <p class="eyebrow">Code SMS temporaire</p>
                 <h2 id="code-title">Saisissez vos deux codes</h2>
-                <p>Le clavier accepte uniquement les chiffres, A, B, C et D. La touche # valide, la touche * corrige.</p>
+                <p>Mode secours : entrez le code de r&eacute;servation puis le code SMS re&ccedil;u avant votre passage.</p>
                 <div id="status" class="status">Pr&ecirc;t.</div>
             </div>
             <div class="terminal-panel">
@@ -92,7 +115,7 @@
                         <output id="reservation-display">--------</output>
                     </button>
                     <button class="code-field" data-field="auth" type="button">
-                        <span>Code temporaire</span>
+                        <span>Code SMS</span>
                         <output id="auth-display">------------</output>
                     </button>
                 </div>
@@ -155,15 +178,19 @@
                 <div class="help-grid">
                     <article>
                         <strong>Badge RFID</strong>
-                        <span>Posez le badge enregistr&eacute; dans votre profil.</span>
+                        <span>Acc&egrave;s le plus rapide, sans t&eacute;l&eacute;phone.</span>
                     </article>
                     <article>
-                        <strong>QR code</strong>
-                        <span>Affichez le QR depuis votre r&eacute;servation.</span>
+                        <strong>T&eacute;l&eacute;phone</strong>
+                        <span>Scannez le QR de la borne et confirmez dans la PWA.</span>
                     </article>
                     <article>
-                        <strong>Code manuel</strong>
-                        <span>Utilisez le code r&eacute;servation et le code temporaire.</span>
+                        <strong>Lecteur QR</strong>
+                        <span>Utilisez le QR de r&eacute;servation si la borne a un scanner.</span>
+                    </article>
+                    <article>
+                        <strong>Code SMS</strong>
+                        <span>Fallback avec code r&eacute;servation et code temporaire.</span>
                     </article>
                 </div>
             </div>

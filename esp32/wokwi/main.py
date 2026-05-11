@@ -54,6 +54,7 @@ def topic(suffix):
 
 
 TOPIC_CMD = topic("cmd")
+TOPIC_ACK = topic("ack")
 TOPIC_STATUS = topic("status")
 TOPIC_ALERT = topic("alert")
 TOPIC_TELEMETRY = topic("telemetry")
@@ -124,6 +125,23 @@ def publish_status(client, event, reason=""):
     )
 
 
+def publish_ack(client, payload, status, message=""):
+    """Confirm command execution to the Raspberry kiosk."""
+    publish_json(
+        client,
+        TOPIC_ACK,
+        {
+            "command_id": payload.get("command_id") or "",
+            "action": str(payload.get("action") or "").upper(),
+            "status": status,
+            "message": message,
+            "state": state,
+            "slot_id": SLOT_ID,
+            "session_id": session_id,
+        },
+    )
+
+
 def stop_session(client, reason):
     """Stop charging and publish an alert."""
     global state
@@ -163,14 +181,20 @@ def on_message(topic_bytes, message):
     action = str(payload.get("action", "")).upper()
     if action == "START":
         handle_start(mqtt_client, payload)
+        publish_ack(mqtt_client, payload, "accepted", "Emplacement reserve.")
     elif action == "STOP":
         stop_session(mqtt_client, "remote_stop")
+        publish_ack(mqtt_client, payload, "stopped", "Charge arretee.")
     elif action == "LOCK":
         lock_led.value(1)
         publish_status(mqtt_client, "locked")
+        publish_ack(mqtt_client, payload, "locked", "Boitier verrouille.")
     elif action == "UNLOCK":
         lock_led.value(0)
         publish_status(mqtt_client, "unlocked")
+        publish_ack(mqtt_client, payload, "unlocked", "Boitier deverrouille.")
+    else:
+        publish_ack(mqtt_client, payload, "error", "Commande inconnue.")
 
 
 def connect_mqtt():

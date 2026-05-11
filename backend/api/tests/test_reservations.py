@@ -1,4 +1,5 @@
 from datetime import timedelta
+import re
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -6,7 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 
-from api.models import Reservation
+from api.models import JournalSecurite, ProfilUtilisateur, Reservation
 
 KEYPAD_CODE_ALPHABET = set("0123456789ABCD")
 
@@ -257,6 +258,8 @@ def test_user_can_cancel_own_future_reservation(authenticated_client, user, stat
 
 @pytest.mark.django_db
 def test_access_payload_display_does_not_rotate_code(authenticated_client, station, emplacements, reservation_start):
+    user = get_user_model().objects.get(pseudo="user")
+    ProfilUtilisateur.objects.create(utilisateur=user, nom="User", telephone="+33600000000")
     create_response = authenticated_client.post(
         reverse("api-reservations"),
         {
@@ -270,11 +273,11 @@ def test_access_payload_display_does_not_rotate_code(authenticated_client, stati
     assert create_response.status_code == status.HTTP_201_CREATED
     reservation_id = create_response.data["reservation"]["id_reservation"]
     reservation_code = create_response.data["reservation_code"]
-    created_value = create_response.data["access_payload"]["value"]
     assert len(reservation_code) == 8
     assert set(reservation_code) <= KEYPAD_CODE_ALPHABET
-    assert len(created_value) == 12
-    assert set(created_value) <= KEYPAD_CODE_ALPHABET
+    assert create_response.data["access_payload"]["mode"] == "code"
+    assert create_response.data["access_payload"]["delivery_channel"] == "sms"
+    assert "value" not in create_response.data["access_payload"]
 
     first_display = authenticated_client.post(
         reverse("api-reservation-access-payload", kwargs={"reservation_id": reservation_id})
@@ -285,8 +288,88 @@ def test_access_payload_display_does_not_rotate_code(authenticated_client, stati
 
     assert first_display.status_code == status.HTTP_200_OK
     assert second_display.status_code == status.HTTP_200_OK
-    assert first_display.data["access_payload"]["value"] == created_value
-    assert second_display.data["access_payload"]["value"] == created_value
+    assert first_display.data["access_payload"]["delivery_channel"] == "sms"
+    assert second_display.data["access_payload"]["delivery_channel"] == "sms"
+    assert "value" not in first_display.data["access_payload"]
+    assert "value" not in second_display.data["access_payload"]
+
+
+@pytest.mark.django_db
+def test_sms_code_requires_phone_number(authenticated_client, station, emplacements, reservation_start):
+    response = authenticated_client.post(
+        reverse("api-reservations"),
+        {
+            "station": str(station.id_station),
+            "date_debut": reservation_start.isoformat(),
+            "auth_mode": "code",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "telephone" in response.data
+
+
+@pytest.mark.django_db
+def test_sms_code_can_be_sent_and_used(
+    authenticated_client,
+    api_client,
+    user,
+    station,
+    emplacements,
+    reservation_start,
+    monkeypatch,
+):
+    ProfilUtilisateur.objects.create(utilisateur=user, nom="User", telephone="+33600000000")
+    sent_messages = []
+
+    def fake_send_sms(phone_number, message):
+        from api.services.sms import SmsResult
+
+        sent_messages.append((phone_number, message))
+        return SmsResult(backend="test", message_id="sms-1")
+
+    monkeypatch.setattr("api.views.send_sms", fake_send_sms)
+    create_response = authenticated_client.post(
+        reverse("api-reservations"),
+        {
+            "station": str(station.id_station),
+            "date_debut": reservation_start.isoformat(),
+            "auth_mode": "code",
+        },
+        format="json",
+    )
+    reservation_id = create_response.data["reservation"]["id_reservation"]
+
+    send_response = authenticated_client.post(
+        reverse("api-reservation-send-access-code", kwargs={"reservation_id": reservation_id})
+    )
+
+    assert send_response.status_code == status.HTTP_200_OK
+    assert send_response.data["sms"]["recipient_hint"] == "******0000"
+    assert "value" not in send_response.data["access_payload"]
+    assert sent_messages[0][0] == "+33600000000"
+    sms_code = re.search(r"\b[0-9A-D]{12}\b", sent_messages[0][1]).group(0)
+    Reservation.objects.filter(id_reservation=reservation_id).update(
+        date_debut=timezone.now() - timedelta(minutes=5),
+        date_fin=timezone.now() + timedelta(minutes=25),
+    )
+
+    terminal_response = api_client.post(
+        reverse("api-terminal-authenticate"),
+        {
+            "reservation_code": create_response.data["reservation_code"],
+            "auth_mode": "code",
+            "auth_value": sms_code,
+        },
+        format="json",
+    )
+
+    assert terminal_response.status_code == status.HTTP_200_OK
+    assert JournalSecurite.objects.filter(
+        utilisateur=user,
+        action__contains="sms_access_code_sent",
+    ).exists()
 
 
 @pytest.mark.django_db
