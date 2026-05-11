@@ -2,9 +2,27 @@ document.addEventListener("DOMContentLoaded", () => {
     const form = document.getElementById("login-form");
     const status = document.getElementById("login-status");
     const nextUrl = new URLSearchParams(window.location.search).get("next");
-    const safeNextUrl = nextUrl && nextUrl.startsWith("/") && !nextUrl.startsWith("//")
-        ? nextUrl
-        : "";
+    const allowedNextPaths = new Set([
+        "/admin-dashboard.html",
+        "/dashboard.html",
+        "/profile.html",
+        "/reservation.html",
+        "/technician-dashboard.html",
+    ]);
+    const safeNextUrl = (() => {
+        if (!nextUrl) {
+            return "";
+        }
+        try {
+            const parsed = new URL(nextUrl, window.location.origin);
+            const relativePath = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+            return parsed.origin === window.location.origin && allowedNextPaths.has(parsed.pathname)
+                ? relativePath
+                : "";
+        } catch (_error) {
+            return "";
+        }
+    })();
 
     form.addEventListener("submit", async (event) => {
         event.preventDefault();

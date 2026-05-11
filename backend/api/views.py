@@ -867,7 +867,8 @@ def _send_reservation_sms_code(request, reservation, auth_method, access_value):
             _build_sms_access_message(reservation, access_value),
         )
     except SmsDeliveryError as error:
-        return None, Response({"detail": str(error)}, status=status.HTTP_502_BAD_GATEWAY)
+        logger.warning("SMS delivery failed for reservation %s: %s", reservation.id_reservation, error)
+        return None, Response({"detail": "Envoi SMS temporairement indisponible."}, status=status.HTTP_502_BAD_GATEWAY)
 
     sent_at = timezone.now()
     recipient_hint = mask_phone_number(phone_number)

@@ -1,17 +1,36 @@
 function resolveApiBaseUrl() {
-    const params = new URLSearchParams(window.location.search);
-    const explicitUrl = params.get("api_base") || "";
-    if (explicitUrl) {
-        return explicitUrl.replace(/\/$/, "");
-    }
-
     window.localStorage.removeItem("terminalApiBaseUrl");
     return `${window.location.origin}/backend-api`;
+}
+
+function safeSessionToken(token) {
+    const normalized = String(token || "").trim();
+    return SESSION_TOKEN_PATTERN.test(normalized) ? normalized : "";
+}
+
+function terminalApiUrl(path) {
+    const allowedStaticPaths = new Set([
+        "/terminal/authenticate/",
+        "/terminal/link-rfid/",
+        "/terminal/mobile-sessions/",
+    ]);
+    if (allowedStaticPaths.has(path)) {
+        return `${API_BASE_URL}${path}`;
+    }
+
+    const sessionMatch = path.match(/^\/terminal\/mobile-sessions\/([A-Za-z0-9_-]{8,128})\/(consume\/)?$/);
+    if (sessionMatch) {
+        const suffix = sessionMatch[2] || "";
+        return `${API_BASE_URL}/terminal/mobile-sessions/${sessionMatch[1]}/${suffix}`;
+    }
+
+    throw new Error("Chemin API locale refuse.");
 }
 
 const API_BASE_URL = resolveApiBaseUrl();
 const EDGE_BASE_URL = window.location.origin;
 const KEYPAD_PATTERN = /^[0-9A-D]$/;
+const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
 const TERMINAL_STATION_ID =
     new URLSearchParams(window.location.search).get("station_id")
     || window.localStorage.getItem("terminalStationId")
@@ -229,16 +248,24 @@ async function createMobileSession() {
 }
 
 async function consumeMobileSession(token) {
+    const safeToken = safeSessionToken(token);
+    if (!safeToken) {
+        throw new Error("Session mobile invalide.");
+    }
     return sendApi(
-        `/terminal/mobile-sessions/${encodeURIComponent(token)}/consume/`,
+        `/terminal/mobile-sessions/${safeToken}/consume/`,
         TERMINAL_STATION_ID ? { station_id: TERMINAL_STATION_ID } : {},
     );
 }
 
 async function readMobileSession(token) {
+    const safeToken = safeSessionToken(token);
+    if (!safeToken) {
+        throw new Error("Session mobile invalide.");
+    }
     let response;
     try {
-        response = await fetch(`${API_BASE_URL}/terminal/mobile-sessions/${encodeURIComponent(token)}/`, {
+        response = await fetch(terminalApiUrl(`/terminal/mobile-sessions/${safeToken}/`), {
             method: "GET",
             headers: {
                 Accept: "application/json",
@@ -322,7 +349,7 @@ async function readLatestRfidScan() {
 async function sendApi(path, payload) {
     let response;
     try {
-        response = await fetch(`${API_BASE_URL}${path}`, {
+        response = await fetch(terminalApiUrl(path), {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",

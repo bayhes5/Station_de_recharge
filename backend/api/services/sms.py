@@ -47,9 +47,10 @@ def send_sms(phone_number, message):
     if backend == "console":
         message_id = f"console-{uuid.uuid4()}"
         logger.info(
-            "SMS console to %s: %s",
+            "SMS console delivery id=%s recipient=%s length=%s",
+            message_id,
             mask_phone_number(phone_number),
-            message,
+            len(str(message or "")),
         )
         return SmsResult(backend=backend, message_id=message_id)
 

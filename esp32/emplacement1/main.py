@@ -11,9 +11,9 @@ from machine import I2C, Pin
 from umqtt.simple import MQTTClient
 
 try:
-    import dht
+    from dht import DHT22
 except ImportError:
-    dht = None
+    DHT22 = None
 
 
 WIFI_SSID = "WIFI_SSID"
@@ -41,7 +41,6 @@ TELEMETRY_INTERVAL_SECONDS = 2
 MAX_CURRENT_A = 3.0
 MAX_TEMPERATURE_C = 50.0
 SIMULATE_SENSORS_ON_ERROR = True
-BOOT_UNLOCKED = False
 
 
 hall = Pin(HALL_PIN, Pin.IN, Pin.PULL_UP)
@@ -93,11 +92,11 @@ def read_door_closed():
 
 def init_dht22():
     """Initialize the DHT22 if the MicroPython module is available."""
-    if dht is None:
+    if DHT22 is None:
         print("DHT module not available; using simulated environment values.")
         return None
     try:
-        return dht.DHT22(Pin(DHT_PIN))
+        return DHT22(Pin(DHT_PIN))
     except Exception as exc:
         print("DHT22 init failed:", exc)
         return None
@@ -424,10 +423,7 @@ ina219_i2c = init_ina219()
 connect_wifi()
 mqtt_client = connect_mqtt()
 stop_charge()
-if BOOT_UNLOCKED:
-    unlock_slot()
-else:
-    lock_slot()
+lock_slot()
 publish_status(mqtt_client, "boot")
 
 while True:

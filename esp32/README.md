@@ -31,16 +31,15 @@ INA219_SDA_PIN = 21
 INA219_SCL_PIN = 25
 LOCK_PIN = 23
 CHARGE_PIN = 22
-BOOT_UNLOCKED = False
 ```
 
 Si le DHT22 ou l'INA219 n'est pas detecte, le firmware publie des valeurs
 simulees. C'est volontaire pour tester rapidement le flux MQTT -> backend ->
 Grafana avant le cablage final.
 
-Avec `BOOT_UNLOCKED = False`, l'ESP32 demarre serrure fermee, puis le `START`
-envoye par le Raspberry deverrouille l'emplacement. La charge ne demarre
-qu'apres detection du cable et fermeture du boitier.
+L'ESP32 demarre serrure fermee, puis le `START` envoye par le Raspberry
+deverrouille l'emplacement. La charge ne demarre qu'apres detection du cable et
+fermeture du boitier.
 
 Pour le test Thonny:
 

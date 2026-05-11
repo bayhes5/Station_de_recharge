@@ -47,11 +47,9 @@ Extrait de configuration :
    INA219_SCL_PIN = 25
    LOCK_PIN = 23
    CHARGE_PIN = 22
-   BOOT_UNLOCKED = False
 
-``BOOT_UNLOCKED = False`` signifie que l'emplacement démarre verrouillé. La
-serrure est ouverte uniquement lorsqu'une commande ``START`` ou ``UNLOCK`` est
-reçue.
+L'emplacement démarre verrouillé. La serrure est ouverte uniquement lorsqu'une
+commande ``START`` ou ``UNLOCK`` est reçue.
 
 Déploiement avec Thonny
 -----------------------
