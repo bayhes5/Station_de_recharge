@@ -13,15 +13,11 @@ function terminalApiUrl(path) {
         "/terminal/authenticate/",
         "/terminal/link-rfid/",
         "/terminal/mobile-sessions/",
+        "/terminal/mobile-sessions/status/",
+        "/terminal/mobile-sessions/consume/",
     ]);
     if (allowedStaticPaths.has(path)) {
         return `${API_BASE_URL}${path}`;
-    }
-
-    const sessionMatch = path.match(/^\/terminal\/mobile-sessions\/([A-Za-z0-9_-]{8,128})\/(consume\/)?$/);
-    if (sessionMatch) {
-        const suffix = sessionMatch[2] || "";
-        return `${API_BASE_URL}/terminal/mobile-sessions/${sessionMatch[1]}/${suffix}`;
     }
 
     throw new Error("Chemin API locale refuse.");
@@ -253,8 +249,11 @@ async function consumeMobileSession(token) {
         throw new Error("Session mobile invalide.");
     }
     return sendApi(
-        `/terminal/mobile-sessions/${safeToken}/consume/`,
-        TERMINAL_STATION_ID ? { station_id: TERMINAL_STATION_ID } : {},
+        "/terminal/mobile-sessions/consume/",
+        {
+            token: safeToken,
+            ...(TERMINAL_STATION_ID ? { station_id: TERMINAL_STATION_ID } : {}),
+        },
     );
 }
 
@@ -263,33 +262,13 @@ async function readMobileSession(token) {
     if (!safeToken) {
         throw new Error("Session mobile invalide.");
     }
-    let response;
-    try {
-        response = await fetch(terminalApiUrl(`/terminal/mobile-sessions/${safeToken}/`), {
-            method: "GET",
-            headers: {
-                Accept: "application/json",
-            },
-        });
-    } catch (_error) {
-        throw new Error("Session mobile indisponible.");
-    }
-
-    const text = await response.text();
-    let data = {};
-    if (text) {
-        try {
-            data = JSON.parse(text);
-        } catch (_error) {
-            data = { detail: text };
-        }
-    }
-
-    if (!response.ok) {
-        throw new Error(data.detail || "Session mobile refusee.");
-    }
-
-    return data;
+    return sendApi(
+        "/terminal/mobile-sessions/status/",
+        {
+            token: safeToken,
+            ...(TERMINAL_STATION_ID ? { station_id: TERMINAL_STATION_ID } : {}),
+        },
+    );
 }
 
 async function sendEdgeMqttCommand(payload) {

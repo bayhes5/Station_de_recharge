@@ -3026,6 +3026,26 @@ def terminal_mobile_session_status(request, token):
     if secret_error is not None:
         return secret_error
 
+    return _terminal_mobile_session_status_response(token)
+
+
+@_schema("Consulter une session mobile depuis le terminal", request=OpenApiTypes.OBJECT, tags=["Terminal"])
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def terminal_mobile_session_status_from_body(request):
+    """Return a mobile session state using a fixed terminal endpoint."""
+    secret_error = _terminal_secret_response(request)
+    if secret_error is not None:
+        return secret_error
+
+    token = (request.data.get("token") or "").strip()
+    if not token:
+        return Response({"detail": "token est obligatoire."}, status=status.HTTP_400_BAD_REQUEST)
+    return _terminal_mobile_session_status_response(token)
+
+
+def _terminal_mobile_session_status_response(token):
+    """Build the status response for one mobile session token."""
     payload = _get_mobile_session_payload(token)
     if payload is None:
         return Response({"detail": "Session mobile invalide ou expiree."}, status=status.HTTP_404_NOT_FOUND)
@@ -3048,6 +3068,26 @@ def terminal_consume_mobile_session(request, token):
     if secret_error is not None:
         return secret_error
 
+    return _terminal_consume_mobile_session_response(request, token)
+
+
+@_schema("Consommer une autorisation mobile depuis le terminal", request=OpenApiTypes.OBJECT, tags=["Terminal"])
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def terminal_consume_mobile_session_from_body(request):
+    """Consume a mobile authorization using a fixed terminal endpoint."""
+    secret_error = _terminal_secret_response(request)
+    if secret_error is not None:
+        return secret_error
+
+    token = (request.data.get("token") or "").strip()
+    if not token:
+        return Response({"detail": "token est obligatoire."}, status=status.HTTP_400_BAD_REQUEST)
+    return _terminal_consume_mobile_session_response(request, token)
+
+
+def _terminal_consume_mobile_session_response(request, token):
+    """Open the charging session authorized for one mobile session token."""
     payload = _get_mobile_session_payload(token)
     if payload is None:
         return Response({"detail": "Session mobile invalide ou expiree."}, status=status.HTTP_404_NOT_FOUND)

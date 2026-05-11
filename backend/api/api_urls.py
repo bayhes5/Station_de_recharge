@@ -46,11 +46,13 @@ from .views import (
     technician_maintenances,
     terminal_authenticate,
     terminal_consume_mobile_session,
+    terminal_consume_mobile_session_from_body,
     terminal_create_mobile_session,
     terminal_link_rfid,
     terminal_offline_cache,
     terminal_offline_events,
     terminal_mobile_session_status,
+    terminal_mobile_session_status_from_body,
     mobile_session_authorize,
     mobile_session_detail,
 )
@@ -81,6 +83,8 @@ urlpatterns = [
     path("terminal/authenticate/", terminal_authenticate, name="api-terminal-authenticate"),
     path("terminal/link-rfid/", terminal_link_rfid, name="api-terminal-link-rfid"),
     path("terminal/mobile-sessions/", terminal_create_mobile_session, name="api-terminal-mobile-session-create"),
+    path("terminal/mobile-sessions/status/", terminal_mobile_session_status_from_body, name="api-terminal-mobile-session-status-body"),
+    path("terminal/mobile-sessions/consume/", terminal_consume_mobile_session_from_body, name="api-terminal-mobile-session-consume-body"),
     path("terminal/mobile-sessions/<str:token>/", terminal_mobile_session_status, name="api-terminal-mobile-session-status"),
     path(
         "terminal/mobile-sessions/<str:token>/consume/",

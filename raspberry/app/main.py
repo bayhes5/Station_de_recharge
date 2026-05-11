@@ -1,8 +1,7 @@
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
-from pathlib import Path
 import json
 import os
-import re
+from pathlib import Path
 import threading
 import time
 from urllib.parse import urlencode
@@ -21,7 +20,6 @@ TERMINAL_API_SECRET = os.environ.get("TERMINAL_API_SECRET", "").strip()
 TERMINAL_STATION_ID = os.environ.get("TERMINAL_STATION_ID", "").strip()
 OFFLINE_SYNC_INTERVAL_SECONDS = int(os.environ.get("OFFLINE_SYNC_INTERVAL_SECONDS", "60"))
 OFFLINE_EVENT_BATCH_SIZE = int(os.environ.get("OFFLINE_EVENT_BATCH_SIZE", "50"))
-SESSION_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 
 
 def backend_headers(extra=None):
@@ -43,20 +41,10 @@ def terminal_proxy_path(local_path):
         "/terminal/authenticate/",
         "/terminal/link-rfid/",
         "/terminal/mobile-sessions/",
+        "/terminal/mobile-sessions/status/",
+        "/terminal/mobile-sessions/consume/",
     }:
         return backend_path
-
-    if backend_path.startswith("/terminal/mobile-sessions/"):
-        parts = [part for part in backend_path.strip("/").split("/") if part]
-        if len(parts) == 3 and parts[:2] == ["terminal", "mobile-sessions"] and SESSION_TOKEN_RE.fullmatch(parts[2]):
-            return f"/terminal/mobile-sessions/{parts[2]}/"
-        if (
-            len(parts) == 4
-            and parts[:2] == ["terminal", "mobile-sessions"]
-            and SESSION_TOKEN_RE.fullmatch(parts[2])
-            and parts[-1] == "consume"
-        ):
-            return f"/terminal/mobile-sessions/{parts[2]}/consume/"
 
     return None
 
@@ -76,8 +64,6 @@ def proxy_backend_json(method, backend_path, payload=None):
         body = json.dumps(payload or {}).encode("utf-8")
         headers["Content-Type"] = "application/json"
 
-    # lgtm[py/partial-ssrf] backend_path is normalized by terminal_proxy_path:
-    # only fixed terminal routes and regex-validated mobile-session tokens pass.
     request = Request(
         f"{BACKEND_API_BASE_URL}{backend_path}",
         data=body,
