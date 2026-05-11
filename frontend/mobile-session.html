@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1f8f55">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icons/pwa-icon.svg" type="image/svg+xml">
+    <meta http-equiv="Cache-Control" content="no-store">
+    <title>Session borne | M&eacute;tropole Verte</title>
+    <link rel="stylesheet" href="/css/auth.css">
+    <script type="module" src="/src/pages/mobile-session.js"></script>
+</head>
+<body class="mobile-session-body">
+    <a class="skip-link" href="#contenu">Aller au contenu</a>
+    <main class="mobile-session-page">
+        <section id="contenu" class="mobile-session-shell" aria-labelledby="mobile-session-title">
+            <header class="mobile-session-header">
+                <p class="eyebrow">M&eacute;tropole Verte</p>
+                <h1 id="mobile-session-title">D&eacute;marrer sur la borne</h1>
+                <p id="mobile-session-context" class="lead">Connexion &agrave; la borne en cours.</p>
+            </header>
+
+            <div id="mobile-session-status" class="status" aria-live="polite"></div>
+
+            <section id="mobile-session-expired" class="mobile-session-panel danger-panel" hidden>
+                <p class="panel-title">Session expir&eacute;e</p>
+                <p>Scannez le QR code affich&eacute; sur la borne pour ouvrir une nouvelle session.</p>
+            </section>
+
+            <section id="mobile-session-reservations-panel" class="mobile-session-panel">
+                <div class="panel-heading">
+                    <div>
+                        <p class="panel-title">R&eacute;servations disponibles</p>
+                        <p class="table-caption">Choisissez la r&eacute;servation &agrave; envoyer &agrave; cette borne.</p>
+                    </div>
+                    <span id="mobile-session-countdown" class="session-pill">-</span>
+                </div>
+                <div id="mobile-session-reservations" class="mobile-reservation-list"></div>
+            </section>
+
+            <section id="mobile-session-authorized" class="mobile-session-panel success-panel" hidden>
+                <p class="panel-title">Autorisation envoy&eacute;e</p>
+                <p id="mobile-session-authorized-detail">La borne peut maintenant d&eacute;marrer la session.</p>
+                <a class="btn btn-secondary full-width" href="/dashboard.html#sessions">Voir mes sessions</a>
+            </section>
+        </section>
+    </main>
+</body>
+</html>

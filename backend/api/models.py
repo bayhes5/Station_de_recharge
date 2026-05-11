@@ -7,6 +7,125 @@ from django.db.models import Q
 from django.utils import timezone
 
 
+class UserStatus(models.TextChoices):
+    """Allowed lifecycle states for application accounts."""
+
+    ACTIVE = "actif", "Actif"
+    SUSPENDED = "suspendu", "Suspendu"
+    ARCHIVED = "archive", "Archivé"
+
+
+class ConsentType(models.TextChoices):
+    """Consent categories tracked for accountability."""
+
+    CGU = "cgu", "Conditions générales d'utilisation"
+    PRIVACY = "politique_confidentialite", "Politique de confidentialité"
+    NOTIFICATIONS = "notifications", "Notifications optionnelles"
+
+
+class ConsentStatus(models.TextChoices):
+    """Allowed consent decisions stored in the consent history."""
+
+    ACCEPTED = "accepte", "Accepté"
+    REFUSED = "refuse", "Refusé"
+
+
+class SecurityLogStatus(models.TextChoices):
+    """Outcome values for security audit events."""
+
+    SUCCESS = "success", "Succès"
+    FAILURE = "failure", "Échec"
+
+
+class StationStatus(models.TextChoices):
+    """Operational lifecycle values for a charging station."""
+
+    ACTIVE = "active", "Active"
+    MAINTENANCE = "maintenance", "Maintenance"
+    INACTIVE = "inactive", "Inactive"
+
+
+class EmplacementStatus(models.TextChoices):
+    """Availability values for one charging bay."""
+
+    AVAILABLE = "disponible", "Disponible"
+    RESERVED = "reserve", "Réservé"
+    OCCUPIED = "occupe", "Occupé"
+    MAINTENANCE = "maintenance", "Maintenance"
+
+
+class LockState(models.TextChoices):
+    """Physical lock states reported or controlled by the station."""
+
+    LOCKED = "verrouille", "Verrouillé"
+    UNLOCKED = "deverrouille", "Déverrouillé"
+    BLOCKED = "bloque", "Bloqué"
+
+
+class ReservationAuthChoice(models.TextChoices):
+    """Authentication modes available for a reservation."""
+
+    RFID = "rfid", "RFID"
+    QR = "qr", "QR code"
+    CODE = "code", "Code SMS temporaire"
+
+
+class ReservationStatus(models.TextChoices):
+    """Lifecycle values for reservations."""
+
+    PENDING = "en_attente", "En attente"
+    CONFIRMED = "confirmee", "Confirmée"
+    ACTIVE = "active", "Active"
+    CANCELLED = "annulee", "Annulée"
+    COMPLETED = "terminee", "Terminée"
+
+
+class DeviceType(models.TextChoices):
+    """Supported embedded device families."""
+
+    ESP32 = "ESP32", "ESP32"
+
+
+class DeviceStatus(models.TextChoices):
+    """Last business state received from an embedded device."""
+
+    PROVISIONED = "provisioned", "Provisionné"
+    ONLINE = "online", "Disponible"
+    IDLE = "idle", "Disponible"
+    OFFLINE = "offline", "Hors ligne"
+    CHARGING = "charging", "Charge en cours"
+    ERROR = "error", "Erreur"
+
+
+class AlertSeverity(models.TextChoices):
+    """Severity scale used by operational alerts."""
+
+    LOW = "basse", "Basse"
+    MEDIUM = "moyenne", "Moyenne"
+    HIGH = "haute", "Haute"
+    CRITICAL = "critical", "Critique"
+    CRITIQUE = "critique", "Critique"
+
+
+class AlertStatus(models.TextChoices):
+    """Lifecycle values for operational alerts."""
+
+    NEW = "nouvelle", "Nouvelle"
+    ACTIVE = "active", "Active"
+    RESOLVED = "resolue", "Résolue"
+    CLOSED = "closed", "Fermée"
+    FERMEE = "fermee", "Fermée"
+
+
+class MaintenanceStatus(models.TextChoices):
+    """Lifecycle values for maintenance interventions."""
+
+    PLANNED = "planifiee", "Planifiée"
+    IN_PROGRESS = "en_cours", "En cours"
+    DONE = "realisee", "Réalisée"
+    CANCELLED = "annulee", "Annulée"
+
+
 class UtilisateurManager(BaseUserManager):
     """Create and look up users with the pseudo as the login identifier."""
 
@@ -49,7 +168,9 @@ class Utilisateur(AbstractBaseUser, PermissionsMixin):
     id_user = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     pseudo = models.CharField(max_length=100, unique=True)
     email = models.EmailField(unique=True)
-    statut = models.CharField(max_length=50, default="actif")
+    statut = models.CharField(
+        max_length=50, choices=UserStatus.choices, default=UserStatus.ACTIVE
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     failed_attempts = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
@@ -64,6 +185,12 @@ class Utilisateur(AbstractBaseUser, PermissionsMixin):
 
     class Meta:
         db_table = "utilisateur"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(statut__in=UserStatus.values),
+                name="chk_user_statut",
+            ),
+        ]
         indexes = [
             models.Index(fields=["is_active"], name="idx_user_is_active"),
             models.Index(fields=["date_joined"], name="idx_user_date_joined"),
@@ -144,14 +271,27 @@ class Consentement(models.Model):
         related_name="consentements",
         db_column="id_user",
     )
-    type = models.CharField(max_length=100)
-    statut = models.CharField(max_length=50)
+    type = models.CharField(max_length=100, choices=ConsentType.choices)
+    statut = models.CharField(max_length=50, choices=ConsentStatus.choices)
     date_consentement = models.DateTimeField(default=timezone.now)
 
     class Meta:
         db_table = "consentement"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(type__in=ConsentType.values),
+                name="chk_consent_type",
+            ),
+            models.CheckConstraint(
+                condition=Q(statut__in=ConsentStatus.values),
+                name="chk_consent_statut",
+            ),
+        ]
         indexes = [
-            models.Index(fields=["utilisateur", "date_consentement"], name="idx_consent_user_date"),
+            models.Index(
+                fields=["utilisateur", "date_consentement"],
+                name="idx_consent_user_date",
+            ),
         ]
 
 
@@ -169,13 +309,21 @@ class JournalSecurite(models.Model):
     )
     action = models.CharField(max_length=255)
     ip = models.GenericIPAddressField()
-    statut = models.CharField(max_length=50)
+    statut = models.CharField(max_length=50, choices=SecurityLogStatus.choices)
     date_action = models.DateTimeField(default=timezone.now)
 
     class Meta:
         db_table = "journal_securite"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(statut__in=SecurityLogStatus.values),
+                name="chk_log_statut",
+            ),
+        ]
         indexes = [
-            models.Index(fields=["utilisateur", "date_action"], name="idx_log_user_date"),
+            models.Index(
+                fields=["utilisateur", "date_action"], name="idx_log_user_date"
+            ),
         ]
 
 
@@ -220,7 +368,10 @@ class Authentification(models.Model):
     class Meta:
         db_table = "auth_method"
         indexes = [
-            models.Index(fields=["utilisateur", "type_auth", "is_active"], name="idx_auth_user_type"),
+            models.Index(
+                fields=["utilisateur", "type_auth", "is_active"],
+                name="idx_auth_user_type",
+            ),
             models.Index(fields=["expiration"], name="idx_auth_expiration"),
         ]
 
@@ -233,11 +384,17 @@ class Station(models.Model):
     localisation_text = models.CharField(max_length=255, db_column="localisation")
     latitude = models.FloatField(null=True, blank=True)
     longitude = models.FloatField(null=True, blank=True)
-    statut = models.CharField(max_length=50)
+    statut = models.CharField(max_length=50, choices=StationStatus.choices)
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         db_table = "station"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(statut__in=StationStatus.values),
+                name="chk_station_statut",
+            ),
+        ]
         indexes = [
             models.Index(fields=["nom"], name="idx_station_nom"),
             models.Index(fields=["statut"], name="idx_station_statut"),
@@ -263,12 +420,26 @@ class Emplacement(models.Model):
         db_column="id_station",
     )
     numero = models.PositiveIntegerField()
-    statut = models.CharField(max_length=50, db_column="etat")
-    lock_state = models.CharField(max_length=50, db_column="statut_cadenas")
+    statut = models.CharField(
+        max_length=50, choices=EmplacementStatus.choices, db_column="etat"
+    )
+    lock_state = models.CharField(
+        max_length=50, choices=LockState.choices, db_column="statut_cadenas"
+    )
 
     class Meta:
         db_table = "emplacement"
         unique_together = ("station", "numero")
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(statut__in=EmplacementStatus.values),
+                name="chk_emp_statut",
+            ),
+            models.CheckConstraint(
+                condition=Q(lock_state__in=LockState.values),
+                name="chk_emp_lock_state",
+            ),
+        ]
         indexes = [
             models.Index(fields=["station", "statut"], name="idx_emp_station_statut"),
             models.Index(fields=["lock_state", "statut"], name="idx_emp_lock_state"),
@@ -310,19 +481,39 @@ class Reservation(models.Model):
         null=True,
         blank=True,
     )
-    auth_choice = models.CharField(max_length=20, default="qr")
+    auth_choice = models.CharField(
+        max_length=20,
+        choices=ReservationAuthChoice.choices,
+        default=ReservationAuthChoice.QR,
+    )
     date_debut = models.DateTimeField()
     date_fin = models.DateTimeField()
-    statut = models.CharField(max_length=50)
+    statut = models.CharField(max_length=50, choices=ReservationStatus.choices)
 
     class Meta:
         db_table = "reservation"
         constraints = [
-            models.CheckConstraint(condition=Q(date_fin__gt=models.F("date_debut")), name="reservation_date_fin_gt_debut"),
+            models.CheckConstraint(
+                condition=Q(date_fin__gt=models.F("date_debut")),
+                name="reservation_date_fin_gt_debut",
+            ),
+            models.CheckConstraint(
+                condition=Q(auth_choice__in=ReservationAuthChoice.values),
+                name="chk_res_auth_choice",
+            ),
+            models.CheckConstraint(
+                condition=Q(statut__in=ReservationStatus.values),
+                name="chk_res_statut",
+            ),
         ]
         indexes = [
-            models.Index(fields=["emplacement", "date_debut", "date_fin"], name="idx_reservation_emp_dates"),
-            models.Index(fields=["utilisateur", "date_debut"], name="idx_res_user_date"),
+            models.Index(
+                fields=["emplacement", "date_debut", "date_fin"],
+                name="idx_reservation_emp_dates",
+            ),
+            models.Index(
+                fields=["utilisateur", "date_debut"], name="idx_res_user_date"
+            ),
             models.Index(fields=["statut", "date_debut"], name="idx_res_statut_date"),
             models.Index(fields=["date_debut", "date_fin"], name="idx_res_dates"),
         ]
@@ -351,7 +542,8 @@ class Session(models.Model):
         db_table = "charging_session"
         constraints = [
             models.CheckConstraint(
-                condition=Q(end_time__isnull=True) | Q(end_time__gt=models.F("start_time")),
+                condition=Q(end_time__isnull=True)
+                | Q(end_time__gt=models.F("start_time")),
                 name="session_end_gt_start",
             ),
         ]
@@ -400,15 +592,25 @@ class Device(models.Model):
         related_name="device",
         db_column="id_emplacement",
     )
-    type_device = models.CharField(max_length=50)
+    type_device = models.CharField(max_length=50, choices=DeviceType.choices)
     firmware_version = models.CharField(max_length=50)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     mac_address = models.CharField(max_length=50, blank=True)
     last_seen = models.DateTimeField(null=True, blank=True)
-    status = models.CharField(max_length=50)
+    status = models.CharField(max_length=50, choices=DeviceStatus.choices)
 
     class Meta:
         db_table = "device"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(type_device__in=DeviceType.values),
+                name="chk_device_type",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=DeviceStatus.values),
+                name="chk_device_status",
+            ),
+        ]
         indexes = [
             models.Index(fields=["last_seen"], name="idx_device_last_seen"),
             models.Index(fields=["status", "last_seen"], name="idx_device_status_seen"),
@@ -480,17 +682,31 @@ class Alerte(models.Model):
     )
     type = models.CharField(max_length=50)
     message = models.TextField()
-    niveau_severite = models.CharField(max_length=50)
-    status = models.CharField(max_length=50)
+    niveau_severite = models.CharField(max_length=50, choices=AlertSeverity.choices)
+    status = models.CharField(max_length=50, choices=AlertStatus.choices)
     timestamp = models.DateTimeField(default=timezone.now, db_column="date")
 
     class Meta:
         db_table = "alerte"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(niveau_severite__in=AlertSeverity.values),
+                name="chk_alert_severity",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=AlertStatus.values),
+                name="chk_alert_status",
+            ),
+        ]
         indexes = [
             models.Index(fields=["status", "timestamp"], name="idx_alert_status_time"),
-            models.Index(fields=["session", "timestamp"], name="idx_alert_session_time"),
+            models.Index(
+                fields=["session", "timestamp"], name="idx_alert_session_time"
+            ),
             models.Index(fields=["-timestamp"], name="idx_alert_ts"),
-            models.Index(fields=["niveau_severite", "timestamp"], name="idx_alert_sev_time"),
+            models.Index(
+                fields=["niveau_severite", "timestamp"], name="idx_alert_sev_time"
+            ),
             models.Index(fields=["type", "timestamp"], name="idx_alert_type_time"),
         ]
 
@@ -498,7 +714,9 @@ class Alerte(models.Model):
 class Technicien(models.Model):
     """Represent a maintenance technician optionally linked to a user account."""
 
-    id_technicien = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_column="id_tech")
+    id_technicien = models.UUIDField(
+        primary_key=True, default=uuid.uuid4, editable=False, db_column="id_tech"
+    )
     utilisateur = models.OneToOneField(
         Utilisateur,
         on_delete=models.SET_NULL,
@@ -541,14 +759,26 @@ class Maintenance(models.Model):
     )
     type = models.CharField(max_length=100)
     description = models.TextField()
-    status = models.CharField(max_length=50)
+    status = models.CharField(max_length=50, choices=MaintenanceStatus.choices)
     date_planifiee = models.DateTimeField()
     date_realisee = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "maintenance"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(status__in=MaintenanceStatus.values),
+                name="chk_maint_status",
+            ),
+        ]
         indexes = [
-            models.Index(fields=["technicien", "date_planifiee"], name="idx_maint_tech_date"),
-            models.Index(fields=["station", "date_planifiee"], name="idx_maint_station_date"),
-            models.Index(fields=["status", "date_planifiee"], name="idx_maint_status_date"),
+            models.Index(
+                fields=["technicien", "date_planifiee"], name="idx_maint_tech_date"
+            ),
+            models.Index(
+                fields=["station", "date_planifiee"], name="idx_maint_station_date"
+            ),
+            models.Index(
+                fields=["status", "date_planifiee"], name="idx_maint_status_date"
+            ),
         ]

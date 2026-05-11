@@ -299,6 +299,48 @@ button {
     max-width: 880px;
 }
 
+.home-legal-links {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px 18px;
+    color: var(--muted);
+    font-size: 0.92rem;
+    font-weight: 700;
+}
+
+.home-legal-links a {
+    color: var(--primary-strong);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.home-legal-links a:hover {
+    color: var(--text);
+}
+
+.auth-legal-links {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px 14px;
+    margin-top: 18px;
+    color: var(--muted);
+    font-size: 0.86rem;
+    font-weight: 700;
+    text-align: center;
+}
+
+.auth-legal-links a {
+    color: var(--primary-strong);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.auth-legal-links a:hover {
+    color: var(--text);
+}
+
 .summary-stat {
     padding: 18px;
     border: 1px solid var(--border);
@@ -1667,6 +1709,121 @@ input[type="checkbox"] {
     width: 16px;
     height: 16px;
     accent-color: var(--primary);
+}
+
+.mobile-session-body {
+    background: var(--page);
+}
+
+.mobile-session-page {
+    width: min(100% - 24px, 560px);
+    min-height: 100vh;
+    margin: 0 auto;
+    display: grid;
+    align-items: start;
+    padding: 18px 0 28px;
+}
+
+.mobile-session-shell {
+    width: 100%;
+    display: grid;
+    gap: 16px;
+}
+
+.mobile-session-header,
+.mobile-session-panel {
+    padding: 20px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: 0 12px 30px rgba(22, 34, 51, 0.08);
+}
+
+.mobile-session-header h1 {
+    margin-bottom: 6px;
+    font-size: 1.75rem;
+}
+
+.mobile-session-panel {
+    display: grid;
+    gap: 14px;
+}
+
+.success-panel {
+    border-color: rgba(20, 125, 82, 0.28);
+    background: var(--success-soft);
+}
+
+.danger-panel {
+    border-color: rgba(194, 57, 52, 0.28);
+    background: var(--danger-soft);
+}
+
+.session-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    color: var(--primary-strong);
+    background: var(--primary-soft);
+    font-size: 0.84rem;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.muted-pill {
+    color: var(--muted);
+    background: var(--surface-muted);
+}
+
+.mobile-reservation-list {
+    display: grid;
+    gap: 12px;
+}
+
+.mobile-reservation-card {
+    display: grid;
+    gap: 14px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
+.mobile-reservation-heading {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    justify-content: space-between;
+}
+
+.mobile-reservation-heading h2 {
+    margin: 0;
+    font-size: 1.08rem;
+}
+
+.mobile-reservation-details {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 12px;
+    margin: 0;
+}
+
+.mobile-reservation-details dt {
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.mobile-reservation-details dd {
+    margin: 0;
+    text-align: right;
+    font-weight: 800;
+}
+
+.full-width {
+    width: 100%;
 }
 
 @media (max-width: 860px) {

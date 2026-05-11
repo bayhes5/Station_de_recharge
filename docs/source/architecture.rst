@@ -24,6 +24,12 @@ client API commun et le script métier de la page.
 En développement, le service Docker ``frontend`` expose le serveur Vite sur le
 port ``5173``. Les pages consomment l'API Django exposée sur ``8000``.
 
+Le frontend est aussi installable comme PWA. Le manifeste et le service worker
+sont servis depuis ``frontend/public/``. Ils donnent une expérience mobile proche
+d'une application native sans créer un client séparé : l'utilisateur peut garder
+le dashboard sur l'écran d'accueil de son téléphone, tandis que les données
+métier restent récupérées en ligne depuis l'API.
+
 Réservation
 -----------
 
@@ -44,12 +50,13 @@ badges RFID sont rattachés au compte utilisateur et peuvent être gérés depui
 profil ou depuis l'écran administrateur de modification d'un utilisateur. La
 valeur complète du badge n'est pas exposée dans l'administration.
 
-Les QR codes et codes temporaires sont rattachés à une réservation. Ils peuvent
+Les QR codes et codes SMS temporaires sont rattachés à une réservation. Ils peuvent
 être régénérés ou révoqués depuis l'administration des réservations, tandis que
 le terminal refuse les moyens d'accès expirés ou révoqués. La régénération admin
 remplace la valeur côté serveur sans afficher le secret dans une fenêtre de copie;
-l'endpoint admin ne renvoie pas la valeur régénérée et l'interface utilisateur
-rafraîchit ensuite le QR/code visible pour récupérer la valeur courante. Les
+l'endpoint admin ne renvoie pas la valeur régénérée. L'interface utilisateur
+peut ensuite rafraîchir le QR courant ou l'état d'envoi du code SMS, sans exposer
+le secret SMS en clair. Les
 actions sensibles sont journalisées dans ``JournalSecurite``.
 
 Kiosque Raspberry
@@ -111,6 +118,12 @@ les mesures sur le canal ``station/<slot_id>/telemetry``. Le service
 échantillons dans ``CapteurData`` et met à jour ``Device.last_seen``. Cette
 chaîne alimente l'interface de supervision et le dashboard Grafana en quasi temps
 réel.
+
+La supervision distingue la connexion de l'équipement et son dernier état métier
+reçu. La connexion est calculée avec ``Device.last_seen`` : un ESP32 sans
+télémétrie récente est considéré hors ligne, même si son dernier ``status``
+stocké vaut ``online``. Le champ ``status`` reste une information métier
+historisée, par exemple ``charging`` ou ``error``.
 
 Les alertes opérationnelles sont créées depuis la télémétrie : intrusion,
 câble retiré, surchauffe, surconsommation et état critique. Une alerte démarre

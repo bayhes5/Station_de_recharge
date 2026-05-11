@@ -164,6 +164,25 @@ Envoyer une commande d'emplacement via le Raspberry :
      -H "Content-Type: application/json" \
      -d '{"slot_id":"slot1","action":"START","session_id":"demo"}'
 
+Tester le flux RFID local sans lecteur physique :
+
+.. code-block:: bash
+
+   curl -X POST http://localhost:9000/rfid/scan \
+     -H "Content-Type: application/json" \
+     -d '{"uid":"04A3BC89F2"}'
+
+Le kiosque interroge ``/rfid/scan`` et déclenche automatiquement le parcours
+RFID si l'écran d'accueil, l'écran RFID ou l'écran d'association badge est actif.
+``/rfid/status`` expose le backend lecteur utilisé. Par défaut,
+``RFID_READER_BACKEND=manual`` laisse les tests passer par l'endpoint local. Sur
+Raspberry, le lecteur cible ACR122U s'utilise avec
+``RFID_READER_BACKEND=acr122u`` après installation de ``pyscard`` et du service
+PC/SC du système. ``RFID_READER_BACKEND=stdin`` reste disponible pour un lecteur
+configuré comme clavier série, et ``RFID_READER_BACKEND=nfcpy`` peut être utilisé
+avec un autre lecteur NFC compatible après installation optionnelle de
+``nfcpy``.
+
 Ecouter les telemetries recues par Mosquitto :
 
 .. code-block:: bash

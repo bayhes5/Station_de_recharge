@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1f8f55">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icons/pwa-icon.svg" type="image/svg+xml">
     <meta http-equiv="Cache-Control" content="no-store">
     <title>Administration | M&eacute;tropole Verte</title>
     <link rel="stylesheet" href="/css/auth.css">
@@ -76,7 +79,7 @@
                     <div class="panel-heading table-toolbar supervision-heading">
                         <div>
                             <p class="panel-title">Supervision temps r&eacute;el</p>
-                            <p class="table-caption">Sant&eacute; des ESP32, alertes et derni&egrave;res mesures capteurs.</p>
+                            <p class="table-caption">Connexion des ESP32, alertes et derni&egrave;res mesures capteurs.</p>
                         </div>
                         <a id="grafana-link" class="btn btn-secondary compact" href="/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s" target="_blank" rel="noreferrer">Ouvrir Grafana</a>
                     </div>
@@ -107,8 +110,8 @@
                 <section class="dashboard-panel table-panel admin-table-panel">
                     <div class="panel-heading table-toolbar">
                         <div>
-                            <p class="panel-title">Sant&eacute; des ESP32</p>
-                            <p class="table-caption">Dernier signal, statut firmware et emplacement physique.</p>
+                            <p class="panel-title">Connexion des ESP32</p>
+                            <p class="table-caption">Dernier signal, dernier &eacute;tat re&ccedil;u et emplacement physique.</p>
                         </div>
                     </div>
                     <div id="admin-devices-list" class="table-host"></div>

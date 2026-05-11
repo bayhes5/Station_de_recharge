@@ -27,215 +27,133 @@ La base est organisée autour de cinq ensembles fonctionnels :
   opérationnelles ;
 * **maintenance** : techniciens et interventions planifiées.
 
-Les valeurs textuelles comme ``statut``, ``status`` ou ``type`` restent des
-chaînes dans la base. Cela garde de la souplesse pour l’API et les simulations.
-Les valeurs indiquées ci-dessous sont donc les valeurs fonctionnelles attendues,
-pas toujours des contraintes SQL strictes.
+Les valeurs textuelles comme ``statut`` ou ``status`` restent stockées en
+``VARCHAR`` dans la base. Les cycles métier principaux sont néanmoins verrouillés
+côté Django avec des ``TextChoices`` et exposés dans les formulaires
+d'administration sous forme de listes fermées. Des contraintes ``CHECK`` sont
+également ajoutées par les migrations Django pour empêcher les valeurs hors
+catalogue au niveau de la base. Ce choix garde la base compatible avec SQLite et
+PostgreSQL tout en évitant les statuts libres dans l'API.
 
-Diagramme Mermaid
+Les familles qui peuvent évoluer avec le terrain, comme les types de capteurs,
+les types d'alertes et les types d'intervention, restent volontairement plus
+extensibles.
+
+Vue relationnelle
 -----------------
 
-Le bloc suivant est rendu par Sphinx avec l’extension Mermaid. Il contient les
-tables, les champs structurants, les clés et les relations. Il peut aussi être
-copié dans un visualiseur Mermaid ou dans un outil compatible pour obtenir le
-diagramme ER.
+La documentation du schema est volontairement textuelle afin de rester lisible
+dans GitHub, Sphinx et les exports PDF sans dependre d'un moteur de diagramme.
+Les relations principales sont les suivantes :
 
-.. mermaid::
+.. list-table::
+   :header-rows: 1
+   :widths: 24 24 52
 
-   erDiagram
-       utilisateur {
-           UUID id_user PK
-           VARCHAR pseudo UK
-           VARCHAR email UK
-           VARCHAR password
-           VARCHAR statut
-           TIMESTAMP created_at
-           TIMESTAMP last_login
-           INTEGER failed_attempts
-           BOOLEAN is_active
-           BOOLEAN is_staff
-           BOOLEAN is_superuser
-           TIMESTAMP date_joined
-       }
+   * - Source
+     - Cible
+     - Sens metier
+   * - ``utilisateur``
+     - ``profil_utilisateur``
+     - Un compte possede un profil utilisateur.
+   * - ``utilisateur``
+     - ``utilisateur_role`` / ``role``
+     - Un compte peut recevoir plusieurs roles.
+   * - ``utilisateur``
+     - ``consentement``
+     - Les decisions de consentement sont historisees.
+   * - ``utilisateur``
+     - ``journal_securite``
+     - Les actions sensibles sont journalisees.
+   * - ``utilisateur``
+     - ``auth_method``
+     - Un compte peut posseder un ou plusieurs moyens d'acces.
+   * - ``type_auth``
+     - ``auth_method``
+     - Chaque moyen d'acces est classe par type.
+   * - ``station``
+     - ``emplacement``
+     - Une station contient plusieurs emplacements.
+   * - ``emplacement``
+     - ``device``
+     - Un emplacement est pilote par un equipement embarque.
+   * - ``device``
+     - ``capteur``
+     - Un ESP32 expose plusieurs capteurs.
+   * - ``capteur``
+     - ``capteur_data``
+     - Chaque capteur produit une serie de mesures horodatees.
+   * - ``utilisateur``
+     - ``reservation``
+     - Un utilisateur reserve un emplacement sur un creneau.
+   * - ``auth_method``
+     - ``reservation``
+     - La reservation reference le moyen d'acces choisi.
+   * - ``reservation``
+     - ``charging_session``
+     - Une reservation peut ouvrir une session de charge.
+   * - ``charging_session``
+     - ``session_telemetry``
+     - Les mesures electriques de session sont historisees.
+   * - ``capteur_data`` / ``charging_session``
+     - ``alerte``
+     - Une alerte peut etre expliquee par une mesure et/ou une session.
+   * - ``utilisateur``
+     - ``technicien``
+     - Un technicien peut etre lie a un compte utilisateur.
+   * - ``station``
+     - ``maintenance``
+     - Une intervention concerne une station.
+   * - ``technicien``
+     - ``maintenance``
+     - Une intervention peut etre assignee a un technicien.
 
-       profil_utilisateur {
-           UUID id_profil PK
-           UUID id_user FK
-           VARCHAR nom
-           VARCHAR telephone
-       }
+Cles structurantes
+~~~~~~~~~~~~~~~~~~
 
-       role {
-           UUID id_role PK
-           VARCHAR nom UK
-           TEXT description
-       }
+.. list-table::
+   :header-rows: 1
+   :widths: 24 32 44
 
-       utilisateur_role {
-           UUID id_user PK,FK
-           UUID id_role PK,FK
-           TIMESTAMP assigned_at
-       }
-
-       consentement {
-           UUID id_consentement PK
-           UUID id_user FK
-           VARCHAR type
-           VARCHAR statut
-           TIMESTAMP date_consentement
-       }
-
-       journal_securite {
-           UUID id_log PK
-           UUID id_user FK
-           INET ip
-           VARCHAR action
-           VARCHAR statut
-           TIMESTAMP date_action
-       }
-
-       type_auth {
-           UUID id_type PK
-           VARCHAR libelle UK
-           SMALLINT factor_level
-       }
-
-       auth_method {
-           UUID id_auth PK
-           UUID id_user FK
-           UUID id_type FK
-           TEXT secret_hash
-           VARCHAR display_value
-           JSONB metadata
-           TIMESTAMP expiration
-           BOOLEAN is_active
-           TIMESTAMP created_at
-       }
-
-       station {
-           UUID id_station PK
-           VARCHAR nom
-           VARCHAR localisation
-           DOUBLE latitude
-           DOUBLE longitude
-           VARCHAR statut
-           TIMESTAMP created_at
-       }
-
-       emplacement {
-           UUID id_emplacement PK
-           UUID id_station FK
-           INTEGER numero
-           VARCHAR etat
-           VARCHAR statut_cadenas
-       }
-
-       device {
-           UUID id_device PK
-           UUID id_emplacement FK
-           VARCHAR type_device
-           VARCHAR firmware_version
-           INET ip_address
-           VARCHAR mac_address
-           TIMESTAMP last_seen
-           VARCHAR status
-       }
-
-       capteur {
-           UUID id_capteur PK
-           UUID id_device FK
-           VARCHAR type
-           VARCHAR unite
-       }
-
-       capteur_data {
-           UUID id_data PK
-           UUID id_capteur FK
-           DOUBLE valeur
-           TIMESTAMP timestamp
-       }
-
-       reservation {
-           UUID id_reservation PK
-           VARCHAR reference_code UK
-           UUID id_user FK
-           UUID id_emplacement FK
-           UUID id_auth FK
-           VARCHAR auth_choice
-           TIMESTAMP date_debut
-           TIMESTAMP date_fin
-           VARCHAR statut
-       }
-
-       charging_session {
-           UUID id_session PK
-           UUID id_reservation FK,UK
-           UUID id_emplacement FK
-           TIMESTAMP start_time
-           TIMESTAMP end_time
-       }
-
-       session_telemetry {
-           UUID id_telemetry PK
-           UUID id_session FK
-           DOUBLE courant
-           DOUBLE tension
-           DOUBLE energie_kwh
-           TIMESTAMP timestamp
-       }
-
-       alerte {
-           UUID id_alerte PK
-           UUID id_data FK
-           UUID id_session FK
-           VARCHAR type
-           TEXT message
-           VARCHAR niveau_severite
-           VARCHAR status
-           TIMESTAMP date
-       }
-
-       technicien {
-           UUID id_tech PK
-           UUID id_user FK,UK
-           VARCHAR nom
-           VARCHAR email UK
-           VARCHAR telephone
-       }
-
-       maintenance {
-           UUID id_maintenance PK
-           UUID id_station FK
-           UUID id_technicien FK
-           VARCHAR type
-           TEXT description
-           VARCHAR status
-           TIMESTAMP date_planifiee
-           TIMESTAMP date_realisee
-       }
-
-       utilisateur ||--o| profil_utilisateur : possède
-       utilisateur ||--o{ utilisateur_role : reçoit
-       role ||--o{ utilisateur_role : définit
-       utilisateur ||--o{ consentement : donne
-       utilisateur ||--o{ journal_securite : déclenche
-       utilisateur ||--o{ auth_method : possède
-       type_auth ||--o{ auth_method : classe
-       utilisateur ||--o{ reservation : réserve
-       auth_method ||--o{ reservation : sécurise
-       station ||--o{ emplacement : contient
-       emplacement ||--o| device : équipe
-       device ||--o{ capteur : mesure
-       capteur ||--o{ capteur_data : produit
-       emplacement ||--o{ reservation : concerne
-       reservation ||--o| charging_session : ouvre
-       emplacement ||--o{ charging_session : accueille
-       charging_session ||--o{ session_telemetry : mesure
-       charging_session ||--o{ alerte : génère
-       capteur_data ||--o{ alerte : explique
-       utilisateur ||--o| technicien : peut_être
-       station ||--o{ maintenance : nécessite
-       technicien ||--o{ maintenance : réalise
+   * - Table
+     - Cles principales
+     - Contraintes importantes
+   * - ``utilisateur``
+     - ``id_user``
+     - ``pseudo`` et ``email`` uniques.
+   * - ``profil_utilisateur``
+     - ``id_profil``, ``id_user``
+     - Un profil par utilisateur.
+   * - ``auth_method``
+     - ``id_auth``, ``id_user``, ``id_type``
+     - Secret hache, expiration et activation.
+   * - ``station``
+     - ``id_station``
+     - Nom, localisation et statut d'exploitation.
+   * - ``emplacement``
+     - ``id_emplacement``, ``id_station``
+     - Numero unique dans une station.
+   * - ``device``
+     - ``id_device``, ``id_emplacement``
+     - Un device par emplacement, ``last_seen`` pour la supervision.
+   * - ``capteur``
+     - ``id_capteur``, ``id_device``
+     - Type et unite de mesure.
+   * - ``capteur_data``
+     - ``id_data``, ``id_capteur``
+     - Valeur numerique et horodatage.
+   * - ``reservation``
+     - ``id_reservation``, ``reference_code``
+     - Reference unique, creneau, statut et mode d'acces.
+   * - ``charging_session``
+     - ``id_session``, ``id_reservation``
+     - Une session active par reservation ouverte.
+   * - ``alerte``
+     - ``id_alerte``
+     - Type, severite, statut et timestamp.
+   * - ``maintenance``
+     - ``id_maintenance``, ``id_station``
+     - Planification, realisation et statut d'intervention.
 
 Script de création PostgreSQL
 -----------------------------
@@ -529,10 +447,10 @@ Historise les décisions utilisateur sur les traitements de données.
 
 * ``id_consentement`` : UUID primaire.
 * ``id_user`` : utilisateur concerné.
-* ``type`` : nature du consentement. Valeurs attendues : ``cgu``,
-  ``politique_confidentialite``, ``notifications``, ``mesure_audience``.
-* ``statut`` : décision. Valeurs attendues : ``accepte``, ``refuse``,
-  ``retire``.
+* ``type`` : nature du consentement. Valeurs fermées côté application :
+  ``cgu``, ``politique_confidentialite``, ``notifications``.
+* ``statut`` : décision. Valeurs fermées côté application : ``accepte``,
+  ``refuse``.
 * ``date_consentement`` : date de décision.
 
 Cette table est utile si elle est exploitée comme preuve de choix utilisateur.
@@ -580,7 +498,7 @@ Catalogue des moyens d’authentification.
 * ``libelle`` : libellé unique. Valeurs attendues : ``RFID``, ``qr``,
   ``code``.
 * ``factor_level`` : niveau d’assurance. Exemple : ``1`` pour RFID,
-  ``2`` pour code temporaire.
+  ``2`` pour code SMS temporaire.
 
 ``auth_method``
 ~~~~~~~~~~~~~~~
@@ -592,9 +510,9 @@ Moyen d’authentification lié à un utilisateur. Les secrets sont hachés.
 * ``id_type`` : type d’authentification.
 * ``secret_hash`` : secret haché. Exemple : hash du badge RFID ou du token QR.
 * ``display_value`` : valeur affichable lorsque le parcours l’autorise, par
-  exemple un code temporaire.
+  exemple un code SMS temporaire.
 * ``metadata`` : métadonnées JSON. Exemple : ``{"reservation_code": "A1B2C3"}``.
-* ``expiration`` : date de fin de validité, surtout pour QR/code temporaire.
+* ``expiration`` : date de fin de validité, surtout pour QR/code SMS temporaire.
 * ``is_active`` : moyen actif ou révoqué.
 * ``created_at`` : date de création.
 
@@ -608,8 +526,8 @@ Site physique de recharge.
 * ``localisation`` : adresse ou description. Exemple : ``12 rue de Paris``.
 * ``latitude`` : coordonnée GPS optionnelle. Exemple : ``48.8566``.
 * ``longitude`` : coordonnée GPS optionnelle. Exemple : ``2.3522``.
-* ``statut`` : état du site. Valeurs attendues : ``active``,
-  ``maintenance``, ``hors_service``.
+* ``statut`` : état du site. Valeurs fermées côté application : ``active``,
+  ``maintenance``, ``inactive``.
 * ``created_at`` : date d’enregistrement.
 
 ``emplacement``
@@ -620,10 +538,10 @@ Point de charge numéroté dans une station.
 * ``id_emplacement`` : UUID primaire.
 * ``id_station`` : station parente.
 * ``numero`` : numéro visible sur site. Exemple : ``1``.
-* ``etat`` : disponibilité opérationnelle. Valeurs attendues :
-  ``disponible``, ``reserve``, ``occupe``, ``maintenance``, ``hors_service``.
-* ``statut_cadenas`` : état du verrou. Valeurs attendues : ``verrouille``,
-  ``deverrouille``, ``inconnu``.
+* ``etat`` : disponibilité opérationnelle. Valeurs fermées côté application :
+  ``disponible``, ``reserve``, ``occupe``, ``maintenance``.
+* ``statut_cadenas`` : état du verrou. Valeurs fermées côté application :
+  ``verrouille``, ``deverrouille``, ``bloque``.
 
 ``device``
 ~~~~~~~~~~
@@ -637,9 +555,14 @@ Point de charge numéroté dans une station.
 * ``ip_address`` : adresse IP locale si disponible. Exemple : ``192.168.1.42``.
 * ``mac_address`` : adresse MAC ou identifiant matériel. Exemple :
   ``AA:BB:CC:DD:EE:FF``.
-* ``last_seen`` : dernière télémétrie reçue.
-* ``status`` : état remonté. Valeurs observées : ``online``, ``offline``,
-  ``charging``.
+* ``last_seen`` : dernière télémétrie reçue. Ce champ sert à calculer la
+  connexion opérationnelle de l'ESP32 dans l'interface de supervision.
+* ``status`` : dernier état métier remonté par l'équipement. Valeurs observées :
+  ``provisioned`` pour un ESP32 configuré mais jamais vu, ``online`` ou
+  ``idle`` pour un ESP32 disponible, ``charging`` pour une charge en cours,
+  ``offline`` pour un état explicitement remonté hors ligne et ``error`` pour
+  une anomalie embarquée. La disponibilité réelle ne doit pas être déduite de ce
+  champ seul : elle dépend de la fraîcheur de ``last_seen``.
 
 ``capteur``
 ~~~~~~~~~~~
@@ -679,8 +602,8 @@ Réservation d’un emplacement sur un créneau donné.
   ``code``.
 * ``date_debut`` : début du créneau.
 * ``date_fin`` : fin du créneau, strictement après ``date_debut``.
-* ``statut`` : cycle de vie. Valeurs observées : ``confirmee``, ``active``,
-  ``annulee``, ``terminee``, ``expiree``.
+* ``statut`` : cycle de vie. Valeurs fermées côté application :
+  ``en_attente``, ``confirmee``, ``active``, ``annulee``, ``terminee``.
 
 ``charging_session``
 ~~~~~~~~~~~~~~~~~~~~
@@ -716,10 +639,10 @@ Incident opérationnel issu d’une mesure capteur ou d’une session.
 * ``type`` : famille d’alerte. Valeurs observées : ``intrusion``,
   ``cable_removed``.
 * ``message`` : message lisible. Exemple : ``Cable retire pendant une charge active.``.
-* ``niveau_severite`` : priorité. Valeurs observées : ``critique``,
-  ``haute``, ``critical``.
-* ``status`` : cycle de vie. Valeurs observées : ``nouvelle``, ``active``,
-  ``resolue``, ``closed``, ``fermee``.
+* ``niveau_severite`` : priorité. Valeurs fermées côté application :
+  ``basse``, ``moyenne``, ``haute``, ``critical``, ``critique``.
+* ``status`` : cycle de vie. Valeurs fermées côté application : ``nouvelle``,
+  ``active``, ``resolue``, ``closed``, ``fermee``.
 * ``date`` : date de création ou de dernière mise à jour.
 
 ``technicien``
@@ -744,8 +667,8 @@ Intervention planifiée ou réalisée sur une station.
 * ``type`` : nature de l’intervention. Valeurs attendues : ``preventive``,
   ``corrective``, ``diagnostic``.
 * ``description`` : détail de l’intervention.
-* ``status`` : avancement. Valeurs attendues : ``planifiee``, ``en_cours``,
-  ``realisee``, ``annulee``.
+* ``status`` : avancement. Valeurs fermées côté application : ``planifiee``,
+  ``en_cours``, ``realisee``, ``annulee``.
 * ``date_planifiee`` : date prévue.
 * ``date_realisee`` : date effective, optionnelle tant que l'intervention n'est
   pas terminée.
@@ -778,6 +701,6 @@ une anomalie persistante peut faire évoluer une alerte existante de ``nouvelle`
 vers ``active``, puis ``resolue`` lorsque la télémétrie revient à la normale.
 
 Les moyens d’authentification sont séparés des réservations afin de prendre en
-charge plusieurs modes d’accès : RFID durable, QR code temporaire et code court.
+charge plusieurs modes d’accès : RFID durable, QR code temporaire et code SMS.
 Le secret reste haché ; la valeur affichable est limitée aux parcours où elle est
 nécessaire à l’utilisateur.

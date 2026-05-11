@@ -1,0 +1,46 @@
+{
+  "name": "Metropole Verte - Station de recharge",
+  "short_name": "Metropole Verte",
+  "description": "Reservation, acces et suivi des sessions de recharge.",
+  "start_url": "/dashboard.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7faf8",
+  "theme_color": "#1f8f55",
+  "orientation": "portrait",
+  "categories": ["utilities", "navigation"],
+  "icons": [
+    {
+      "src": "/icons/pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Reserver",
+      "short_name": "Reserver",
+      "url": "/reservation.html",
+      "description": "Creer une reservation de recharge"
+    },
+    {
+      "name": "Mes reservations",
+      "short_name": "Reservations",
+      "url": "/dashboard.html#reservations",
+      "description": "Voir les reservations a venir"
+    },
+    {
+      "name": "Session borne",
+      "short_name": "Borne",
+      "url": "/mobile-session.html",
+      "description": "Autoriser une borne depuis le mobile"
+    },
+    {
+      "name": "Profil",
+      "short_name": "Profil",
+      "url": "/profile.html",
+      "description": "Gerer le profil et le badge RFID"
+    }
+  ]
+}

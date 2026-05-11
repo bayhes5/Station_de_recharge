@@ -18,6 +18,38 @@ function optionLabel(item, fallback = "-") {
     return item || fallback;
 }
 
+const USER_STATUS_OPTIONS = [
+    { value: "actif", label: "Actif" },
+    { value: "suspendu", label: "Suspendu" },
+    { value: "archive", label: "Archivé" },
+];
+
+const STATION_STATUS_OPTIONS = [
+    { value: "active", label: "Active" },
+    { value: "maintenance", label: "Maintenance" },
+    { value: "inactive", label: "Inactive" },
+];
+
+const EMPLACEMENT_STATUS_OPTIONS = [
+    { value: "disponible", label: "Disponible" },
+    { value: "reserve", label: "Réservé" },
+    { value: "occupe", label: "Occupé" },
+    { value: "maintenance", label: "Maintenance" },
+];
+
+const LOCK_STATE_OPTIONS = [
+    { value: "verrouille", label: "Verrouillé" },
+    { value: "deverrouille", label: "Déverrouillé" },
+    { value: "bloque", label: "Bloqué" },
+];
+
+const MAINTENANCE_STATUS_OPTIONS = [
+    { value: "planifiee", label: "Planifiée" },
+    { value: "en_cours", label: "En cours" },
+    { value: "realisee", label: "Réalisée" },
+    { value: "annulee", label: "Annulée" },
+];
+
 function createTextElement(tagName, text, className = "") {
     const element = document.createElement(tagName);
     if (className) element.className = className;
@@ -62,7 +94,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { name: "email", label: "E-mail", type: "email", required: true },
                 { name: "telephone", label: "T\u00e9l\u00e9phone", type: "tel" },
                 { name: "nom", label: "Nom", type: "text" },
-                { name: "statut", label: "Statut", type: "text", defaultValue: "actif" },
+                { name: "statut", label: "Statut", type: "select", defaultValue: "actif", options: USER_STATUS_OPTIONS },
                 { name: "password", label: "Mot de passe", type: "password", createOnly: true, requiredOnCreate: true },
                 { name: "is_active", label: "Actif", type: "checkbox", defaultValue: true },
                 { name: "is_staff", label: "Staff", type: "checkbox" },
@@ -82,7 +114,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { name: "localisation_text", label: "Localisation", type: "text", required: true },
                 { name: "latitude", label: "Latitude", type: "number", step: "any", required: true },
                 { name: "longitude", label: "Longitude", type: "number", step: "any", required: true },
-                { name: "statut", label: "Statut", type: "text", defaultValue: "active", required: true },
+                { name: "statut", label: "Statut", type: "select", defaultValue: "active", required: true, options: STATION_STATUS_OPTIONS },
             ],
         },
         emplacement: {
@@ -96,8 +128,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             fields: [
                 { name: "station", label: "Station", type: "select", required: true, options: "stations" },
                 { name: "numero", label: "Num\u00e9ro", type: "number", required: true },
-                { name: "statut", label: "Statut", type: "text", defaultValue: "disponible", required: true },
-                { name: "lock_state", label: "\u00c9tat serrure", type: "text", defaultValue: "verrouill\u00e9e", required: true },
+                { name: "statut", label: "Statut", type: "select", defaultValue: "disponible", required: true, options: EMPLACEMENT_STATUS_OPTIONS },
+                { name: "lock_state", label: "\u00c9tat serrure", type: "select", defaultValue: "verrouille", required: true, options: LOCK_STATE_OPTIONS },
             ],
         },
         technician: {
@@ -127,7 +159,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { name: "station", label: "Station", type: "select", required: true, options: "stations" },
                 { name: "technicien", label: "Technicien", type: "select", required: true, options: "technicians" },
                 { name: "type", label: "Type", type: "text", required: true },
-                { name: "status", label: "Statut", type: "text", defaultValue: "planifi\u00e9e", required: true },
+                { name: "status", label: "Statut", type: "select", defaultValue: "planifiee", required: true, options: MAINTENANCE_STATUS_OPTIONS },
                 { name: "description", label: "Description", type: "textarea", required: true, fullWidth: true },
                 { name: "date_planifiee", label: "Date planifi\u00e9e", type: "datetime-local", required: true },
                 { name: "date_realisee", label: "Date r\u00e9alis\u00e9e", type: "datetime-local" },
@@ -513,7 +545,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         input.id = `admin-${field.name}`;
         input.name = field.name;
         input.required = Boolean(field.required || (field.requiredOnCreate && !isEdit));
-        if (field.defaultValue !== undefined && field.type !== "select") {
+        if (field.defaultValue !== undefined) {
             input.value = field.defaultValue;
         }
 
@@ -529,7 +561,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         empty.textContent = field.required ? "Choisir" : "Aucun";
         select.appendChild(empty);
 
-        const source = {
+        const source = Array.isArray(field.options) ? field.options : {
             users,
             stations,
             technicians,
@@ -537,7 +569,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         source.forEach((item) => {
             const option = document.createElement("option");
-            if (field.options === "users") {
+            if (Array.isArray(field.options)) {
+                option.value = item.value;
+                option.textContent = item.label;
+            } else if (field.options === "users") {
                 option.value = item.id_user;
                 option.textContent = `${item.pseudo} (${item.email})`;
             } else if (field.options === "stations") {

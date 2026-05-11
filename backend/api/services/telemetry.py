@@ -10,7 +10,16 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from api.models import Alerte, Capteur, CapteurData, Device, Emplacement, Session, SessionTelemetry
+from api.models import (
+    Alerte,
+    Capteur,
+    CapteurData,
+    Device,
+    DeviceStatus,
+    Emplacement,
+    Session,
+    SessionTelemetry,
+)
 
 
 SENSOR_FIELDS = {
@@ -25,6 +34,13 @@ SENSOR_FIELDS = {
 }
 
 RESOLVED_ALERT_STATUSES = ["resolved", "resolue", "closed", "fermee"]
+DEVICE_STATUS_ALIASES = {
+    "available": DeviceStatus.ONLINE,
+    "ready": DeviceStatus.ONLINE,
+    "running": DeviceStatus.CHARGING,
+    "emergency": DeviceStatus.ERROR,
+    "fault": DeviceStatus.ERROR,
+}
 
 
 @dataclass(frozen=True)
@@ -70,6 +86,13 @@ def _bool_as_float(value: Any):
     if value in {0, 1, "0", "1"}:
         return float(value)
     return None
+
+
+def _device_status(value: Any) -> str:
+    """Return a storage-safe ESP32 business state."""
+    normalized = str(value or DeviceStatus.ONLINE).strip().lower()
+    aliased = DEVICE_STATUS_ALIASES.get(normalized, normalized)
+    return aliased if aliased in DeviceStatus.values else DeviceStatus.ERROR
 
 
 def _sensor_value(sensor_type: str, value: Any):
@@ -270,7 +293,7 @@ def ingest_slot_telemetry(slot_id: str, payload: dict[str, Any]) -> TelemetryRes
     timestamp = _parse_timestamp(payload.get("timestamp"))
     device = _get_device(slot_id)
     device.last_seen = timestamp
-    device.status = str(payload.get("state") or "online")[:50]
+    device.status = _device_status(payload.get("state"))
     device.save(update_fields=["last_seen", "status"])
 
     capteur_records = []

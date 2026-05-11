@@ -2,7 +2,7 @@ const RESERVATION_WINDOW_MINUTES = 30;
 const AUTH_OPTIONS = {
     rfid: "Badge RFID",
     qr: "QR code temporaire",
-    code: "Code alphanumérique temporaire",
+    code: "Code SMS temporaire",
 };
 
 function localToDate(value) {
@@ -81,7 +81,7 @@ function renderReservations(container, reservations, onCancel, onAccess) {
                 accessButton.className = "btn btn-secondary";
                 accessButton.type = "button";
                 accessButton.dataset.accessToggle = reservation.id_reservation;
-                accessButton.textContent = reservation.auth_mode === "qr" ? "+ Afficher le QR" : "+ Afficher le code";
+                accessButton.textContent = reservation.auth_mode === "qr" ? "+ Afficher le QR" : "Recevoir le code SMS";
                 accessButton.addEventListener("click", () => onAccess(reservation, item, accessButton));
                 actions.appendChild(accessButton);
             }
@@ -216,7 +216,11 @@ function appendAccessPayload(container, result) {
     if (access.mode === "code") {
         const codeLine = document.createElement("div");
         codeLine.className = "empty-state access-code";
-        codeLine.textContent = `Code temporaire : ${access.value}`;
+        if (access.sent_at) {
+            codeLine.textContent = `Code SMS temporaire envoyé au ${access.recipient_hint || "numéro enregistré"}.`;
+        } else {
+            codeLine.textContent = "Code SMS temporaire généré. Utilisez le bouton d'envoi avant votre passage à la borne.";
+        }
         container.appendChild(codeLine);
     }
 }
@@ -494,11 +498,32 @@ document.addEventListener("DOMContentLoaded", async () => {
         const accessContainer = card.querySelector(".reservation-access-host");
         if (!accessContainer) return;
 
+        if (reservation.auth_mode === "code") {
+            try {
+                if (triggerButton) triggerButton.disabled = true;
+                const result = await window.AuthAPI.sendReservationAccessCode(reservation.id_reservation);
+                accessContainer.innerHTML = "";
+                appendAccessPayload(accessContainer, result);
+                accessContainer.dataset.visible = "true";
+                if (triggerButton) {
+                    triggerButton.textContent = "Renvoyer le code SMS";
+                }
+                status.classList.remove("error");
+                status.textContent = "Code SMS temporaire envoyé.";
+            } catch (error) {
+                status.classList.add("error");
+                status.textContent = error.message || "Impossible d'envoyer le code SMS temporaire.";
+            } finally {
+                if (triggerButton) triggerButton.disabled = false;
+            }
+            return;
+        }
+
         if (accessContainer.dataset.visible === "true") {
             accessContainer.innerHTML = "";
             accessContainer.dataset.visible = "false";
             if (triggerButton) {
-                triggerButton.textContent = reservation.auth_mode === "qr" ? "+ Afficher le QR" : "+ Afficher le code";
+                triggerButton.textContent = "+ Afficher le QR";
             }
             return;
         }
@@ -509,10 +534,10 @@ document.addEventListener("DOMContentLoaded", async () => {
             appendAccessPayload(accessContainer, result);
             accessContainer.dataset.visible = "true";
             if (triggerButton) {
-                triggerButton.textContent = reservation.auth_mode === "qr" ? "- Masquer le QR" : "- Masquer le code";
+                triggerButton.textContent = "- Masquer le QR";
             }
             status.classList.remove("error");
-            status.textContent = reservation.auth_mode === "qr" ? "QR code affiché." : "Code temporaire affiché.";
+            status.textContent = "QR code affiché.";
         } catch (error) {
             status.classList.add("error");
             status.textContent = error.message || "Impossible d'afficher l'accès temporaire.";
@@ -526,7 +551,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         for (const accessContainer of visibleContainers) {
             const reservationId = accessContainer.dataset.reservationId;
             const accessMode = accessContainer.dataset.accessMode;
-            if (!reservationId || !["qr", "code"].includes(accessMode)) continue;
+            if (!reservationId || accessMode !== "qr") continue;
 
             try {
                 const result = await window.AuthAPI.getReservationAccessPayload(reservationId);
@@ -536,7 +561,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 accessContainer.dataset.visible = "false";
                 const toggleButton = document.querySelector(`[data-access-toggle="${reservationId}"]`);
                 if (toggleButton) {
-                    toggleButton.textContent = accessMode === "qr" ? "+ Afficher le QR" : "+ Afficher le code";
+                    toggleButton.textContent = "+ Afficher le QR";
                 }
             }
         }
@@ -595,7 +620,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         updateEndDisplay();
         status.textContent = savedRfidValue
             ? "Badge RFID détecté. Il est sélectionné par défaut pour la réservation."
-            : "Aucun badge RFID enregistré. QR code et code temporaire restent disponibles.";
+            : "Aucun badge RFID enregistré. QR code et code SMS temporaire restent disponibles.";
         window.setInterval(refreshVisibleAccesses, 15000);
         document.addEventListener("visibilitychange", () => {
             if (!document.hidden) refreshVisibleAccesses();
@@ -649,7 +674,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         try {
             await window.AuthAPI.createReservation(payload);
-            status.textContent = "Réservation créée avec succès. Retrouvez le code ou le QR dans l’onglet Réservations du tableau de bord.";
+            status.textContent = "Réservation créée avec succès. Le QR est disponible dans vos réservations, le code SMS peut y être envoyé.";
             form.reset();
             stationInput.value = selectedStation?.id_station || "";
             startInput.value = toLocalInputValue(new Date());

@@ -64,9 +64,11 @@ température, courant, tension, énergie, câble, porte et état des emplacement
 L'application peut continuer à utiliser l'ORM Django, et Grafana peut lire les
 tables horodatées sans couche supplémentaire.
 
-Dans la version actuelle, les tables restent des modèles Django standards. Les
-hypertables TimescaleDB pourront être activées plus tard par migration SQL si le
-volume de télémétrie le justifie.
+Une migration active l'extension ``timescaledb`` lorsque le serveur PostgreSQL la
+propose. Les tables restent toutefois des modèles Django standards. Le passage en
+hypertables est gardé pour une étape dédiée, car les tables de télémétrie
+utilisent aujourd'hui des clés primaires UUID simples ; TimescaleDB exige que les
+contraintes uniques incluent la colonne temporelle de partitionnement.
 
 Modèle utilisateur personnalisé
 -------------------------------
@@ -133,6 +135,26 @@ frontend. Il n'optimise pas directement les requêtes backend : les gains de
 performance API viendront plutôt des index, de la pagination, du cache ciblé et
 de l'optimisation des serializers.
 
+PWA plutôt qu'application mobile native
+---------------------------------------
+
+Le projet retient une web app responsive et installable en PWA plutôt qu'une
+application mobile native. Ce choix évite de maintenir deux clients séparés tout
+en couvrant le besoin mobile : consulter ses réservations, afficher le QR,
+déclencher l'envoi du code SMS et gérer le badge RFID depuis le profil.
+
+Le frontend fournit donc un manifeste ``manifest.webmanifest``, une icône
+installable et un service worker léger. Le cache PWA reste volontairement
+limité à l'enveloppe applicative et aux assets statiques : les données métier,
+les réservations et les secrets d'accès continuent de venir de l'API afin de ne
+pas figer des droits sensibles côté navigateur.
+
+Cette base prépare le futur parcours "téléphone -> borne" : la borne pourrait
+afficher un QR de pairing, l'utilisateur ouvrirait la PWA mobile, puis le backend
+autoriserait la borne après confirmation. Ce pairing temps réel n'est pas encore
+le chemin nominal ; RFID, QR de réservation et code SMS restent les moyens
+d'accès opérationnels.
+
 Carte de réservation
 --------------------
 
@@ -173,15 +195,15 @@ les tests automatisés.
 Si le projet évolue vers des durées configurables, la règle devra passer dans
 une configuration métier ou dans un modèle de tarification.
 
-Modes d'accès RFID, QR code et code temporaire
-----------------------------------------------
+Modes d'accès RFID, QR code et code SMS temporaire
+--------------------------------------------------
 
 Le projet prévoit plusieurs modes d'authentification d'accès.
 
 Le RFID correspond au cas physique naturel pour une station. Le QR code et le
-code temporaire servent de solutions simples pour les utilisateurs sans badge ou
-pour un parcours sans badge physique. Cette combinaison permet de tester le parcours complet
-avant que tout le matériel soit disponible.
+code SMS temporaire servent de solutions simples pour les utilisateurs sans
+badge ou pour un parcours sans badge physique. Cette combinaison permet de tester
+le parcours complet avant que tout le matériel soit disponible.
 
 Les secrets ne doivent pas être stockés en clair. Le modèle
 ``Authentification`` porte donc une valeur hachée, des métadonnées, une
@@ -193,16 +215,21 @@ remplacer ou le révoquer depuis l'écran de modification de l'utilisateur. Côt
 administration, la valeur affichée est toujours masquée afin de ne pas exposer
 le secret physique du badge.
 
-Le QR code et le code temporaire sont volontairement rattachés à une
+Le QR code et le code SMS temporaire sont volontairement rattachés à une
 réservation, pas au profil utilisateur. Ils peuvent donc être régénérés ou
 révoqués depuis l'administration des réservations. L'utilisateur peut afficher
-ou masquer le QR/code courant sans provoquer de rotation. La valeur temporaire
-est dérivée côté serveur à partir d'un nonce et de ``SECRET_KEY`` : le secret
-clair n'est pas stocké, mais le même accès peut être reconstruit tant qu'il est
-actif.
+ou masquer le QR courant sans provoquer de rotation. La valeur temporaire est
+dérivée côté serveur à partir d'un nonce et de ``SECRET_KEY`` : le secret clair
+n'est pas stocké, mais le même accès peut être reconstruit tant qu'il est actif.
+
+Le QR est le support applicatif immédiat : il est généré dès la réservation et
+consultable dans le dashboard. Le code SMS répond au cas sans application au
+moment de la charge : le secret est créé dès la réservation pour pouvoir être
+synchronisé côté station, mais il n'est envoyé à l'utilisateur que peu avant le
+créneau ou lorsqu'il clique sur ``Recevoir le code SMS``.
 
 La régénération par l'administration remplace la valeur active et ne présente
-plus le QR/code dans une modale de copie. Cette décision évite de transformer
+plus le QR/code SMS dans une modale de copie. Cette décision évite de transformer
 l'admin en canal de transmission du secret : si l'utilisateur affiche déjà son
 accès, l'interface rafraîchit la valeur courante automatiquement.
 
@@ -213,7 +240,7 @@ en empêchant la réutilisation.
 
 Les actions sensibles d'administration, comme la réinitialisation du mot de
 passe, l'association ou la révocation RFID et la régénération ou révocation
-QR/code, alimentent ``JournalSecurite``.
+QR/code SMS, alimentent ``JournalSecurite``.
 
 Kiosque Raspberry séparé
 ------------------------
@@ -272,8 +299,8 @@ Le parcours est découpé en écrans courts plutôt qu'en formulaire unique :
 * un écran d'accueil marqué ``Métropole Verte`` qui confirme que l'utilisateur
   est devant la bonne borne et propose les trois moyens d'accès ;
 * un écran QR code pour scanner directement le jeton de réservation ;
-* un écran code temporaire avec deux champs explicites : code de réservation et
-  code d'accès ;
+* un écran code SMS temporaire avec deux champs explicites : code de réservation
+  et code reçu par SMS ;
 * un écran RFID qui demande le code de réservation avant la lecture du badge ;
 * un écran de résultat plein écran, vert ou rouge, qui confirme l'emplacement ou
   explique le refus ;
@@ -281,7 +308,7 @@ Le parcours est découpé en écrans courts plutôt qu'en formulaire unique :
   de réservation expirée.
 
 Le clavier tactile reproduit la matrice matérielle ``1 2 3 A``, ``4 5 6 B``,
-``7 8 9 C`` et ``* 0 # D``. Les nouveaux codes de réservation et codes
+``7 8 9 C`` et ``* 0 # D``. Les nouveaux codes de réservation et codes SMS
 temporaires ``code`` sont donc générés uniquement avec les caractères ``0-9`` et
 ``A-D``. La touche ``#`` sert à valider, tandis que ``*`` sert à corriger la
 saisie. Ce choix évite de créer des secrets impossibles à entrer sur la borne

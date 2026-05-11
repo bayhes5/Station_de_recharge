@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1f8f55">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icons/pwa-icon.svg" type="image/svg+xml">
     <meta http-equiv="Cache-Control" content="no-store">
     <title>Profil | M&eacute;tropole Verte</title>
     <link rel="stylesheet" href="/css/auth.css">
@@ -22,6 +25,7 @@
                     <a id="profile-admin-link" class="btn btn-secondary" href="/admin-dashboard.html" hidden>Administration</a>
                     <a class="btn btn-secondary" href="/dashboard.html">Tableau de bord</a>
                     <a class="btn btn-primary" href="/reservation.html">Réserver</a>
+                    <button id="logout-btn" class="btn btn-secondary" type="button">Se déconnecter</button>
                 </div>
             </header>
 
@@ -92,9 +96,9 @@
                 <div class="dashboard-grid">
                     <section class="dashboard-panel">
                         <p class="panel-title">Badge RFID</p>
-                        <p class="lead">Generez un code court, puis saisissez-le sur une borne avant de passer votre badge. L'UID est lu uniquement par le Raspberry Pi.</p>
+                        <p class="lead">Générez un code court, puis saisissez-le sur le terminal de la station avant de passer votre badge. L'UID est lu uniquement par le Raspberry Pi.</p>
                         <form id="auth-method-form" class="account-form">
-                            <button class="btn btn-primary" type="submit">Generer un code d'association</button>
+                            <button class="btn btn-primary" type="submit">Générer un code d'association</button>
                         </form>
                         <div id="rfid-link-code" class="empty-state access-code" hidden></div>
                         <div id="auth-methods-list" class="stacked-list section-stack"></div>
@@ -134,19 +138,18 @@
                     </section>
 
                     <section class="dashboard-panel">
-                        <p class="panel-title">Données personnelles</p>
-                        <p class="lead">Récupérez une copie de votre compte ou supprimez-le définitivement.</p>
+                        <p class="panel-title">Export des données</p>
+                        <p class="lead">Récupérez une copie des informations associées à votre compte.</p>
                         <div class="cta-row">
                             <button id="export-btn" class="btn btn-secondary" type="button">Télécharger mes données</button>
-                            <button id="delete-btn" class="btn btn-secondary" type="button">Supprimer mon compte</button>
                         </div>
                     </section>
 
                     <section class="dashboard-panel danger-zone">
-                        <p class="panel-title">Suppression</p>
-                        <p class="danger-text">La suppression efface le compte et ses données associées selon les règles de cascade.</p>
+                        <p class="panel-title">Suppression du compte</p>
+                        <p class="danger-text">Cette action supprime définitivement le compte et ses données associées selon les règles de conservation applicables.</p>
                         <div class="cta-row">
-                            <button id="logout-btn" class="btn btn-secondary" type="button">Se déconnecter</button>
+                            <button id="delete-btn" class="btn btn-secondary danger-action" type="button">Supprimer mon compte</button>
                         </div>
                     </section>
                 </div>

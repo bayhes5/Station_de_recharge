@@ -1,10 +1,22 @@
-const API_BASE_URL = "http://localhost:8000/api";
+function resolveApiBaseUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const explicitUrl = params.get("api_base") || "";
+    if (explicitUrl) {
+        return explicitUrl.replace(/\/$/, "");
+    }
+
+    window.localStorage.removeItem("terminalApiBaseUrl");
+    return `${window.location.origin}/backend-api`;
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 const EDGE_BASE_URL = window.location.origin;
 const KEYPAD_PATTERN = /^[0-9A-D]$/;
 const TERMINAL_STATION_ID =
     new URLSearchParams(window.location.search).get("station_id")
     || window.localStorage.getItem("terminalStationId")
     || "";
+const RFID_POLL_INTERVAL_MS = 700;
 
 const screens = [...document.querySelectorAll(".screen")];
 const routeButtons = [...document.querySelectorAll("[data-go]")];
@@ -26,6 +38,11 @@ const linkCodeInput = document.getElementById("link-code");
 const linkCodeDisplay = document.getElementById("link-code-display");
 const linkRfidValueInput = document.getElementById("link-rfid-value");
 const linkStatusBox = document.getElementById("link-status");
+const mobileStatusBox = document.getElementById("mobile-status");
+const mobileQrBox = document.getElementById("mobile-qr");
+const mobileUrlOutput = document.getElementById("mobile-url");
+const mobileRefreshButton = document.getElementById("mobile-refresh");
+const mobileCancelButton = document.getElementById("mobile-cancel");
 const resultScreen = document.getElementById("screen-result");
 const resultBadge = document.getElementById("result-badge");
 const resultTitle = document.getElementById("result-title");
@@ -36,6 +53,9 @@ let activeScreen = "home";
 let activeCodeField = "reservation";
 let submitting = false;
 let homeTimer = null;
+let lastRfidScanId = Number(window.sessionStorage.getItem("lastRfidScanId") || "0");
+let mobileSessionToken = "";
+let mobileSessionTimer = null;
 
 function showScreen(name) {
     activeScreen = name;
@@ -61,6 +81,11 @@ function showScreen(name) {
         linkRfidValueInput.value = "";
         setLinkStatus("En attente du code association.");
         updateLinkDisplay();
+    }
+    if (name === "mobile") {
+        startMobilePairing();
+    } else {
+        stopMobilePairing();
     }
 }
 
@@ -92,6 +117,14 @@ function setLinkStatus(message, error = false) {
     }
     linkStatusBox.textContent = message;
     linkStatusBox.classList.toggle("error", error);
+}
+
+function setMobileStatus(message, error = false) {
+    if (!mobileStatusBox) {
+        return;
+    }
+    mobileStatusBox.textContent = message;
+    mobileStatusBox.classList.toggle("error", error);
 }
 
 function setActiveCodeField(field) {
@@ -169,6 +202,69 @@ async function sendRfidLink(payload) {
     return sendApi("/terminal/link-rfid/", payload);
 }
 
+async function sendOfflineAuthentication(payload) {
+    let response;
+    try {
+        response = await fetch(`${EDGE_BASE_URL}/offline/authenticate`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+            },
+            body: JSON.stringify(payload),
+        });
+    } catch (_error) {
+        throw new Error("Cache offline local indisponible.");
+    }
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(data.detail || "Authentification offline refusee.");
+    }
+    return data;
+}
+
+async function createMobileSession() {
+    return sendApi("/terminal/mobile-sessions/", TERMINAL_STATION_ID ? { station_id: TERMINAL_STATION_ID } : {});
+}
+
+async function consumeMobileSession(token) {
+    return sendApi(
+        `/terminal/mobile-sessions/${encodeURIComponent(token)}/consume/`,
+        TERMINAL_STATION_ID ? { station_id: TERMINAL_STATION_ID } : {},
+    );
+}
+
+async function readMobileSession(token) {
+    let response;
+    try {
+        response = await fetch(`${API_BASE_URL}/terminal/mobile-sessions/${encodeURIComponent(token)}/`, {
+            method: "GET",
+            headers: {
+                Accept: "application/json",
+            },
+        });
+    } catch (_error) {
+        throw new Error("Session mobile indisponible.");
+    }
+
+    const text = await response.text();
+    let data = {};
+    if (text) {
+        try {
+            data = JSON.parse(text);
+        } catch (_error) {
+            data = { detail: text };
+        }
+    }
+
+    if (!response.ok) {
+        throw new Error(data.detail || "Session mobile refusee.");
+    }
+
+    return data;
+}
+
 async function sendEdgeMqttCommand(payload) {
     let response;
     try {
@@ -191,6 +287,38 @@ async function sendEdgeMqttCommand(payload) {
     return data;
 }
 
+function mqttDetails(result) {
+    const mqtt = result?.mqtt || {};
+    if (!mqtt.ack_received) {
+        return "";
+    }
+    const ackPayload = mqtt.ack?.payload || {};
+    const status = ackPayload.status || ackPayload.state || "confirme";
+    const message = ackPayload.message ? ` - ${ackPayload.message}` : "";
+    return `ESP32 ${status}${message}`;
+}
+
+async function readLatestRfidScan() {
+    let response;
+    try {
+        response = await fetch(`${EDGE_BASE_URL}/rfid/scan?since=${lastRfidScanId}`, {
+            method: "GET",
+            headers: {
+                Accept: "application/json",
+            },
+        });
+    } catch (_error) {
+        return null;
+    }
+
+    if (!response.ok) {
+        return null;
+    }
+
+    const data = await response.json().catch(() => ({}));
+    return data.scan || null;
+}
+
 async function sendApi(path, payload) {
     let response;
     try {
@@ -203,7 +331,9 @@ async function sendApi(path, payload) {
             body: JSON.stringify(payload),
         });
     } catch (_error) {
-        throw new Error("Impossible de joindre l'API locale.");
+        const error = new Error("Impossible de joindre l'API locale.");
+        error.networkUnavailable = true;
+        throw error;
     }
 
     const text = await response.text();
@@ -223,6 +353,52 @@ async function sendApi(path, payload) {
     return data;
 }
 
+function rememberRfidScan(scan) {
+    lastRfidScanId = Number(scan.id || lastRfidScanId);
+    window.sessionStorage.setItem("lastRfidScanId", String(lastRfidScanId));
+}
+
+function handleRfidScan(scan) {
+    const uid = String(scan.uid || "").trim();
+    if (!uid || submitting) {
+        return;
+    }
+
+    rememberRfidScan(scan);
+
+    if (activeScreen === "home") {
+        showScreen("rfid");
+        rfidValueInput.value = uid;
+        pushEvent("Badge RFID detecte.");
+        submitRfid();
+        return;
+    }
+
+    if (activeScreen === "rfid") {
+        rfidValueInput.value = uid;
+        setRfidStatus("Badge lu. Verification...");
+        submitRfid();
+        return;
+    }
+
+    if (activeScreen === "link") {
+        linkRfidValueInput.value = uid;
+        if (linkCodeInput.value.length === 4) {
+            setLinkStatus("Badge lu. Association...");
+            submitLink();
+        } else {
+            setLinkStatus("Badge lu. Entrez le code association.");
+        }
+    }
+}
+
+async function pollRfidScans() {
+    const scan = await readLatestRfidScan();
+    if (scan) {
+        handleRfidScan(scan);
+    }
+}
+
 function showResult(success, message, details = "") {
     resultScreen.classList.toggle("error", !success);
     resultBadge.textContent = success ? "OK" : "!";
@@ -234,6 +410,7 @@ function showResult(success, message, details = "") {
 }
 
 function resetToHome() {
+    stopMobilePairing();
     reservationCodeInput.value = "";
     authValueInput.value = "";
     qrPayloadInput.value = "";
@@ -278,6 +455,77 @@ async function startSlotFromSession(result) {
     });
 }
 
+function accessDetails(sessionResult, mqttResult) {
+    return [sessionDetails(sessionResult), mqttDetails(mqttResult)].filter(Boolean).join(" | ");
+}
+
+function stopMobilePairing() {
+    window.clearInterval(mobileSessionTimer);
+    mobileSessionTimer = null;
+}
+
+async function pollMobileSession() {
+    if (!mobileSessionToken || submitting) {
+        return;
+    }
+
+    try {
+        const result = await readMobileSession(mobileSessionToken);
+        const session = result.mobile_session || {};
+        if (session.status === "pending") {
+            setMobileStatus(`En attente de confirmation mobile (${session.expires_in || 0}s).`);
+            return;
+        }
+
+        if (session.status === "authorized") {
+            stopMobilePairing();
+            submitting = true;
+            setMobileStatus("Autorisation recue. Demarrage...");
+            const consumed = await consumeMobileSession(mobileSessionToken);
+            const mqttResult = await startSlotFromSession(consumed);
+            pushEvent("Charge demarree depuis le mobile.");
+            showResult(true, "Charge demarree depuis le mobile.", accessDetails(consumed, mqttResult));
+            return;
+        }
+
+        if (session.status === "consumed") {
+            stopMobilePairing();
+            showResult(true, "Session mobile deja utilisee.", "");
+        }
+    } catch (error) {
+        stopMobilePairing();
+        setMobileStatus(error.message, true);
+        pushEvent(error.message, true);
+    } finally {
+        submitting = false;
+    }
+}
+
+async function startMobilePairing() {
+    if (!mobileQrBox || !mobileUrlOutput) {
+        return;
+    }
+
+    stopMobilePairing();
+    mobileSessionToken = "";
+    mobileQrBox.replaceChildren();
+    mobileUrlOutput.textContent = "";
+    setMobileStatus("Creation de la session mobile...");
+
+    try {
+        const result = await createMobileSession();
+        const session = result.mobile_session || {};
+        mobileSessionToken = session.token || "";
+        mobileQrBox.innerHTML = result.qr_svg || "";
+        mobileUrlOutput.textContent = result.url || "";
+        setMobileStatus("Scannez le QR code avec votre telephone.");
+        mobileSessionTimer = window.setInterval(pollMobileSession, 2000);
+    } catch (error) {
+        setMobileStatus(error.message, true);
+        pushEvent(error.message, true);
+    }
+}
+
 async function submitPayload(payload, successMessage) {
     if (submitting) {
         return;
@@ -292,14 +540,36 @@ async function submitPayload(payload, successMessage) {
             ? { ...payload, station_id: TERMINAL_STATION_ID }
             : payload;
         const result = await sendAuthentication(enrichedPayload);
-        const details = sessionDetails(result);
-        await startSlotFromSession(result);
+        const mqttResult = await startSlotFromSession(result);
+        const details = accessDetails(result, mqttResult);
         pushEvent(successMessage);
         if (payload.auth_mode === "rfid") {
             setRfidStatus("Badge valide.");
         }
         showResult(true, successMessage, details);
     } catch (error) {
+        if (error.networkUnavailable) {
+            try {
+                const offlinePayload = TERMINAL_STATION_ID
+                    ? { ...payload, station_id: TERMINAL_STATION_ID }
+                    : payload;
+                const offlineResult = await sendOfflineAuthentication(offlinePayload);
+                const mqttResult = await startSlotFromSession(offlineResult);
+                const details = accessDetails(offlineResult, mqttResult);
+                const offlineMessage = `${successMessage} Mode degrade offline.`;
+                pushEvent(offlineMessage);
+                showResult(true, offlineMessage, details);
+                return;
+            } catch (offlineError) {
+                setStatus(offlineError.message, true);
+                if (payload.auth_mode === "rfid") {
+                    setRfidStatus(offlineError.message, true);
+                }
+                pushEvent(offlineError.message, true);
+                showResult(false, offlineError.message, "Le backend est indisponible et le cache local ne valide pas cet acces.");
+                return;
+            }
+        }
         setStatus(error.message, true);
         if (payload.auth_mode === "rfid") {
             setRfidStatus(error.message, true);
@@ -321,7 +591,7 @@ function submitCode() {
     }
     if (authValue.length < 12) {
         setActiveCodeField("auth");
-        setStatus("Completez le code temporaire.", true);
+        setStatus("Completez le code SMS temporaire.", true);
         return;
     }
     submitPayload(
@@ -330,7 +600,7 @@ function submitCode() {
             auth_mode: "code",
             auth_value: authValue,
         },
-        "Charge demarree avec code temporaire.",
+        "Charge demarree avec code SMS temporaire.",
     );
 }
 
@@ -450,6 +720,12 @@ if (linkClearButton) {
 if (linkSubmitButton) {
     linkSubmitButton.addEventListener("click", submitLink);
 }
+if (mobileRefreshButton) {
+    mobileRefreshButton.addEventListener("click", startMobilePairing);
+}
+if (mobileCancelButton) {
+    mobileCancelButton.addEventListener("click", resetToHome);
+}
 
 qrForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -523,3 +799,4 @@ document.addEventListener("keydown", (event) => {
 });
 
 showScreen("home");
+window.setInterval(pollRfidScans, RFID_POLL_INTERVAL_MS);

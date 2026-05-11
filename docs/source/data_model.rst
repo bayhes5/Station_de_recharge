@@ -33,6 +33,40 @@ dans Docker, en CI et sur les postes de développement.
 Choix d’implémentation
 ----------------------
 
+Valeurs métier fermées
+~~~~~~~~~~~~~~~~~~~~~~
+
+Les cycles de vie structurants sont déclarés dans ``backend/api/models.py`` avec
+des classes ``TextChoices``. Cette couche ferme les valeurs acceptées par les
+serializers Django REST Framework et par les formulaires d'administration, tout
+en conservant un stockage simple en ``VARCHAR``.
+
+Les migrations ajoutent aussi des contraintes ``CHECK`` sur ces champs. La
+base refuse donc une valeur hors catalogue même si elle arrive par un script ou
+une écriture directe. Une migration de normalisation précède ces contraintes
+pour ramener les anciennes valeurs libres vers les valeurs métier retenues.
+
+Les champs concernés sont notamment :
+
+* ``Utilisateur.statut`` : ``actif``, ``suspendu``, ``archive`` ;
+* ``Station.statut`` : ``active``, ``maintenance``, ``inactive`` ;
+* ``Emplacement.statut`` : ``disponible``, ``reserve``, ``occupe``,
+  ``maintenance`` ;
+* ``Emplacement.lock_state`` : ``verrouille``, ``deverrouille``, ``bloque`` ;
+* ``Reservation.auth_choice`` : ``rfid``, ``qr``, ``code`` ;
+* ``Reservation.statut`` : ``en_attente``, ``confirmee``, ``active``,
+  ``annulee``, ``terminee`` ;
+* ``Device.status`` : ``provisioned``, ``online``, ``idle``, ``offline``,
+  ``charging``, ``error`` ;
+* ``Alerte.status`` : ``nouvelle``, ``active``, ``resolue``, ``closed``,
+  ``fermee`` ;
+* ``Maintenance.status`` : ``planifiee``, ``en_cours``, ``realisee``,
+  ``annulee``.
+
+Les types de capteurs, types d'alertes et types d'intervention restent plus
+ouverts. Ils dépendent du matériel, du firmware et de l'exploitation terrain ;
+les figer trop tôt rendrait l'intégration ESP32 moins souple.
+
 UUID
 ~~~~
 
@@ -185,7 +219,7 @@ Réservations
 d’authentification et une fenêtre de temps.
 
 Le projet ajoute ``reference_code`` et ``auth_choice`` afin de gérer le parcours
-terminal : code de réservation, QR code, code temporaire ou RFID.
+terminal : code de réservation, QR code, code SMS temporaire ou RFID.
 
 La relation vers ``Utilisateur`` est en ``SET_NULL`` et non en cascade. Ce choix
 évite d’effacer tout l’historique technique d’une réservation si le compte est
@@ -246,12 +280,18 @@ technicien de se connecter et de consulter ses interventions.
 Performance et TimescaleDB
 --------------------------
 
-Le conteneur ``db`` utilise l’image ``timescale/timescaledb:latest-pg15``. Cela
-prévoit l’évolution vers les séries temporelles sans modifier le moteur de base.
+Le conteneur ``db`` utilise l’image ``timescale/timescaledb:latest-pg15``. Une
+migration active l'extension ``timescaledb`` quand elle est disponible sur le
+serveur PostgreSQL. Sur SQLite ou sur un PostgreSQL sans extension installée, la
+migration reste sans effet pour préserver la portabilité du projet.
 
 Dans l’état actuel, le projet utilise TimescaleDB comme un PostgreSQL compatible.
 Les tables ``capteur_data`` et ``session_telemetry`` ne sont pas encore des
-hypertables.
+hypertables. Ce choix est volontaire : elles possèdent aujourd'hui une clé
+primaire UUID simple, alors qu'une hypertable TimescaleDB impose que les
+contraintes uniques incluent la colonne temporelle de partitionnement. Le passage
+en hypertables doit donc être traité comme une refonte de schéma ciblée, pas
+comme une simple commande SQL ajoutée en fin de migration.
 
 Les index déjà présents couvrent les requêtes les plus importantes :
 
@@ -292,8 +332,10 @@ critiques plus prévisibles lorsque le volume augmente : supervision temps réel
 historique d'exploitation, diagnostic terrain et tableaux de bord.
 
 Les optimisations du MCD cible, comme ``create_hypertable``, compression,
-retention et vues matérialisées, sont pertinentes pour une phase production ou
-une simulation à volume élevé.
+retention et vues matérialisées, restent pertinentes pour une phase production
+ou une simulation à volume élevé. Elles nécessitent toutefois de revoir la clé
+primaire des tables de télémétrie ou d'introduire des tables spécialisées pour
+les séries temporelles.
 
 Sécurité base de données
 ------------------------

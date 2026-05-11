@@ -3,11 +3,12 @@ from datetime import timedelta
 
 import pytest
 from django.core.cache import cache
+from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 
-from api.models import Authentification, Emplacement, Reservation, Session, Station, TypeAuth
+from api.models import Authentification, Emplacement, JournalSecurite, Reservation, Session, Station, TypeAuth
 
 
 def hash_secret(value):
@@ -146,6 +147,295 @@ def test_terminal_link_rfid_rejects_badge_already_linked_to_other_user(authentic
 
     assert response.status_code == status.HTTP_409_CONFLICT
     assert not Authentification.objects.filter(utilisateur=user, hash_valeur=hash_secret("RFID-TAKEN")).exists()
+
+
+@pytest.mark.django_db
+def test_mobile_session_authorizes_and_consumes_reservation(authenticated_client, api_client, user, station, emplacements):
+    create_response = api_client.post(
+        reverse("api-terminal-mobile-session-create"),
+        {"station_id": str(station.id_station)},
+        format="json",
+    )
+
+    assert create_response.status_code == status.HTTP_201_CREATED
+    token = create_response.data["mobile_session"]["token"]
+    assert token in create_response.data["url"]
+
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="MOBOK1",
+        auth_choice="qr",
+        date_debut=timezone.now() - timedelta(minutes=5),
+        date_fin=timezone.now() + timedelta(minutes=25),
+        statut="confirmee",
+    )
+
+    detail_response = authenticated_client.get(reverse("api-mobile-session-detail", kwargs={"token": token}))
+
+    assert detail_response.status_code == status.HTTP_200_OK
+    assert detail_response.data["mobile_session"]["status"] == "pending"
+    assert detail_response.data["reservations"][0]["id_reservation"] == str(reservation.id_reservation)
+    assert detail_response.data["reservations"][0]["compatible_station"] is True
+
+    authorize_response = authenticated_client.post(
+        reverse("api-mobile-session-authorize", kwargs={"token": token}),
+        {"reservation_id": str(reservation.id_reservation)},
+        format="json",
+    )
+
+    assert authorize_response.status_code == status.HTTP_200_OK
+    assert authorize_response.data["mobile_session"]["status"] == "authorized"
+
+    status_response = api_client.get(reverse("api-terminal-mobile-session-status", kwargs={"token": token}))
+
+    assert status_response.status_code == status.HTTP_200_OK
+    assert status_response.data["reservation"]["reference_code"] == "MOBOK1"
+
+    consume_response = api_client.post(
+        reverse("api-terminal-mobile-session-consume", kwargs={"token": token}),
+        {"station_id": str(station.id_station)},
+        format="json",
+    )
+
+    assert consume_response.status_code == status.HTTP_200_OK
+    assert consume_response.data["session_created"] is True
+    assert consume_response.data["mobile_session"]["status"] == "consumed"
+    reservation.refresh_from_db()
+    assert reservation.statut == "active"
+    assert Session.objects.filter(reservation=reservation).exists()
+
+
+@pytest.mark.django_db
+def test_mobile_session_authorize_rejects_wrong_station(authenticated_client, api_client, user, station, emplacements):
+    other_station = Station.objects.create(
+        nom="Station Gare",
+        localisation_text="Gare",
+        latitude=48.85,
+        longitude=2.35,
+        statut="active",
+    )
+    other_emplacement = Emplacement.objects.create(
+        station=other_station,
+        numero=1,
+        statut="disponible",
+        lock_state="verrouille",
+    )
+    create_response = api_client.post(
+        reverse("api-terminal-mobile-session-create"),
+        {"station_id": str(station.id_station)},
+        format="json",
+    )
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=other_emplacement,
+        reference_code="MOBBAD1",
+        auth_choice="qr",
+        date_debut=timezone.now() - timedelta(minutes=5),
+        date_fin=timezone.now() + timedelta(minutes=25),
+        statut="confirmee",
+    )
+
+    response = authenticated_client.post(
+        reverse("api-mobile-session-authorize", kwargs={"token": create_response.data["mobile_session"]["token"]}),
+        {"reservation_id": str(reservation.id_reservation)},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.data["station"] == other_station.nom
+    assert not Session.objects.filter(reservation=reservation).exists()
+
+
+@pytest.mark.django_db
+def test_terminal_offline_cache_exports_hashes_without_clear_secret(api_client, user, station, emplacements):
+    type_auth = TypeAuth.objects.create(libelle="CODE", factor_level=2)
+    auth_method = Authentification.objects.create(
+        utilisateur=user,
+        type_auth=type_auth,
+        hash_valeur=hash_secret("OFFLINE-CODE"),
+        display_value="****CODE",
+        expiration=timezone.now() + timedelta(hours=1),
+    )
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="OFFLINE1",
+        authentification=auth_method,
+        auth_choice="code",
+        date_debut=timezone.now() - timedelta(minutes=5),
+        date_fin=timezone.now() + timedelta(minutes=25),
+        statut="confirmee",
+    )
+
+    response = api_client.get(
+        reverse("api-terminal-offline-cache"),
+        {"station_id": str(station.id_station)},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert len(response.data["results"]) == 1
+    cached = response.data["results"][0]
+    assert cached["id_reservation"] == str(reservation.id_reservation)
+    assert cached["reference_code"] == "OFFLINE1"
+    assert cached["auth_hash"] == hash_secret("OFFLINE-CODE")
+    assert "OFFLINE-CODE" not in str(cached)
+
+
+@pytest.mark.django_db
+@override_settings(TERMINAL_API_SECRET="test-terminal-secret")
+def test_terminal_offline_cache_requires_terminal_secret(api_client):
+    response = api_client.get(reverse("api-terminal-offline-cache"))
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    authorized_response = api_client.get(
+        reverse("api-terminal-offline-cache"),
+        HTTP_X_TERMINAL_SECRET="test-terminal-secret",
+    )
+
+    assert authorized_response.status_code == status.HTTP_200_OK
+
+
+@pytest.mark.django_db
+def test_terminal_offline_events_reconciles_session_started(api_client, user, station, emplacements):
+    type_auth = TypeAuth.objects.create(libelle="RFID", factor_level=1)
+    auth_method = Authentification.objects.create(
+        utilisateur=user,
+        type_auth=type_auth,
+        hash_valeur=hash_secret("RFID-OFFLINE"),
+        display_value="RFID-OFFLINE",
+        expiration=timezone.now() + timedelta(days=365),
+    )
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="OFFEVT1",
+        authentification=auth_method,
+        auth_choice="rfid",
+        date_debut=timezone.now() - timedelta(minutes=5),
+        date_fin=timezone.now() + timedelta(minutes=25),
+        statut="confirmee",
+    )
+    event_payload = {
+        "id": "event-start-1",
+        "event_type": "offline_session_started",
+        "reservation_id": str(reservation.id_reservation),
+        "session_id": "offline-local-1",
+        "created_at": (timezone.now() - timedelta(minutes=1)).isoformat(),
+        "payload": {"auth_mode": "rfid", "reservation": {"id_reservation": str(reservation.id_reservation)}},
+    }
+
+    response = api_client.post(
+        reverse("api-terminal-offline-events"),
+        {"station_id": str(station.id_station), "events": [event_payload]},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["synced_event_ids"] == ["event-start-1"]
+    assert response.data["accepted"][0]["session_created"] is True
+    reservation.refresh_from_db()
+    assert reservation.statut == "active"
+    assert Session.objects.filter(reservation=reservation, emplacement=emplacements[0]).exists()
+    assert JournalSecurite.objects.filter(action__contains="terminal:offline_session_synced:OFFEVT1").exists()
+
+    replay_response = api_client.post(
+        reverse("api-terminal-offline-events"),
+        {"station_id": str(station.id_station), "events": [event_payload]},
+        format="json",
+    )
+
+    assert replay_response.status_code == status.HTTP_200_OK
+    assert replay_response.data["accepted"][0]["session_created"] is False
+    assert Session.objects.filter(reservation=reservation).count() == 1
+
+
+@pytest.mark.django_db
+def test_terminal_offline_events_rejects_wrong_station(api_client, user, station, emplacements):
+    other_station = Station.objects.create(
+        nom="Station Gare",
+        localisation_text="Gare",
+        latitude=48.85,
+        longitude=2.35,
+        statut="active",
+    )
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="OFFBAD1",
+        auth_choice="rfid",
+        date_debut=timezone.now() - timedelta(minutes=5),
+        date_fin=timezone.now() + timedelta(minutes=25),
+        statut="confirmee",
+    )
+
+    response = api_client.post(
+        reverse("api-terminal-offline-events"),
+        {
+            "station_id": str(other_station.id_station),
+            "events": [
+                {
+                    "id": "event-wrong-station",
+                    "event_type": "offline_session_started",
+                    "reservation_id": str(reservation.id_reservation),
+                    "session_id": "offline-local-2",
+                    "created_at": timezone.now().isoformat(),
+                    "payload": {},
+                }
+            ],
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_207_MULTI_STATUS
+    assert response.data["accepted"] == []
+    assert response.data["rejected"][0]["event_id"] == "event-wrong-station"
+    assert not Session.objects.filter(reservation=reservation).exists()
+
+
+@pytest.mark.django_db
+@override_settings(TERMINAL_API_SECRET="test-terminal-secret")
+def test_terminal_offline_events_requires_terminal_secret(api_client):
+    response = api_client.post(
+        reverse("api-terminal-offline-events"),
+        {"events": []},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    authorized_response = api_client.post(
+        reverse("api-terminal-offline-events"),
+        {"events": []},
+        format="json",
+        HTTP_X_TERMINAL_SECRET="test-terminal-secret",
+    )
+
+    assert authorized_response.status_code == status.HTTP_200_OK
+
+
+@pytest.mark.django_db
+@override_settings(TERMINAL_API_SECRET="test-terminal-secret")
+def test_terminal_browser_flows_require_terminal_secret(api_client):
+    authenticate_response = api_client.post(
+        reverse("api-terminal-authenticate"),
+        {"auth_mode": "rfid", "auth_value": "RFID-1234"},
+        format="json",
+    )
+    mobile_response = api_client.post(reverse("api-terminal-mobile-session-create"), {}, format="json")
+
+    assert authenticate_response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert mobile_response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    authorized_response = api_client.post(
+        reverse("api-terminal-mobile-session-create"),
+        {},
+        format="json",
+        HTTP_X_TERMINAL_SECRET="test-terminal-secret",
+    )
+
+    assert authorized_response.status_code == status.HTTP_201_CREATED
 
 
 @pytest.mark.django_db

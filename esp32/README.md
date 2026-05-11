@@ -9,15 +9,52 @@ physiques peuvent reutiliser la meme base firmware en changeant simplement:
 - `CLIENT_ID`
 - `MQTT_HOST`
 - les identifiants WiFi
+- les pins DHT22 / INA219 / relais selon le cablage
 
 Le dossier `wokwi/` contient une simulation ESP32 interactive pour tester le
 flux MQTT vers le backend et Grafana.
+
+## Capteurs du prototype physique
+
+Le firmware `emplacement1/main.py` publie un payload compatible Grafana avec:
+
+- DHT22: `temperature`, `humidity`
+- INA219: `current`, `voltage`, `power`
+- contacts: `door`, `cable`
+- etat: `state`
+
+Pins par defaut:
+
+```python
+DHT_PIN = 4
+INA219_SDA_PIN = 21
+INA219_SCL_PIN = 25
+LOCK_PIN = 23
+CHARGE_PIN = 22
+BOOT_UNLOCKED = False
+```
+
+Si le DHT22 ou l'INA219 n'est pas detecte, le firmware publie des valeurs
+simulees. C'est volontaire pour tester rapidement le flux MQTT -> backend ->
+Grafana avant le cablage final.
+
+Avec `BOOT_UNLOCKED = False`, l'ESP32 demarre serrure fermee, puis le `START`
+envoye par le Raspberry deverrouille l'emplacement. La charge ne demarre
+qu'apres detection du cable et fermeture du boitier.
+
+Pour le test Thonny:
+
+1. adapter `WIFI_SSID`, `WIFI_PASSWORD` et `MQTT_HOST`
+2. enregistrer `esp32/emplacement1/main.py` sur l'ESP32 sous le nom `main.py`
+3. redemarrer l'ESP32
+4. verifier les messages sur `station/slot1/telemetry`
 
 ## Topics MQTT
 
 Chaque ESP32 publie:
 
 ```text
+station/<slot_id>/ack
 station/<slot_id>/telemetry
 station/<slot_id>/status
 station/<slot_id>/alert
@@ -35,6 +72,7 @@ Le payload peut etre un JSON:
 
 ```json
 {
+  "command_id": "uuid-ou-token-court",
   "action": "START",
   "session_id": "<uuid-session>"
 }
@@ -46,6 +84,54 @@ Actions supportees:
 - `STOP`: arrete la charge et deverrouille
 - `LOCK`: verrouille le boitier
 - `UNLOCK`: deverrouille le boitier
+
+Chaque commande doit produire un ACK sur `station/<slot_id>/ack`:
+
+```json
+{
+  "command_id": "meme-valeur-que-la-commande",
+  "action": "START",
+  "status": "accepted",
+  "message": "Emplacement reserve.",
+  "state": "reserved",
+  "slot_id": "slot1",
+  "session_id": "<uuid-session>"
+}
+```
+
+Le Raspberry attend cet ACK pendant `MQTT_ACK_TIMEOUT_SECONDS`. En developpement,
+`MQTT_ACK_REQUIRED=False` permet de tester sans ESP32. Sur une vraie borne,
+`MQTT_ACK_REQUIRED=True` force l'erreur si l'ESP32 ne confirme pas.
+
+## Test local MQTT -> Grafana sans ESP32
+
+La stack Docker contient un simulateur qui publie les memes champs que le
+firmware:
+
+```powershell
+docker compose up -d backend mqtt mqtt-bridge celery grafana
+docker compose --profile simulation up -d mqtt-simulator
+```
+
+Puis ouvrir Grafana:
+
+```text
+http://localhost:3000/grafana/
+```
+
+Dashboard:
+
+```text
+Station - Supervision technique
+```
+
+Les panneaux a verifier en premier:
+
+- Temperature par emplacement
+- Humidite
+- Courant de charge
+- Tension
+- Puissance
 
 ## Machine d'etat
 

@@ -14,10 +14,12 @@ from api.models import (
     Device,
     Emplacement,
     JournalSecurite,
+    Maintenance,
     ProfilUtilisateur,
     Reservation,
     Session,
     Station,
+    Technicien,
     TypeAuth,
 )
 
@@ -104,6 +106,7 @@ def test_admin_supervision_returns_devices_alerts_and_measurements(admin_client,
     assert response.data["stats"]["active_alerts"] == 1
     assert response.data["devices"][0]["slot_id"] == "slot1"
     assert response.data["devices"][0]["slot_label"] == "Station Centre - emplacement 1"
+    assert response.data["devices"][0]["status_display"] == "Charge en cours"
     assert response.data["alerts"][0]["type"] == "overheat"
     assert response.data["alerts"][0]["station_nom"] == "Station Centre"
     assert response.data["alerts"][0]["emplacement_numero"] == 1
@@ -180,6 +183,27 @@ def test_admin_supervision_marks_stale_devices_offline(admin_client, emplacement
     assert response.data["stats"]["devices_online"] == 0
     assert response.data["stats"]["devices_offline"] == 1
     assert response.data["devices"][0]["health"] == "offline"
+    assert response.data["devices"][0]["status_display"] == "Charge en cours"
+
+
+@pytest.mark.django_db
+def test_admin_supervision_marks_never_seen_devices_waiting_for_telemetry(admin_client, emplacements):
+    Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="1.0.0",
+        ip_address="192.168.40.10",
+        mac_address="slot1",
+        status="online",
+    )
+
+    response = admin_client.get(reverse("api-admin-supervision"))
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["stats"]["devices_online"] == 0
+    assert response.data["stats"]["devices_offline"] == 1
+    assert response.data["devices"][0]["health"] == "offline"
+    assert response.data["devices"][0]["status_display"] == "Aucune télémétrie reçue"
 
 
 @pytest.mark.django_db
@@ -213,6 +237,23 @@ def test_admin_user_create_requires_required_fields(admin_client):
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.django_db
+def test_admin_user_create_rejects_invalid_status(admin_client):
+    response = admin_client.post(
+        reverse("api-admin-users"),
+        {
+            "pseudo": "invalid-status",
+            "email": "invalid-status@example.com",
+            "password": "AdminPass123!",
+            "statut": "enabled",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "statut" in response.data
 
 
 @pytest.mark.django_db
@@ -368,6 +409,24 @@ def test_admin_can_crud_station(admin_client):
 
 
 @pytest.mark.django_db
+def test_admin_station_create_rejects_invalid_status(admin_client):
+    response = admin_client.post(
+        reverse("api-admin-stations"),
+        {
+            "nom": "Station Invalide",
+            "localisation_text": "Quartier Nord",
+            "latitude": 48.9,
+            "longitude": 2.4,
+            "statut": "ouverte",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "statut" in response.data
+
+
+@pytest.mark.django_db
 def test_admin_can_crud_emplacement(admin_client, station):
     create_response = admin_client.post(
         reverse("api-admin-emplacements"),
@@ -398,6 +457,49 @@ def test_admin_can_crud_emplacement(admin_client, station):
 
     assert delete_response.status_code == status.HTTP_204_NO_CONTENT
     assert not Emplacement.objects.filter(id_emplacement=emplacement_id).exists()
+
+
+@pytest.mark.django_db
+def test_admin_emplacement_create_rejects_invalid_lock_state(admin_client, station):
+    response = admin_client.post(
+        reverse("api-admin-emplacements"),
+        {
+            "station": str(station.id_station),
+            "numero": 7,
+            "statut": "disponible",
+            "lock_state": "ouvert",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "lock_state" in response.data
+
+
+@pytest.mark.django_db
+def test_admin_maintenance_create_rejects_invalid_status(admin_client, station, admin_user):
+    technicien = Technicien.objects.create(
+        utilisateur=admin_user,
+        nom="Tech Admin",
+        email="tech-admin@example.com",
+        telephone="",
+    )
+    response = admin_client.post(
+        reverse("api-admin-maintenances"),
+        {
+            "station": str(station.id_station),
+            "technicien": str(technicien.id_technicien),
+            "type": "Controle",
+            "description": "Controle periodique",
+            "status": "done",
+            "date_planifiee": timezone.now().isoformat(),
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "status" in response.data
+    assert Maintenance.objects.count() == 0
 
 
 @pytest.mark.django_db

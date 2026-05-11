@@ -894,8 +894,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             document.getElementById("admin-devices-list"),
             [
                 { label: "Emplacement", render: (device) => device.slot_label || device.slot_id || "-" },
-                { label: "Santé", render: (device) => createStatusBadge(device.online ? "En ligne" : "Hors ligne", device.online ? "success" : "danger") },
-                { label: "État", render: (device) => device.status || "-" },
+                { label: "Connexion", render: (device) => createStatusBadge(device.online ? "En ligne" : "Hors ligne", device.online ? "success" : "danger") },
+                { label: "Dernier état reçu", render: (device) => device.status_display || device.status || "-" },
                 { label: "Station", render: (device) => device.station_nom || "-" },
                 { label: "Emplacement", render: (device) => device.emplacement_numero ?? "-" },
                 { label: "Serrure", render: (device) => device.lock_state || "-" },

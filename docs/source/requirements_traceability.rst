@@ -11,7 +11,7 @@ Contexte fonctionnel
 La solution doit permettre :
 
 * la réservation en ligne d'un emplacement de recharge ;
-* l'identification sécurisée par QR code, badge RFID ou code alphanumérique ;
+* l'identification sécurisée par QR code, badge RFID ou code SMS temporaire ;
 * la gestion en temps réel des ports de charge et des disponibilités ;
 * le suivi énergétique et la remontée d'alertes ;
 * l'archivage des usages et statistiques ;
@@ -41,12 +41,12 @@ Couverture par partie
      - API de réservation, sélection station/créneau, attribution automatique
        d'un emplacement disponible.
      - Ajouter rapports statistiques plus complets.
-   * - QR/code/RFID
-     - QR et code temporaires liés à une réservation, badge RFID persistant lié
+   * - QR/code SMS/RFID
+     - QR et codes SMS temporaires liés à une réservation, badge RFID persistant lié
        au compte, association via code court et borne.
      - Brancher les vrais lecteurs QR/RFID sur le Raspberry.
    * - Interface locale Raspberry
-     - Kiosque web local, parcours QR/code/RFID, écran tactile cible
+     - Kiosque web local, parcours QR/code SMS/RFID, écran tactile cible
        ``1024x600``, relais local des commandes validées.
      - Test physique sur l'écran 7 pouces, intégration lecteur réel et cache
        local des autorisations en mode dégradé.
@@ -88,7 +88,7 @@ Réserver et démarrer une charge
 
    Utilisateur
       -> réserve sur le site
-      -> reçoit ou consulte QR/code/badge
+      -> reçoit ou consulte QR/code SMS/badge
       -> s'identifie au kiosque Raspberry
       -> API valide réservation + moyen d'accès + station
       -> Raspberry publie START vers l'emplacement

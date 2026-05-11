@@ -59,8 +59,8 @@ quand le kiosque valide l'accès. ``SessionTelemetry`` stocke les mesures
 électriques associées si une session active existe.
 
 ``Authentification`` centralise les moyens d'accès : RFID persistant, QR code et
-code temporaire. Les secrets ne sont pas stockés en clair : ils sont hachés ou
-dérivés depuis un nonce et ``SECRET_KEY``.
+code SMS temporaire. Les secrets ne sont pas stockés en clair : ils sont hachés
+ou dérivés depuis un nonce et ``SECRET_KEY``.
 
 ``Device``, ``Capteur`` et ``CapteurData`` relient un ESP32 à son emplacement et
 stockent les mesures horodatées. ``Alerte`` stocke les anomalies opérationnelles
@@ -130,12 +130,23 @@ La fenêtre de réservation est forcée à 30 minutes avec
 ``_duration_is_valid``. Les tests associés sont dans
 ``backend/api/tests/test_reservations.py``.
 
-QR code et code temporaire
---------------------------
+QR code et code SMS temporaire
+------------------------------
 
-Les QR codes et codes temporaires sont rattachés à une réservation, pas au
+Les QR codes et codes SMS temporaires sont rattachés à une réservation, pas au
 profil utilisateur. Cela permet de créer un secret valable seulement pour la
 fenêtre réservée.
+
+Le QR code est généré dès la réservation et consultable dans l'application. Il
+sert d'accès applicatif immédiat, mais il n'est accepté à la borne que sur le bon
+créneau, la bonne station et tant qu'il n'est pas révoqué.
+
+Le code SMS est aussi généré techniquement dès la réservation afin que le secret
+puisse être synchronisé ou caché côté station avant le passage de l'utilisateur.
+Il n'est toutefois pas affiché dans l'interface : il est envoyé via
+``POST /api/reservations/<reservation_id>/send-access-code/`` peu avant le
+créneau, ou à la demande avec le bouton d'envoi. Une réservation en mode
+``code`` est refusée si aucun numéro de téléphone n'est renseigné.
 
 L'implantation principale est dans ``backend/api/views.py`` :
 
@@ -144,11 +155,15 @@ L'implantation principale est dans ``backend/api/views.py`` :
   nonce, le code de réservation et ``SECRET_KEY`` ;
 * ``_build_qr_payload`` prépare le contenu QR ;
 * ``_build_qr_svg`` génère le SVG QR ;
-* ``reservation_access_payload`` expose le QR ou le code à l'utilisateur.
+* ``reservation_access_payload`` expose le QR ou les métadonnées du code SMS ;
+* ``send_reservation_access_code`` envoie le code SMS et journalise l'action.
 
 Le choix important est de ne pas stocker le secret clair. L'administration peut
 régénérer ou révoquer l'accès, mais elle ne devient pas le canal de transmission
-du secret.
+du secret. Cette génération préalable est aussi ce qui rend le mode dégradé
+possible : si le backend est indisponible au moment où l'utilisateur arrive à la
+borne, la station peut vérifier un secret déjà connu du système plutôt que de
+devoir le créer à la volée.
 
 RFID
 ----
@@ -179,6 +194,21 @@ commande ``START``, ``STOP``, ``LOCK`` ou ``UNLOCK``.
 Le choix d'un petit serveur local est volontaire : le Raspberry reste simple et
 joue le rôle d'un client local de borne. La décision métier reste dans Django ; le kiosque
 ne fait que transmettre une commande validée.
+
+Le kiosque expose aussi un flux RFID local. ``POST /rfid/scan`` reçoit un UID
+lu par un lecteur ou injecté en test, applique un debounce court contre les
+doubles lectures, puis ``GET /rfid/scan?since=<id>`` permet au frontend de
+récupérer le dernier scan. Sur l'écran d'accueil, un badge lu déclenche
+directement l'authentification RFID. Sur l'écran d'association, le même scan
+remplit l'UID du badge avant l'appel à ``POST /api/terminal/link-rfid/``.
+
+Le backend lecteur se choisit avec ``RFID_READER_BACKEND`` : ``manual`` pour les
+tests via HTTP, ``acr122u`` pour le lecteur ACR122U via PC/SC et ``pyscard``,
+``stdin`` pour un lecteur qui émule un clavier ou une liaison série, et
+``nfcpy`` pour un autre lecteur NFC compatible si la dépendance optionnelle est
+installée sur le Raspberry. Le backend ACR122U lit l'UID avec la commande PC/SC
+``FF CA 00 00 00`` puis le transmet au flux local avec le même debounce que les
+autres sources.
 
 En mode nominal, le Raspberry ne décide pas seul d'ouvrir un emplacement. Il
 appelle d'abord l'API terminal, qui valide la réservation, le moyen d'accès, la
@@ -217,9 +247,15 @@ La logique ESP32 de référence est dans ``esp32/``. La simulation Wokwi est dan
 
 .. code-block:: text
 
+   station/<slot_id>/ack
    station/<slot_id>/telemetry
    station/<slot_id>/status
    station/<slot_id>/alert
+
+Chaque commande contient un ``command_id`` et l'ESP32 doit repondre sur
+``station/<slot_id>/ack`` avec le meme identifiant. Le Raspberry utilise cet
+accuse de reception pour confirmer que le relais ou le verrou a bien recu la
+commande.
 
 La machine d'état embarquée est volontairement simple :
 
@@ -372,6 +408,17 @@ Le frontend est volontairement multi-pages. Chaque page HTML charge un module
 sous ``frontend/src/pages/`` qui importe ensuite le script métier sous
 ``frontend/js/``. Le client API commun est ``frontend/js/api.js``.
 
+La couche PWA se compose de :
+
+* ``frontend/public/manifest.webmanifest`` pour l'installation mobile ;
+* ``frontend/public/sw.js`` pour le cache léger de l'enveloppe applicative ;
+* ``frontend/js/pwa.js``, importé par le client commun, pour enregistrer le
+  service worker sur toutes les pages.
+
+Ce cache ne remplace pas l'API : les réservations, statuts de session et moyens
+d'accès restent récupérés en ligne afin de conserver une source de vérité côté
+backend.
+
 Ce choix garde une structure lisible et maintenable : une page correspond à un
 parcours métier. Vite apporte le serveur de développement, le build de
 production et les tests Playwright sans imposer un framework SPA complet.
@@ -418,7 +465,7 @@ Les tests backend sont dans ``backend/api/tests/``. Les tests couvrant les
 règles métier principales sont :
 
 * ``test_reservations.py`` pour disponibilité et réservation ;
-* ``test_terminal_auth.py`` pour QR/code/RFID et ouverture de session ;
+* ``test_terminal_auth.py`` pour QR/code SMS/RFID et ouverture de session ;
 * ``test_mqtt_ingestion.py`` pour télémétrie et alertes ;
 * ``test_admin_api.py`` pour supervision et administration ;
 * ``test_query_performance.py`` pour pagination/cache.

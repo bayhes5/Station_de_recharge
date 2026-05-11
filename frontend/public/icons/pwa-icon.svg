@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Metropole Verte</title>
+  <rect width="512" height="512" rx="96" fill="#f7faf8"/>
+  <circle cx="256" cy="256" r="184" fill="#1f8f55"/>
+  <path d="M258 92c-62 63-104 125-104 187 0 70 47 119 104 119s104-49 104-119c0-62-42-124-104-187Z" fill="#ffffff"/>
+  <path d="M194 279c57-8 105-46 146-127-5 117-54 186-146 213" fill="none" stroke="#1f8f55" stroke-width="34" stroke-linecap="round"/>
+  <path d="M287 188h-56l-31 92h54l-20 86 78-125h-55l30-53Z" fill="#f2c94c"/>
+</svg>

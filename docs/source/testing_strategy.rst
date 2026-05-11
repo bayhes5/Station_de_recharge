@@ -50,8 +50,8 @@ Tests couverts actuellement :
 * inscription, connexion et profil ;
 * création et validation de réservations ;
 * administration utilisateurs/réservations ;
-* génération et révocation QR/code/RFID ;
-* authentification terminal QR/code/RFID ;
+* génération et révocation QR/code SMS/RFID ;
+* authentification terminal QR/code SMS/RFID ;
 * ingestion des télémétries vers capteurs/alertes ;
 * performance de requêtes ciblées.
 
@@ -89,6 +89,11 @@ Le frontend utilise Vite, un script de vérification syntaxique et Playwright.
 * vérification syntaxique JavaScript ;
 * build Vite de production ;
 * tests end-to-end Playwright.
+
+Pour la couche PWA, le build doit aussi contenir ``manifest.webmanifest``,
+``sw.js`` et l'icône installable. Les tests E2E peuvent ensuite vérifier que le
+manifeste est référencé sur les pages principales et que l'application reste
+utilisable même si l'enregistrement du service worker échoue.
 
 Avant le premier lancement Playwright :
 
@@ -187,7 +192,7 @@ Réservation utilisateur :
 
 * créer un compte ;
 * réserver un créneau ;
-* afficher le QR/code ;
+* afficher le QR ou envoyer le code SMS ;
 * vérifier l'historique utilisateur.
 
 RFID :
