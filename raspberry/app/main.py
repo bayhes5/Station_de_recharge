@@ -20,6 +20,20 @@ TERMINAL_API_SECRET = os.environ.get("TERMINAL_API_SECRET", "").strip()
 TERMINAL_STATION_ID = os.environ.get("TERMINAL_STATION_ID", "").strip()
 OFFLINE_SYNC_INTERVAL_SECONDS = int(os.environ.get("OFFLINE_SYNC_INTERVAL_SECONDS", "60"))
 OFFLINE_EVENT_BATCH_SIZE = int(os.environ.get("OFFLINE_EVENT_BATCH_SIZE", "50"))
+TERMINAL_PROXY_ROUTES = {
+    "/backend-api/terminal/authenticate/": "authenticate",
+    "/backend-api/terminal/link-rfid/": "link_rfid",
+    "/backend-api/terminal/mobile-sessions/": "mobile_sessions_create",
+    "/backend-api/terminal/mobile-sessions/status/": "mobile_sessions_status",
+    "/backend-api/terminal/mobile-sessions/consume/": "mobile_sessions_consume",
+}
+TERMINAL_BACKEND_PATHS = {
+    "authenticate": "/terminal/authenticate/",
+    "link_rfid": "/terminal/link-rfid/",
+    "mobile_sessions_create": "/terminal/mobile-sessions/",
+    "mobile_sessions_status": "/terminal/mobile-sessions/status/",
+    "mobile_sessions_consume": "/terminal/mobile-sessions/consume/",
+}
 
 
 def backend_headers(extra=None):
@@ -30,28 +44,15 @@ def backend_headers(extra=None):
     return headers
 
 
-def terminal_proxy_path(local_path):
-    """Map allowed local kiosk proxy paths to backend terminal API paths."""
-    prefix = "/backend-api"
-    if not local_path.startswith(f"{prefix}/terminal/"):
-        return None
-
-    backend_path = local_path[len(prefix):]
-    if backend_path in {
-        "/terminal/authenticate/",
-        "/terminal/link-rfid/",
-        "/terminal/mobile-sessions/",
-        "/terminal/mobile-sessions/status/",
-        "/terminal/mobile-sessions/consume/",
-    }:
-        return backend_path
-
-    return None
+def terminal_proxy_route(local_path):
+    """Return the constant backend route key allowed for one kiosk path."""
+    return TERMINAL_PROXY_ROUTES.get(local_path)
 
 
-def proxy_backend_json(method, backend_path, payload=None):
+def proxy_backend_json(method, route_key, payload=None):
     """Forward one allowed kiosk call to the backend with the terminal secret."""
-    if terminal_proxy_path(f"/backend-api{backend_path}") != backend_path:
+    backend_path = TERMINAL_BACKEND_PATHS.get(route_key)
+    if backend_path is None:
         return {
             "body": json.dumps({"detail": "Chemin API locale refuse."}).encode("utf-8"),
             "status": 404,
@@ -193,14 +194,14 @@ class KioskHandler(SimpleHTTPRequestHandler):
         """Handle local Raspberry edge actions."""
 
         parsed_path = urlparse(self.path)
-        proxy_path = terminal_proxy_path(parsed_path.path)
-        if proxy_path:
+        proxy_route = terminal_proxy_route(parsed_path.path)
+        if proxy_route:
             try:
                 payload = self._read_json()
             except json.JSONDecodeError:
                 self._send_json({"detail": "JSON invalide."}, status=400)
                 return
-            self._send_proxy(proxy_backend_json("POST", proxy_path, payload))
+            self._send_proxy(proxy_backend_json("POST", proxy_route, payload))
             return
 
         if parsed_path.path == "/rfid/scan":
@@ -298,12 +299,9 @@ class KioskHandler(SimpleHTTPRequestHandler):
         """Expose local Raspberry status endpoints and static files."""
 
         parsed_path = urlparse(self.path)
-        proxy_path = terminal_proxy_path(parsed_path.path)
-        if proxy_path:
-            backend_path = proxy_path
-            if parsed_path.query:
-                backend_path = f"{backend_path}?{parsed_path.query}"
-            self._send_proxy(proxy_backend_json("GET", backend_path))
+        proxy_route = terminal_proxy_route(parsed_path.path)
+        if proxy_route:
+            self._send_proxy(proxy_backend_json("GET", proxy_route))
             return
 
         if parsed_path.path == "/rfid/status":
