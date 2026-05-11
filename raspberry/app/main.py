@@ -76,6 +76,8 @@ def proxy_backend_json(method, backend_path, payload=None):
         body = json.dumps(payload or {}).encode("utf-8")
         headers["Content-Type"] = "application/json"
 
+    # lgtm[py/partial-ssrf] backend_path is normalized by terminal_proxy_path:
+    # only fixed terminal routes and regex-validated mobile-session tokens pass.
     request = Request(
         f"{BACKEND_API_BASE_URL}{backend_path}",
         data=body,

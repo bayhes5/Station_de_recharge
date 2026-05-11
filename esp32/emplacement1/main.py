@@ -10,11 +10,6 @@ import network
 from machine import I2C, Pin
 from umqtt.simple import MQTTClient
 
-try:
-    from dht import DHT22
-except ImportError:
-    DHT22 = None
-
 
 WIFI_SSID = "WIFI_SSID"
 WIFI_PASSWORD = "WIFI_PASSWORD"
@@ -92,11 +87,13 @@ def read_door_closed():
 
 def init_dht22():
     """Initialize the DHT22 if the MicroPython module is available."""
-    if DHT22 is None:
+    try:
+        from dht import DHT22 as Dht22Sensor
+    except ImportError:
         print("DHT module not available; using simulated environment values.")
         return None
     try:
-        return DHT22(Pin(DHT_PIN))
+        return Dht22Sensor(Pin(DHT_PIN))
     except Exception as exc:
         print("DHT22 init failed:", exc)
         return None
