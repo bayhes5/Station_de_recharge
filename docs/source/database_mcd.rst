@@ -42,9 +42,15 @@ extensibles.
 Vue relationnelle
 -----------------
 
-La documentation du schema est volontairement textuelle afin de rester lisible
-dans GitHub, Sphinx et les exports PDF sans dependre d'un moteur de diagramme.
-Les relations principales sont les suivantes :
+Le schéma relationnel est maintenu sous deux formes :
+
+* une description textuelle lisible directement dans la documentation ;
+* une source DBML importable dans dbdiagram.io :
+  :download:`station_recharge.dbml <_static/dbdiagram/station_recharge.dbml>`.
+
+Le fichier DBML permet de générer un diagramme visuel propre depuis dbdiagram.io,
+puis d'exporter l'image en SVG ou PNG si une version graphique doit être intégrée
+à la documentation ou au rapport. Les relations principales sont les suivantes :
 
 .. list-table::
    :header-rows: 1
@@ -52,63 +58,63 @@ Les relations principales sont les suivantes :
 
    * - Source
      - Cible
-     - Sens metier
+     - Sens métier
    * - ``utilisateur``
      - ``profil_utilisateur``
-     - Un compte possede un profil utilisateur.
+     - Un compte possède un profil utilisateur.
    * - ``utilisateur``
      - ``utilisateur_role`` / ``role``
-     - Un compte peut recevoir plusieurs roles.
+     - Un compte peut recevoir plusieurs rôles.
    * - ``utilisateur``
      - ``consentement``
-     - Les decisions de consentement sont historisees.
+     - Les décisions de consentement sont historisées.
    * - ``utilisateur``
      - ``journal_securite``
-     - Les actions sensibles sont journalisees.
+     - Les actions sensibles sont journalisées.
    * - ``utilisateur``
      - ``auth_method``
-     - Un compte peut posseder un ou plusieurs moyens d'acces.
+     - Un compte peut posséder un ou plusieurs moyens d'accès.
    * - ``type_auth``
      - ``auth_method``
-     - Chaque moyen d'acces est classe par type.
+     - Chaque moyen d'accès est classé par type.
    * - ``station``
      - ``emplacement``
      - Une station contient plusieurs emplacements.
    * - ``emplacement``
      - ``device``
-     - Un emplacement est pilote par un equipement embarque.
+     - Un emplacement est piloté par un équipement embarqué.
    * - ``device``
      - ``capteur``
      - Un ESP32 expose plusieurs capteurs.
    * - ``capteur``
      - ``capteur_data``
-     - Chaque capteur produit une serie de mesures horodatees.
+     - Chaque capteur produit une série de mesures horodatées.
    * - ``utilisateur``
      - ``reservation``
-     - Un utilisateur reserve un emplacement sur un creneau.
+     - Un utilisateur réserve un emplacement sur un créneau.
    * - ``auth_method``
      - ``reservation``
-     - La reservation reference le moyen d'acces choisi.
+     - La réservation référence le moyen d'accès choisi.
    * - ``reservation``
      - ``charging_session``
-     - Une reservation peut ouvrir une session de charge.
+     - Une réservation peut ouvrir une session de charge.
    * - ``charging_session``
      - ``session_telemetry``
-     - Les mesures electriques de session sont historisees.
+     - Les mesures électriques de session sont historisées.
    * - ``capteur_data`` / ``charging_session``
      - ``alerte``
-     - Une alerte peut etre expliquee par une mesure et/ou une session.
+     - Une alerte peut être expliquée par une mesure et/ou une session.
    * - ``utilisateur``
      - ``technicien``
-     - Un technicien peut etre lie a un compte utilisateur.
+     - Un technicien peut être lié à un compte utilisateur.
    * - ``station``
      - ``maintenance``
      - Une intervention concerne une station.
    * - ``technicien``
      - ``maintenance``
-     - Une intervention peut etre assignee a un technicien.
+     - Une intervention peut être assignée à un technicien.
 
-Cles structurantes
+Clés structurantes
 ~~~~~~~~~~~~~~~~~~
 
 .. list-table::
@@ -116,7 +122,7 @@ Cles structurantes
    :widths: 24 32 44
 
    * - Table
-     - Cles principales
+     - Clés principales
      - Contraintes importantes
    * - ``utilisateur``
      - ``id_user``
@@ -126,34 +132,34 @@ Cles structurantes
      - Un profil par utilisateur.
    * - ``auth_method``
      - ``id_auth``, ``id_user``, ``id_type``
-     - Secret hache, expiration et activation.
+     - Secret haché, expiration et activation.
    * - ``station``
      - ``id_station``
      - Nom, localisation et statut d'exploitation.
    * - ``emplacement``
      - ``id_emplacement``, ``id_station``
-     - Numero unique dans une station.
+     - Numéro unique dans une station.
    * - ``device``
      - ``id_device``, ``id_emplacement``
      - Un device par emplacement, ``last_seen`` pour la supervision.
    * - ``capteur``
      - ``id_capteur``, ``id_device``
-     - Type et unite de mesure.
+     - Type et unité de mesure.
    * - ``capteur_data``
      - ``id_data``, ``id_capteur``
-     - Valeur numerique et horodatage.
+     - Valeur numérique et horodatage.
    * - ``reservation``
      - ``id_reservation``, ``reference_code``
-     - Reference unique, creneau, statut et mode d'acces.
+     - Référence unique, créneau, statut et mode d'accès.
    * - ``charging_session``
      - ``id_session``, ``id_reservation``
-     - Une session active par reservation ouverte.
+     - Une session active par réservation ouverte.
    * - ``alerte``
      - ``id_alerte``
-     - Type, severite, statut et timestamp.
+     - Type, sévérité, statut et timestamp.
    * - ``maintenance``
      - ``id_maintenance``, ``id_station``
-     - Planification, realisation et statut d'intervention.
+     - Planification, réalisation et statut d'intervention.
 
 Script de création PostgreSQL
 -----------------------------
@@ -638,7 +644,7 @@ Incident opérationnel issu d’une mesure capteur ou d’une session.
 * ``id_session`` : session concernée si l’alerte est liée à une charge.
 * ``type`` : famille d’alerte. Valeurs observées : ``intrusion``,
   ``cable_removed``.
-* ``message`` : message lisible. Exemple : ``Cable retire pendant une charge active.``.
+* ``message`` : message lisible. Exemple : ``Câble retiré pendant une charge active.``.
 * ``niveau_severite`` : priorité. Valeurs fermées côté application :
   ``basse``, ``moyenne``, ``haute``, ``critical``, ``critique``.
 * ``status`` : cycle de vie. Valeurs fermées côté application : ``nouvelle``,

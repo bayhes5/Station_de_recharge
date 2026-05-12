@@ -129,7 +129,7 @@ Chaque commande doit produire un acquittement :
 .. code-block:: json
 
    {
-     "command_id": "meme-valeur-que-la-commande",
+     "command_id": "même-valeur-que-la-commande",
      "action": "START",
      "status": "accepted",
      "message": "Emplacement reserve.",

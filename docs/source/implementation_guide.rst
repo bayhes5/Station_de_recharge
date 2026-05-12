@@ -252,9 +252,9 @@ La logique ESP32 de référence est dans ``esp32/``. La simulation Wokwi est dan
    station/<slot_id>/status
    station/<slot_id>/alert
 
-Chaque commande contient un ``command_id`` et l'ESP32 doit repondre sur
-``station/<slot_id>/ack`` avec le meme identifiant. Le Raspberry utilise cet
-accuse de reception pour confirmer que le relais ou le verrou a bien recu la
+Chaque commande contient un ``command_id`` et l'ESP32 doit répondre sur
+``station/<slot_id>/ack`` avec le même identifiant. Le Raspberry utilise cet
+accusé de réception pour confirmer que le relais ou le verrou a bien reçu la
 commande.
 
 La machine d'état embarquée est volontairement simple :
@@ -305,8 +305,8 @@ Les champs booléens ``door`` et ``cable`` sont convertis en ``1.0`` ou ``0.0``
 pour rester compatibles avec ``CapteurData.valeur`` qui est numérique. L'API de
 supervision ajoute ensuite un ``display_value`` lisible :
 
-* ``Boitier ferme`` / ``Boitier ouvert`` ;
-* ``Cable present`` / ``Cable retire``.
+* ``Boîtier fermé`` / ``Boîtier ouvert`` ;
+* ``Câble présent`` / ``Câble retiré``.
 
 Ce choix permet à Grafana de lire une série numérique, tout en gardant une
 interface admin compréhensible.

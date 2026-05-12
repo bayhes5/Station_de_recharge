@@ -1,0 +1,183 @@
+Project station_recharge {
+  database_type: "PostgreSQL"
+  Note: "MCD/MLD de reference pour la station de recharge intelligente. Source importable dans dbdiagram.io."
+}
+
+Table utilisateur {
+  id_user uuid [pk]
+  pseudo varchar(100) [not null, unique]
+  email varchar(254) [not null, unique]
+  password varchar(128) [not null]
+  statut varchar(50) [not null, default: "actif"]
+  created_at timestamp [not null]
+  last_login timestamp
+  failed_attempts integer [not null, default: 0]
+  is_active boolean [not null, default: true]
+  is_staff boolean [not null, default: false]
+  is_superuser boolean [not null, default: false]
+  date_joined timestamp [not null]
+}
+
+Table profil_utilisateur {
+  id_profil uuid [pk]
+  id_user uuid [not null, unique, ref: > utilisateur.id_user]
+  nom varchar(100) [not null, default: ""]
+  telephone varchar(20) [not null, default: ""]
+}
+
+Table role {
+  id_role uuid [pk]
+  nom varchar(50) [not null, unique]
+  description text [not null, default: ""]
+}
+
+Table utilisateur_role {
+  id_user uuid [not null, ref: > utilisateur.id_user]
+  id_role uuid [not null, ref: > role.id_role]
+  assigned_at timestamp [not null]
+
+  indexes {
+    (id_user, id_role) [pk]
+  }
+}
+
+Table consentement {
+  id_consentement uuid [pk]
+  id_user uuid [not null, ref: > utilisateur.id_user]
+  type varchar(100) [not null]
+  statut varchar(50) [not null]
+  date_consentement timestamp [not null]
+}
+
+Table journal_securite {
+  id_log uuid [pk]
+  id_user uuid [ref: > utilisateur.id_user]
+  action varchar(255) [not null]
+  ip inet [not null]
+  statut varchar(50) [not null]
+  date_action timestamp [not null]
+}
+
+Table type_auth {
+  id_type uuid [pk]
+  libelle varchar(50) [not null, unique]
+  factor_level smallint [not null]
+}
+
+Table auth_method {
+  id_auth uuid [pk]
+  id_user uuid [not null, ref: > utilisateur.id_user]
+  id_type uuid [not null, ref: > type_auth.id_type]
+  secret_hash text [not null]
+  display_value varchar(255) [not null, default: ""]
+  metadata jsonb [not null]
+  expiration timestamp
+  is_active boolean [not null, default: true]
+  created_at timestamp [not null]
+}
+
+Table station {
+  id_station uuid [pk]
+  nom varchar(100) [not null]
+  localisation varchar(255) [not null]
+  latitude double
+  longitude double
+  statut varchar(50) [not null]
+  created_at timestamp [not null]
+}
+
+Table emplacement {
+  id_emplacement uuid [pk]
+  id_station uuid [not null, ref: > station.id_station]
+  numero integer [not null]
+  etat varchar(50) [not null]
+  statut_cadenas varchar(50) [not null]
+
+  indexes {
+    (id_station, numero) [unique]
+  }
+}
+
+Table device {
+  id_device uuid [pk]
+  id_emplacement uuid [not null, unique, ref: > emplacement.id_emplacement]
+  type_device varchar(50) [not null]
+  firmware_version varchar(50) [not null]
+  ip_address inet
+  mac_address varchar(50) [not null, default: ""]
+  last_seen timestamp
+  status varchar(50) [not null]
+}
+
+Table capteur {
+  id_capteur uuid [pk]
+  id_device uuid [ref: > device.id_device]
+  type varchar(50) [not null]
+  unite varchar(20) [not null]
+}
+
+Table capteur_data {
+  id_data uuid [pk]
+  id_capteur uuid [not null, ref: > capteur.id_capteur]
+  valeur double [not null]
+  timestamp timestamp [not null]
+}
+
+Table reservation {
+  id_reservation uuid [pk]
+  reference_code varchar(12) [unique]
+  id_user uuid [ref: > utilisateur.id_user]
+  id_emplacement uuid [not null, ref: > emplacement.id_emplacement]
+  id_auth uuid [ref: > auth_method.id_auth]
+  auth_choice varchar(20) [not null, default: "qr"]
+  date_debut timestamp [not null]
+  date_fin timestamp [not null]
+  statut varchar(50) [not null]
+}
+
+Table charging_session {
+  id_session uuid [pk]
+  id_reservation uuid [not null, unique, ref: > reservation.id_reservation]
+  id_emplacement uuid [not null, ref: > emplacement.id_emplacement]
+  start_time timestamp [not null]
+  end_time timestamp
+}
+
+Table session_telemetry {
+  id_telemetry uuid [pk]
+  id_session uuid [not null, ref: > charging_session.id_session]
+  courant double [not null]
+  tension double [not null]
+  energie_kwh double [not null]
+  timestamp timestamp [not null]
+}
+
+Table alerte {
+  id_alerte uuid [pk]
+  id_data uuid [ref: > capteur_data.id_data]
+  id_session uuid [ref: > charging_session.id_session]
+  type varchar(50) [not null]
+  message text [not null]
+  niveau_severite varchar(50) [not null]
+  status varchar(50) [not null]
+  date timestamp [not null]
+}
+
+Table technicien {
+  id_tech uuid [pk]
+  id_user uuid [unique, ref: > utilisateur.id_user]
+  nom varchar(100) [not null]
+  email varchar(254) [not null, unique]
+  telephone varchar(20) [not null, default: ""]
+}
+
+Table maintenance {
+  id_maintenance uuid [pk]
+  id_station uuid [not null, ref: > station.id_station]
+  id_technicien uuid [not null, ref: > technicien.id_tech]
+  type varchar(100) [not null]
+  description text [not null]
+  status varchar(50) [not null]
+  date_planifiee timestamp [not null]
+  date_realisee timestamp
+}
