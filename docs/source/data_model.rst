@@ -91,7 +91,7 @@ nécessaires : mot de passe géré par Django, permissions, groupes, ``is_staff`
 
 Le pseudo est l'identifiant principal de connexion, et l'email reste unique.
 Cette structure permet d'utiliser l'administration Django, les permissions DRF,
-les jetons JWT et les tests d'authentification sans recreer toute la mecanique
+les jetons JWT et les tests d'authentification sans recréer toute la mécanique
 de sécurité.
 
 Profil utilisateur
@@ -203,7 +203,7 @@ Capteurs et données capteurs
 ``Capteur`` et ``CapteurData`` reprennent le principe du MCD : un device porte
 plusieurs capteurs, et chaque mesure horodatée est stockée dans ``capteur_data``.
 
-Les valeurs booleennes issues de l'ESP32, comme ``door`` et ``cable``, sont
+Les valeurs booléennes issues de l'ESP32, comme ``door`` et ``cable``, sont
 converties en ``1.0`` ou ``0.0`` pour rester compatibles avec ``valeur`` de type
 flottant. L'API ajoute ensuite une valeur d'affichage lisible dans la supervision
 administrateur.
@@ -373,7 +373,7 @@ Le projet implémente déjà une partie de ce besoin côté API :
 
 Les vues SQL et l’anonymisation PostgreSQL pourront être ajoutées plus tard si le
 projet doit fournir des exports directs depuis la base ou une séparation stricte
-entre roles SQL.
+entre rôles SQL.
 
 Vue ``session_anonyme``
 ------------------------

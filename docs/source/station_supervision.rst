@@ -138,7 +138,7 @@ Le Raspberry attend aussi une confirmation ESP32 sur :
 
    station/<slot_id>/ack
 
-L'accuse de reception attendu reprend le ``command_id`` :
+L'accusé de réception attendu reprend le ``command_id`` :
 
 .. code-block:: json
 
@@ -152,14 +152,14 @@ L'accuse de reception attendu reprend le ``command_id`` :
      "session_id": "<uuid-session>"
    }
 
-En developpement, ``MQTT_ACK_REQUIRED=False`` laisse la commande reussir sans
-ESP32 branche. En production, ``MQTT_ACK_REQUIRED=True`` permet de refuser le
-demarrage si le relais ne confirme pas.
+En développement, ``MQTT_ACK_REQUIRED=False`` laisse la commande réussir sans
+ESP32 branché. En production, ``MQTT_ACK_REQUIRED=True`` permet de refuser le
+démarrage si le relais ne confirme pas.
 
 Commandes utiles
 ----------------
 
-Afficher l'etat des services de supervision :
+Afficher l'état des services de supervision :
 
 .. code-block:: bash
 
@@ -196,19 +196,19 @@ Tester l'endpoint Raspberry local :
      -H "Content-Type: application/json" \
      -d '{"slot_id":"slot1","action":"START","session_id":"demo"}'
 
-Ecouter les messages publies sur les canaux de la station :
+Écouter les messages publiés sur les canaux de la station :
 
 .. code-block:: bash
 
    docker compose exec mqtt mosquitto_sub -h localhost -t 'station/#' -v -C 5 -W 10
 
-Publier une telemetrie de test sans ESP32 :
+Publier une télémétrie de test sans ESP32 :
 
 .. code-block:: bash
 
    docker compose exec mqtt mosquitto_pub -h localhost -t 'station/slot1/telemetry' -m '{"state":"charging","current":1.2,"voltage":12.0,"temperature":32.5,"humidity":45,"door":true,"cable":true}'
 
-Verifier que Django et la base repondent :
+Vérifier que Django et la base répondent :
 
 .. code-block:: bash
 
@@ -218,9 +218,9 @@ Verifier que Django et la base repondent :
 Simulateur local de télémétrie
 ------------------------------
 
-Wokwi peut rester de cote pendant le developpement de la supervision. Le projet
-contient une commande Django capable de publier des donnees capteurs realistes
-sur les memes canaux que les ESP32 :
+Wokwi peut rester de côté pendant le développement de la supervision. Le projet
+contient une commande Django capable de publier des données capteurs réalistes
+sur les mêmes canaux que les ESP32 :
 
 .. code-block:: powershell
 
@@ -228,36 +228,36 @@ sur les memes canaux que les ESP32 :
    ..\.venv\Scripts\python.exe manage.py simulate_mqtt_telemetry --slots slot1 slot2 slot3 --scenario mixed --interval 2
 
 La commande publie sur ``station/<slot_id>/telemetry`` et utilise les variables
-``MQTT_HOST``, ``MQTT_PORT`` et ``MQTT_BASE_TOPIC``. Le scenario ``mixed`` alterne
+``MQTT_HOST``, ``MQTT_PORT`` et ``MQTT_BASE_TOPIC``. Le scénario ``mixed`` alterne
 des mesures normales et des anomalies pour tester la chaîne d'alertes :
 
-* intrusion : boitier ouvert pendant une charge ;
-* cable retire ;
+* intrusion : boîtier ouvert pendant une charge ;
+* câble retiré ;
 * surchauffe ;
 * surconsommation ;
-* etat critique.
+* état critique.
 
-Pour envoyer seulement quelques messages et verifier le format sans broker :
+Pour envoyer seulement quelques messages et vérifier le format sans broker :
 
 .. code-block:: powershell
 
    cd backend
    ..\.venv\Scripts\python.exe manage.py simulate_mqtt_telemetry --count 3 --dry-run
 
-Avec Docker, le simulateur est disponible dans un profil dedie pour ne pas le
-lancer par defaut :
+Avec Docker, le simulateur est disponible dans un profil dédié pour ne pas le
+lancer par défaut :
 
 .. code-block:: bash
 
    docker compose up -d mqtt
    docker compose --profile simulation run --rm mqtt-simulator
 
-Le simulateur tourne en conteneur ephemere. A l'arret, Docker le supprime
-automatiquement ; il ne garde donc pas de reference vers un reseau Compose
-supprime apres un rebuild.
+Le simulateur tourne en conteneur éphémère. À l'arrêt, Docker le supprime
+automatiquement ; il ne garde donc pas de référence vers un réseau Compose
+supprimé après un rebuild.
 
 Si Docker signale encore ``network ... not found`` pour un ancien conteneur
-arrete, supprimer uniquement le simulateur puis relancer la commande ephemere :
+arrêté, supprimer uniquement le simulateur puis relancer la commande éphémère :
 
 .. code-block:: bash
 
@@ -265,7 +265,7 @@ arrete, supprimer uniquement le simulateur puis relancer la commande ephemere :
    docker compose up -d mqtt
    docker compose --profile simulation run --rm mqtt-simulator
 
-Pour comparer les reseaux attaches aux conteneurs :
+Pour comparer les réseaux attachés aux conteneurs :
 
 .. code-block:: bash
 
@@ -273,7 +273,7 @@ Pour comparer les reseaux attaches aux conteneurs :
    docker inspect mqtt_simulator --format '{{json .NetworkSettings.Networks}}'
    docker inspect mqtt_broker --format '{{json .NetworkSettings.Networks}}'
 
-La chaine locale recommandee pour valider la supervision sans ESP32 est donc :
+La chaîne locale recommandée pour valider la supervision sans ESP32 est donc :
 
 .. code-block:: text
 
@@ -329,10 +329,10 @@ L'ingestion des télémétries alimente actuellement :
 * ``Alerte`` : anomalies telles qu'intrusion, câble retiré, surchauffe ou
   surconsommation.
 
-Les capteurs booleens ``door`` et ``cable`` sont stockes numeriquement dans
+Les capteurs booléens ``door`` et ``cable`` sont stockés numériquement dans
 ``CapteurData`` : ``1`` signifie vrai et ``0`` signifie faux. L'API de
-supervision expose en plus un libelle lisible pour l'interface :
-``Boitier ferme`` / ``Boitier ouvert`` et ``Cable present`` / ``Cable retire``.
+supervision expose en plus un libellé lisible pour l'interface :
+``Boîtier fermé`` / ``Boîtier ouvert`` et ``Câble présent`` / ``Câble retiré``.
 
 Dans l'interface administrateur, la colonne ``Connexion`` indique si l'ESP32 a
 émis une télémétrie récente. Elle est calculée à partir de ``Device.last_seen``
@@ -344,20 +344,20 @@ affiche ``Aucune télémétrie reçue`` tant qu'aucun message réel n'a été in
 Cycle des alertes
 -----------------
 
-Une anomalie detectee par la telemetrie cree une alerte au statut ``nouvelle``.
-Si la meme anomalie continue sur une telemetrie suivante, l'alerte existante est
-mise a jour au statut ``active`` au lieu de creer un doublon. Quand une
-telemetrie normale confirme que la condition a disparu, l'alerte passe
+Une anomalie détectée par la télémétrie crée une alerte au statut ``nouvelle``.
+Si la même anomalie continue sur une télémétrie suivante, l'alerte existante est
+mise à jour au statut ``active`` au lieu de créer un doublon. Quand une
+télémétrie normale confirme que la condition a disparu, l'alerte passe
 automatiquement au statut ``resolue``.
 
-Les conditions de resolution automatique sont :
+Les conditions de résolution automatique sont :
 
-* ``intrusion`` : ``door`` repasse a ``true`` ou l'emplacement n'est plus en charge ;
-* ``cable_removed`` : ``cable`` repasse a ``true`` ou l'emplacement n'est plus en
+* ``intrusion`` : ``door`` repasse à ``true`` ou l'emplacement n'est plus en charge ;
+* ``cable_removed`` : ``cable`` repasse à ``true`` ou l'emplacement n'est plus en
   charge ;
-* ``overheat`` : la temperature repasse sous ``60 C`` ;
+* ``overheat`` : la température repasse sous ``60 C`` ;
 * ``overcurrent`` : le courant repasse sous ``3.0 A`` ;
-* ``state_error`` : l'etat n'est plus ``error``, ``emergency`` ou ``fault``.
+* ``state_error`` : l'état n'est plus ``error``, ``emergency`` ou ``fault``.
 
 Grafana
 -------

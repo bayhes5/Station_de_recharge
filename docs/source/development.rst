@@ -73,14 +73,14 @@ les valeurs de ``.env.example`` pour ``FRONTEND_BASE_URL``,
 Commandes Docker courantes
 --------------------------
 
-Demarrer ou reconstruire la stack :
+Démarrer ou reconstruire la stack :
 
 .. code-block:: bash
 
    docker compose up -d --build
    docker compose up -d
 
-Consulter l'etat et les logs :
+Consulter l'état et les logs :
 
 .. code-block:: bash
 
@@ -92,7 +92,7 @@ Consulter l'etat et les logs :
    docker compose logs --tail=100 mqtt
    docker compose logs --tail=100 grafana
 
-Relancer ou recreer un service sans supprimer les volumes :
+Relancer ou recréer un service sans supprimer les volumes :
 
 .. code-block:: bash
 
@@ -101,7 +101,7 @@ Relancer ou recreer un service sans supprimer les volumes :
    docker compose up -d --force-recreate backend
    docker compose up -d --force-recreate mqtt-bridge
 
-Arreter la stack en conservant les donnees :
+Arrêter la stack en conservant les données :
 
 .. code-block:: bash
 
@@ -114,12 +114,12 @@ Lancer le simulateur local de télémétrie :
    docker compose up -d mqtt
    docker compose --profile simulation run --rm mqtt-simulator
 
-Le simulateur est lance en conteneur ephemere. A l'arret, Docker supprime le
-conteneur et ne conserve pas de reference vers un ancien reseau Compose apres un
+Le simulateur est lancé en conteneur éphémère. À l'arrêt, Docker supprime le
+conteneur et ne conserve pas de référence vers un ancien réseau Compose après un
 rebuild.
 
 Si Docker signale encore ``network ... not found`` pour un ancien conteneur
-arrete, supprimer uniquement le simulateur puis relancer la commande ephemere :
+arrêté, supprimer uniquement le simulateur puis relancer la commande éphémère :
 
 .. code-block:: bash
 
@@ -127,7 +127,7 @@ arrete, supprimer uniquement le simulateur puis relancer la commande ephemere :
    docker compose up -d mqtt
    docker compose --profile simulation run --rm mqtt-simulator
 
-Verifier les reseaux attaches aux conteneurs :
+Vérifier les réseaux attachés aux conteneurs :
 
 .. code-block:: bash
 
@@ -183,19 +183,19 @@ configuré comme clavier série, et ``RFID_READER_BACKEND=nfcpy`` peut être uti
 avec un autre lecteur NFC compatible après installation optionnelle de
 ``nfcpy``.
 
-Ecouter les telemetries recues par Mosquitto :
+Écouter les télémétries reçues par Mosquitto :
 
 .. code-block:: bash
 
    docker compose exec mqtt mosquitto_sub -h localhost -t 'station/#' -v -C 5 -W 10
 
-Publier une telemetrie de test :
+Publier une télémétrie de test :
 
 .. code-block:: bash
 
    docker compose exec mqtt mosquitto_pub -h localhost -t 'station/slot1/telemetry' -m '{"state":"charging","current":1.2,"voltage":12.0,"temperature":32.5,"humidity":45,"door":true,"cable":true}'
 
-Verifier l'acces PostgreSQL depuis le conteneur ``db`` :
+Vérifier l'accès PostgreSQL depuis le conteneur ``db`` :
 
 .. code-block:: bash
 

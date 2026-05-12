@@ -56,7 +56,7 @@ Les variables minimales pour tester sur un Raspberry physique sont :
    export MQTT_HOST=<ip-broker-mqtt>
    export MQTT_PORT=1883
    export MQTT_BASE_TOPIC=station
-   export TERMINAL_API_SECRET=<meme-secret-que-le-backend>
+   export TERMINAL_API_SECRET=<même-secret-que-le-backend>
    export TERMINAL_STATION_ID=<id-station>
    export RFID_READER_BACKEND=acr122u
 
@@ -181,7 +181,7 @@ ACK attendu :
 .. code-block:: json
 
    {
-     "command_id": "meme-valeur",
+     "command_id": "même-valeur",
      "action": "START",
      "status": "accepted",
      "message": "Emplacement reserve.",
