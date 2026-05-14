@@ -1,6 +1,5 @@
 import { expect, test } from "@playwright/test";
 
-const apiOrigin = "http://localhost:8000";
 const frontendOrigin = "http://127.0.0.1:4173";
 
 function encodeBase64Url(payload) {
@@ -31,7 +30,7 @@ function jsonResponse(payload, { status = 200, headers = {} } = {}) {
 }
 
 async function mockApi(page, { admin = false } = {}) {
-  await page.route(`${apiOrigin}/api/**`, async (route) => {
+  await page.route("**/api/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
 
