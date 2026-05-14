@@ -12,6 +12,7 @@ https://bayhes5.github.io/Station_de_recharge/
    :caption: Guide
 
    architecture
+   user_scenarios
    implementation_guide
    raspberry_kiosk
    esp32_firmware

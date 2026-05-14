@@ -1,6 +1,8 @@
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 
+const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || "http://localhost:8000";
+
 const pageNames = [
   "index",
   "login",
@@ -19,6 +21,12 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    proxy: {
+      "/api": {
+        target: apiProxyTarget,
+        changeOrigin: true,
+      },
+    },
   },
   preview: {
     port: 4173,

@@ -1,6 +1,6 @@
 function resolveApiBaseUrl() {
     window.localStorage.removeItem("terminalApiBaseUrl");
-    return `${window.location.origin}/backend-api`;
+    return `${window.location.origin}${KIOSK_BASE_PATH}/backend-api`;
 }
 
 function safeSessionToken(token) {
@@ -23,8 +23,9 @@ function terminalApiUrl(path) {
     throw new Error("Chemin API locale refuse.");
 }
 
+const KIOSK_BASE_PATH = window.location.pathname.startsWith("/kiosk/") ? "/kiosk" : "";
 const API_BASE_URL = resolveApiBaseUrl();
-const EDGE_BASE_URL = window.location.origin;
+const EDGE_BASE_URL = `${window.location.origin}${KIOSK_BASE_PATH}`;
 const KEYPAD_PATTERN = /^[0-9A-D]$/;
 const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
 const TERMINAL_STATION_ID =

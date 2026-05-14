@@ -5,6 +5,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const allowedNextPaths = new Set([
         "/admin-dashboard.html",
         "/dashboard.html",
+        "/mobile-session.html",
         "/profile.html",
         "/reservation.html",
         "/technician-dashboard.html",
@@ -60,7 +61,9 @@ document.addEventListener("DOMContentLoaded", () => {
             }, 800);
         } catch (error) {
             status.classList.add("error");
-            status.textContent = error.message || "Identifiants invalides.";
+            status.textContent = error.status === 401
+                ? "Identifiants invalides."
+                : error.message || "Connexion impossible.";
         } finally {
             submitButton.disabled = false;
         }
