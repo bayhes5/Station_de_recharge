@@ -70,6 +70,26 @@ les valeurs de ``.env.example`` pour ``FRONTEND_BASE_URL``,
 ``CORS_ALLOWED_ORIGINS``, ``JWT_REFRESH_COOKIE_SECURE``,
 ``SESSION_COOKIE_SECURE`` et ``CSRF_COOKIE_SECURE``.
 
+Accès depuis un téléphone sur le Wi-Fi local
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Pour tester la session mobile, le téléphone et le PC doivent être sur le même
+réseau Wi-Fi. Le téléphone ne peut pas utiliser ``localhost`` pour joindre le PC :
+il doit ouvrir l'adresse IP Wi-Fi du PC, par exemple
+``http://10.x.x.x:5173`` en accès direct Vite ou ``https://10.x.x.x`` via Nginx
+si le certificat de développement est accepté.
+
+Le script suivant met à jour les variables locales liées à l'adresse Wi-Fi au
+démarrage du poste de développement :
+
+.. code-block:: powershell
+
+   .\scripts\update-local-ip.ps1
+
+Après changement de réseau, relancer ce script puis redémarrer les services qui
+lisent ``.env``. Le QR de session mobile affiché par le kiosque doit contenir une
+URL joignable depuis le téléphone, pas une URL en ``localhost``.
+
 Commandes Docker courantes
 --------------------------
 

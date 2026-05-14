@@ -129,6 +129,21 @@ Le parcours nominal avec badge RFID est le suivant :
 Le même principe s'applique aux accès par QR ou code : la validation précède
 toujours la commande physique.
 
+Cas couverts par le kiosque
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Le kiosque doit couvrir les situations suivantes :
+
+* badge RFID connu, réservation active sur cette station, démarrage autorisé ;
+* badge inconnu, badge révoqué ou réservation absente, accès refusé ;
+* QR de réservation scanné par un lecteur physique, puis validation par Django ;
+* téléphone utilisateur scannant le QR de session affiché par la borne ;
+* code SMS temporaire saisi avec le code de réservation ;
+* association d'un badge avec un code court généré depuis le profil web ;
+* mauvaise station ou mauvais emplacement, avec message explicite ;
+* backend indisponible, avec bascule limitée vers le cache local si le droit a
+  déjà été synchronisé.
+
 Session mobile et QR de borne
 -----------------------------
 
@@ -140,6 +155,14 @@ backend autorise cette session de borne.
 Ce choix évite de demander un code de réservation au départ. L'identité et la
 réservation sont apportées par la session mobile authentifiée, tandis que le QR
 de borne sert seulement à dire : "je suis devant cette borne".
+
+Le QR de borne expire rapidement. S'il expire, le kiosque doit en générer un
+nouveau. Il ne doit jamais être confondu avec le QR de réservation affiché dans
+l'espace utilisateur : le QR de réservation identifie une réservation, alors que
+le QR de borne identifie une session temporaire entre un téléphone et une borne.
+
+Les scénarios détaillés, y compris les refus et les bascules, sont décrits dans
+:doc:`user_scenarios`.
 
 Mode dégradé
 ------------

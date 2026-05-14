@@ -167,6 +167,7 @@ STATIONS_CATALOG_CACHE_SECONDS = env_int("STATIONS_CATALOG_CACHE_SECONDS", 60)
 SMS_BACKEND = os.environ.get("SMS_BACKEND", "console")
 SMS_SENDER_NAME = os.environ.get("SMS_SENDER_NAME", "Station")
 TERMINAL_API_SECRET = os.environ.get("TERMINAL_API_SECRET", "").strip()
+MOBILE_SESSION_TTL_SECONDS = env_int("MOBILE_SESSION_TTL_SECONDS", 10 * 60)
 REDIS_URL = os.environ.get("REDIS_URL", os.environ.get("CACHE_URL", "redis://redis:6379/1"))
 CACHE_URL = os.environ.get("CACHE_URL", "")
 

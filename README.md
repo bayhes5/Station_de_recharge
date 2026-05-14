@@ -342,6 +342,7 @@ La documentation technique Sphinx est dans `docs/source/`.
 Pages principales :
 
 - `architecture.rst` : architecture globale ;
+- `user_scenarios.rst` : scénarios complets d'accès, mobile, RFID, QR, SMS, mode dégradé et ESP32 ;
 - `raspberry_kiosk.rst` : installation, RFID ACR122U, mode degrade et commandes du kiosque ;
 - `esp32_firmware.rst` : firmware MicroPython, DHT22, INA219, ACK MQTT et deploiement Thonny ;
 - `implementation_guide.rst` : fonctionnalités, implantation et choix d'architecture ;

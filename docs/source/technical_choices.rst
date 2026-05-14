@@ -149,11 +149,11 @@ limité à l'enveloppe applicative et aux assets statiques : les données métie
 les réservations et les secrets d'accès continuent de venir de l'API afin de ne
 pas figer des droits sensibles côté navigateur.
 
-Cette base prépare le futur parcours "téléphone -> borne" : la borne pourrait
-afficher un QR de pairing, l'utilisateur ouvrirait la PWA mobile, puis le backend
-autoriserait la borne après confirmation. Ce pairing temps réel n'est pas encore
-le chemin nominal ; RFID, QR de réservation et code SMS restent les moyens
-d'accès opérationnels.
+Cette base porte aussi le parcours "téléphone -> borne". La borne affiche un QR
+de session mobile, l'utilisateur ouvre la PWA, se connecte si nécessaire,
+choisit une réservation compatible, puis le backend autorise la borne. Ce QR de
+session mobile ne remplace pas le QR de réservation : il sert uniquement à lier
+temporairement le téléphone à la borne devant laquelle se trouve l'utilisateur.
 
 Carte de réservation
 --------------------
@@ -291,28 +291,35 @@ multiplierait les règles de sécurité à maintenir.
 Parcours tactile du kiosque Raspberry
 -------------------------------------
 
-L'interface Raspberry est pensée pour un écran tactile de 7 pouces accompagné
-d'un clavier matriciel physique.
+L'interface Raspberry cible un écran tactile Waveshare en résolution
+``1024x600``. Le kiosque doit donc être pensé comme une interface embarquée :
+peu d'informations simultanées, boutons larges, états visibles à distance et
+enchaînement clair des écrans.
 
 Le parcours est découpé en écrans courts plutôt qu'en formulaire unique :
 
-* un écran d'accueil marqué ``Métropole Verte`` qui confirme que l'utilisateur
-  est devant la bonne borne et propose les trois moyens d'accès ;
-* un écran QR code pour scanner directement le jeton de réservation ;
-* un écran code SMS temporaire avec deux champs explicites : code de réservation
-  et code reçu par SMS ;
-* un écran RFID qui demande le code de réservation avant la lecture du badge ;
+* un accueil centré sur l'action immédiate : badge RFID, téléphone, QR de
+  réservation, code SMS temporaire et aide ;
+* un écran RFID direct, sans code préalable, car le badge est le geste naturel
+  sur une borne ;
+* un écran téléphone qui génère un QR de session mobile temporaire ;
+* un écran QR de réservation utilisé seulement si la borne dispose d'un lecteur
+  QR physique ;
+* un écran code SMS qui demande le code de réservation puis le code reçu par SMS ;
+* un écran d'association badge qui consomme un code court créé depuis le profil
+  web ;
 * un écran de résultat plein écran, vert ou rouge, qui confirme l'emplacement ou
-  explique le refus ;
-* un écran d'aide minimal pour rappeler le format des codes et orienter en cas
-  de réservation expirée.
+  explique le refus.
 
-Le clavier tactile reproduit la matrice matérielle ``1 2 3 A``, ``4 5 6 B``,
-``7 8 9 C`` et ``* 0 # D``. Les nouveaux codes de réservation et codes SMS
-temporaires ``code`` sont donc générés uniquement avec les caractères ``0-9`` et
-``A-D``. La touche ``#`` sert à valider, tandis que ``*`` sert à corriger la
-saisie. Ce choix évite de créer des secrets impossibles à entrer sur la borne
-physique.
+Le bouton ``Démarrer la charge`` n'est jamais affiché avant validation de
+l'authentification. Le kiosque ne propose le démarrage qu'après une réponse
+positive du backend, ou du cache local en mode dégradé, puis relaie seulement à
+ce moment-là la commande ``START`` à l'ESP32.
+
+Le clavier tactile remplace le clavier matriciel si celui-ci n'est pas installé.
+Il sert uniquement aux codes courts : code de réservation, code SMS ou code
+d'association RFID. Les secrets restent générés dans un alphabet compatible avec
+la saisie tactile et les contraintes matérielles de la borne.
 
 ESP32 et modèles devices
 ------------------------

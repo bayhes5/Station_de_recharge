@@ -6,6 +6,11 @@ document.addEventListener("DOMContentLoaded", async () => {
         return;
     }
 
+    const snapshot = window.AuthAPI.getSessionSnapshot?.();
+    if (!snapshot?.hasAccessToken && !snapshot?.hasRefreshToken) {
+        return;
+    }
+
     const session = await window.AuthAPI.ensureSession();
     if (!session?.user) {
         return;

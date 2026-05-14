@@ -181,6 +181,32 @@ Ce fonctionnement sépare deux moments :
 Les tests sont dans ``backend/api/tests/test_terminal_auth.py``. Cette séparation
 évite qu'un badge puisse être associé sans passage par la borne.
 
+Session mobile de borne
+-----------------------
+
+La session mobile de borne couvre le cas où l'utilisateur utilise son téléphone
+pour autoriser le kiosque. Elle ne remplace pas le QR de réservation.
+
+Le kiosque crée une session temporaire avec
+``POST /api/terminal/mobile-sessions/``. Le backend renvoie un token et une URL
+mobile. Le kiosque transforme cette URL en QR. L'utilisateur scanne le QR avec
+son téléphone, se connecte à la PWA si nécessaire, consulte les réservations
+compatibles avec la station, puis en choisit une. Le backend marque alors la
+session comme autorisée.
+
+Le kiosque interroge la session jusqu'à obtenir un statut autorisé, consomme
+l'autorisation, puis publie seulement ensuite la commande ``START`` vers
+l'ESP32. Si la session expire, il faut générer un nouveau QR de borne.
+
+Le point important est la séparation des rôles :
+
+* le QR de réservation identifie une réservation et peut être scanné par un
+  lecteur QR de borne ;
+* le QR de borne identifie une session temporaire entre le téléphone et le
+  kiosque ;
+* la réservation choisie vient de la session utilisateur authentifiée sur la
+  PWA.
+
 Kiosque Raspberry
 -----------------
 
