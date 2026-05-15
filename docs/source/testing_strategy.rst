@@ -58,7 +58,8 @@ Tests couverts actuellement :
 Qualité backend
 ---------------
 
-Ruff vérifie notamment les docstrings suivies par le projet :
+Ruff vérifie les docstrings suivies par le projet, les erreurs Python probables,
+les imports inutilisés et quelques pièges courants signalés par Bugbear :
 
 .. code-block:: powershell
 

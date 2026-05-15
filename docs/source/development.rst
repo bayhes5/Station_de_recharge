@@ -390,7 +390,7 @@ Installer les dépendances de développement :
 
    .\.venv\Scripts\python.exe -m pip install -r backend\requirements-dev.txt
 
-Vérifier le style des docstrings :
+Vérifier la qualité Python avec Ruff :
 
 .. code-block:: powershell
 
@@ -405,5 +405,6 @@ Mesurer la couverture documentaire :
    ..\.venv\Scripts\python.exe -m interrogate api
 
 Le seuil Interrogate est fixé à ``100`` : une nouvelle classe ou fonction suivie
-par l'audit doit donc recevoir une docstring. Ruff active aussi les règles ``D``
-pour contrôler la présence et le style des docstrings publiques.
+par l'audit doit donc recevoir une docstring. Ruff active les règles ``D`` pour
+les docstrings publiques, les règles ``E4/E7/E9/F`` pour les erreurs Python
+probables et ``B`` pour quelques pièges courants.

@@ -10,7 +10,7 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
-select = ["D"]
+select = ["D", "E4", "E7", "E9", "F", "B"]
 ignore = [
     "D100", # Module docstrings are noisy in Django apps.
     "D104", # Package docstrings add little value here.

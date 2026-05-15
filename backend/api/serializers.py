@@ -17,7 +17,6 @@ from .models import (
     Reservation,
     Station,
     Technicien,
-    TypeAuth,
 )
 from .reservation_rules import (
     DEFAULT_RESERVATION_DURATION_MINUTES,

@@ -2,10 +2,11 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import secrets
 import string
-from io import BytesIO
 from datetime import datetime, timedelta, timezone as datetime_timezone
+from io import BytesIO
 
 from django.conf import settings
 from django.contrib.auth import authenticate
@@ -14,28 +15,25 @@ from django.contrib.auth.password_validation import validate_password as validat
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.db import transaction
 from django.db.models import Exists, OuterRef, Prefetch, Q
 from django.shortcuts import render
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
-from django.db import transaction
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.decorators import permission_classes
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import (
-    Alerte,
     Authentification,
     Borne,
-    CapteurData,
     Consentement,
-    Device,
     DeviceStatus,
     Emplacement,
     JournalSecurite,
@@ -54,7 +52,6 @@ from .services.supervision import build_admin_supervision_payload
 from .serializers import (
     AdminUserUpdateSerializer,
     AdminUserSerializer,
-    AuthMethodSerializer,
     BorneSerializer,
     ConsentPreferenceSerializer,
     EmplacementSerializer,
@@ -76,6 +73,7 @@ from .reservation_rules import (
     reservation_duration_minutes,
 )
 
+logger = logging.getLogger(__name__)
 User = get_user_model()
 RESERVATION_START_GRACE_MINUTES = getattr(settings, "RESERVATION_START_GRACE_MINUTES", 5)
 RESERVATION_END_GRACE_MINUTES = getattr(settings, "RESERVATION_END_GRACE_MINUTES", 10)

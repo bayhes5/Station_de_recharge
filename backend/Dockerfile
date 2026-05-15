@@ -17,6 +17,7 @@ FROM base AS test
 
 COPY requirements-dev.txt .
 RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements-dev.txt
+RUN python -m ruff check .
 RUN pytest
 RUN echo "pytest passed" > /tmp/pytest-passed
 

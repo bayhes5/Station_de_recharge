@@ -46,6 +46,7 @@ class AdminSupervisionConsumer(AsyncJsonWebsocketConsumer):
     """Push supervision snapshots to connected administrator dashboards."""
 
     async def connect(self):
+        """Accept staff WebSocket clients and send the initial supervision snapshot."""
         query = parse_qs(self.scope.get("query_string", b"").decode("utf-8"))
         token = query.get("token", [None])[0]
         self.user = await _get_staff_user(token)
@@ -58,14 +59,17 @@ class AdminSupervisionConsumer(AsyncJsonWebsocketConsumer):
         await self._send_snapshot(reason="connected")
 
     async def disconnect(self, _close_code):
+        """Remove the socket from the supervision group when it closes."""
         if getattr(self, "user", None):
             await self.channel_layer.group_discard(SUPERVISION_GROUP_NAME, self.channel_name)
 
     async def receive_json(self, content, **_kwargs):
+        """Handle client refresh requests sent over the WebSocket."""
         if content.get("type") == "refresh":
             await self._send_snapshot(reason="manual-refresh")
 
     async def supervision_update(self, event):
+        """Send a fresh snapshot after a backend supervision broadcast."""
         await self._send_snapshot(reason=event.get("reason", "update"), summary=event.get("summary") or {})
 
     async def _send_snapshot(self, reason: str, summary: dict | None = None):

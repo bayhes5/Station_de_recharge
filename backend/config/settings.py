@@ -196,7 +196,7 @@ CELERY_TASK_IGNORE_RESULT = env_bool("CELERY_TASK_IGNORE_RESULT", True)
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
-CELERY_TIMEZONE = TIME_ZONE if "TIME_ZONE" in globals() else "Europe/Paris"
+CELERY_TIMEZONE = os.environ.get("CELERY_TIMEZONE", "Europe/Paris")
 
 if find_spec("channels_redis"):
     CHANNEL_LAYERS = {

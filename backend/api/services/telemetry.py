@@ -140,7 +140,7 @@ def _get_device(slot_id: str) -> Device:
         else:
             emplacement = emplacement_query.first()
         if emplacement is None:
-            raise ValueError("Aucun emplacement n'existe pour rattacher la telemetrie MQTT.")
+            raise ValueError("Aucun emplacement n'existe pour rattacher la telemetrie MQTT.") from None
         device = getattr(emplacement, "device", None)
         if device is not None:
             device.mac_address = slot_id
