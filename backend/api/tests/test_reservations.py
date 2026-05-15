@@ -27,6 +27,36 @@ def test_availability_returns_counts(authenticated_client, station, emplacements
     assert response.data["available"] is True
     assert response.data["available_count"] == 3
     assert response.data["total_count"] == 3
+    assert response.data["duration_minutes"] == 30
+
+
+@pytest.mark.django_db
+def test_availability_accepts_longer_supported_duration(authenticated_client, station, emplacements, reservation_start):
+    response = authenticated_client.get(
+        reverse("api-reservation-availability"),
+        {
+            "station": str(station.id_station),
+            "date_debut": reservation_start.isoformat(),
+            "date_fin": (reservation_start + timedelta(hours=2)).isoformat(),
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["duration_minutes"] == 120
+
+
+@pytest.mark.django_db
+def test_availability_rejects_unsupported_duration(authenticated_client, station, reservation_start):
+    response = authenticated_client.get(
+        reverse("api-reservation-availability"),
+        {
+            "station": str(station.id_station),
+            "date_debut": reservation_start.isoformat(),
+            "date_fin": (reservation_start + timedelta(minutes=90)).isoformat(),
+        },
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 @pytest.mark.django_db
@@ -89,6 +119,42 @@ def test_reservation_creation_rejects_unknown_station(authenticated_client, rese
 
 
 @pytest.mark.django_db
+def test_reservation_creation_uses_default_one_hour_duration(authenticated_client, station, emplacements, reservation_start):
+    response = authenticated_client.post(
+        reverse("api-reservations"),
+        {
+            "station": str(station.id_station),
+            "date_debut": reservation_start.isoformat(),
+            "auth_mode": "qr",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    reservation = Reservation.objects.get(id_reservation=response.data["reservation"]["id_reservation"])
+    assert reservation.date_fin == reservation.date_debut + timedelta(hours=1)
+    assert response.data["reservation"]["duration_minutes"] == 60
+
+
+@pytest.mark.django_db
+def test_reservation_creation_accepts_supported_duration(authenticated_client, station, emplacements, reservation_start):
+    response = authenticated_client.post(
+        reverse("api-reservations"),
+        {
+            "station": str(station.id_station),
+            "date_debut": reservation_start.isoformat(),
+            "duration_minutes": 120,
+            "auth_mode": "qr",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    reservation = Reservation.objects.get(id_reservation=response.data["reservation"]["id_reservation"])
+    assert reservation.date_fin == reservation.date_debut + timedelta(hours=2)
+
+
+@pytest.mark.django_db
 def test_reservation_creation_rejects_past_slot(authenticated_client, station):
     start = timezone.now().replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
     response = authenticated_client.post(
@@ -139,6 +205,88 @@ def test_reservation_creation_rejects_requested_overlapping_emplacement(
     )
 
     assert response.status_code == status.HTTP_409_CONFLICT
+
+
+@pytest.mark.django_db
+def test_reservation_creation_allows_adjacent_paid_window_before_next_reservation(
+    authenticated_client,
+    user,
+    station,
+    emplacements,
+    reservation_start,
+):
+    other_user = get_user_model().objects.create_user(
+        pseudo="adjacent-next-owner",
+        email="adjacent-next-owner@example.com",
+        password="OtherPass123!",
+    )
+    Reservation.objects.create(
+        utilisateur=other_user,
+        emplacement=emplacements[0],
+        reference_code="ADJAC1",
+        auth_choice="qr",
+        date_debut=reservation_start,
+        date_fin=reservation_start + timedelta(minutes=30),
+        statut="confirmee",
+    )
+
+    response = authenticated_client.post(
+        reverse("api-reservations"),
+        {
+            "station": str(station.id_station),
+            "emplacement": str(emplacements[0].id_emplacement),
+            "date_debut": (reservation_start - timedelta(hours=1)).isoformat(),
+            "duration_minutes": 60,
+            "auth_mode": "qr",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    reservation = Reservation.objects.get(id_reservation=response.data["reservation"]["id_reservation"])
+    assert reservation.emplacement == emplacements[0]
+    assert reservation.date_fin == reservation_start
+
+
+@pytest.mark.django_db
+def test_reservation_creation_allows_adjacent_paid_window_after_previous_reservation(
+    authenticated_client,
+    user,
+    station,
+    emplacements,
+    reservation_start,
+):
+    other_user = get_user_model().objects.create_user(
+        pseudo="adjacent-prev-owner",
+        email="adjacent-prev-owner@example.com",
+        password="OtherPass123!",
+    )
+    Reservation.objects.create(
+        utilisateur=other_user,
+        emplacement=emplacements[0],
+        reference_code="ADJAC2",
+        auth_choice="qr",
+        date_debut=reservation_start,
+        date_fin=reservation_start + timedelta(minutes=30),
+        statut="confirmee",
+    )
+
+    response = authenticated_client.post(
+        reverse("api-reservations"),
+        {
+            "station": str(station.id_station),
+            "emplacement": str(emplacements[0].id_emplacement),
+            "date_debut": (reservation_start + timedelta(minutes=30)).isoformat(),
+            "duration_minutes": 60,
+            "auth_mode": "qr",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    reservation = Reservation.objects.get(id_reservation=response.data["reservation"]["id_reservation"])
+    assert reservation.emplacement == emplacements[0]
+    assert reservation.date_debut == reservation_start + timedelta(minutes=30)
 
 
 @pytest.mark.django_db

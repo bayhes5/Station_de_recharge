@@ -18,7 +18,7 @@ def test_stations_catalog_uses_prefetch_and_cache(
 ):
     cache.clear()
 
-    with django_assert_num_queries(2):
+    with django_assert_num_queries(4):
         response = authenticated_client.get(reverse("api-stations-catalog"))
 
     assert response.status_code == status.HTTP_200_OK

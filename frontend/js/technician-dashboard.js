@@ -65,7 +65,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             const result = await window.AuthAPI.getTechnicianMaintenances();
             renderMaintenances(list, result.results || []);
             status.classList.remove("error");
-            status.textContent = "Maintenances chargées. Mise à jour automatique toutes les 30 secondes.";
+            status.textContent = "";
         } finally {
             isLoading = false;
         }

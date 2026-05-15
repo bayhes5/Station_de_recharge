@@ -110,9 +110,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     const status = document.getElementById("admin-status");
     const logoutBtn = document.getElementById("logout-admin");
     const grafanaLink = document.getElementById("grafana-link");
+    const realtimeStatus = document.getElementById("supervision-realtime-status");
 
     let users = [];
     let stations = [];
+    let bornes = [];
     let emplacements = [];
     let technicians = [];
     let maintenances = [];
@@ -130,6 +132,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     let currentTab = "overview";
     let isLoading = false;
     let isRefreshingLiveData = false;
+    let supervisionSocket = null;
+    let supervisionReconnectTimer = null;
+    let supervisionRealtimeStarted = false;
+    let supervisionReconnectAttempts = 0;
     const expandedStations = new Set();
     const paginatedTables = ["users", "stations", "technicians", "maintenances"];
     const supervisionPaginationState = {
@@ -173,6 +179,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             station.latitude,
             station.longitude,
             station.statut,
+            ...bornes.filter((borne) => String(borne.station) === String(station.id_station)).map((borne) => `${borne.nom} ${borne.numero} ${borne.statut}`),
+            ...emplacements.filter((emplacement) => String(emplacement.station) === String(station.id_station)).map((emplacement) => `${emplacement.borne_nom || ""} ${emplacement.numero} ${emplacement.statut}`),
         ]),
         technicians: (technician) => collectSearchText([
             technician.nom,
@@ -200,6 +208,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             reservation.reference_code,
             reservation.utilisateur_pseudo,
             reservation.station_nom,
+            reservation.borne_nom,
             reservation.emplacement_numero,
             reservation.emplacement,
             reservation.auth_mode,
@@ -216,6 +225,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             session.utilisateur_pseudo,
             session.reference_code,
             session.station,
+            session.borne,
             session.emplacement,
             session.status === "active" ? "en cours active" : "archivee archivée",
             formatDateTime(session.start_time),
@@ -248,6 +258,86 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
 
         return GRAFANA_DASHBOARD_SUBPATH;
+    }
+
+    function setRealtimeStatus(label, state = "") {
+        if (!realtimeStatus) return;
+        realtimeStatus.textContent = label;
+        realtimeStatus.classList.toggle("connected", state === "connected");
+        realtimeStatus.classList.toggle("fallback", state === "fallback");
+    }
+
+    function buildSupervisionWebSocketUrl(token) {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        return `${protocol}//${window.location.host}/ws/admin/supervision/?token=${encodeURIComponent(token)}`;
+    }
+
+    function scheduleSupervisionReconnect() {
+        if (!supervisionRealtimeStarted) return;
+        window.clearTimeout(supervisionReconnectTimer);
+        const delay = Math.min(30000, 3000 * 2 ** Math.min(supervisionReconnectAttempts, 3));
+        supervisionReconnectAttempts += 1;
+        supervisionReconnectTimer = window.setTimeout(() => {
+            connectSupervisionSocket();
+        }, delay);
+    }
+
+    async function connectSupervisionSocket() {
+        if (!("WebSocket" in window)) {
+            setRealtimeStatus("Polling de secours", "fallback");
+            return;
+        }
+        if (
+            supervisionSocket &&
+            [WebSocket.CONNECTING, WebSocket.OPEN].includes(supervisionSocket.readyState)
+        ) {
+            return;
+        }
+
+        const token = window.AuthAPI.getAccessToken();
+        if (!token) {
+            setRealtimeStatus("Polling de secours", "fallback");
+            return;
+        }
+
+        setRealtimeStatus("Connexion temps réel", "fallback");
+        const socket = new WebSocket(buildSupervisionWebSocketUrl(token));
+        supervisionSocket = socket;
+
+        socket.addEventListener("open", () => {
+            supervisionReconnectAttempts = 0;
+            setRealtimeStatus("Temps réel actif", "connected");
+        });
+
+        socket.addEventListener("message", (event) => {
+            let message = null;
+            try {
+                message = JSON.parse(event.data);
+            } catch (_error) {
+                return;
+            }
+            if (message?.type !== "supervision.snapshot" || !message.payload) return;
+            supervision = message.payload;
+            renderSupervision();
+        });
+
+        socket.addEventListener("close", async (event) => {
+            if (supervisionSocket !== socket) return;
+            supervisionSocket = null;
+            setRealtimeStatus("Polling de secours", "fallback");
+            if (event.code === 4401) {
+                try {
+                    await window.AuthAPI.refreshAccessToken();
+                } catch (_error) {
+                    return;
+                }
+            }
+            scheduleSupervisionReconnect();
+        });
+
+        socket.addEventListener("error", () => {
+            setRealtimeStatus("Polling de secours", "fallback");
+        });
     }
 
     function filterRows(tableKey, rows) {
@@ -527,7 +617,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     async function deleteAndReload(confirmMessage, deleteRequest) {
-        if (!window.confirm(confirmMessage)) return;
+        const confirmed = await window.AuthAPI.confirmAction(confirmMessage, {
+            title: "Confirmer la suppression",
+            confirmLabel: "Supprimer",
+            danger: true,
+        });
+        if (!confirmed) return;
         try {
             await deleteRequest();
             await loadAll();
@@ -538,28 +633,41 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     async function regenerateReservationAccess(reservation) {
-        const confirmed = window.confirm(`Regenerer l'acces temporaire de la reservation ${reservation.reference_code || ""} ?`);
+        const confirmed = await window.AuthAPI.confirmAction(
+            `Régénérer l'accès temporaire de la réservation ${reservation.reference_code || ""} ?`,
+            {
+                title: "Régénérer l'accès",
+                confirmLabel: "Régénérer",
+            }
+        );
         if (!confirmed) return;
 
         try {
             await window.AuthAPI.regenerateAdminReservationAccess(reservation.id_reservation);
             await loadAll();
-            setStatus(`Acces temporaire regenere pour ${reservation.reference_code || "la reservation"}. L'utilisateur verra la nouvelle valeur automatiquement.`);
+            setStatus(`Accès temporaire régénéré pour ${reservation.reference_code || "la réservation"}. L'utilisateur verra la nouvelle valeur automatiquement.`);
         } catch (error) {
-            setStatus(error.message || "Regeneration impossible.", true);
+            setStatus(error.message || "Régénération impossible.", true);
         }
     }
 
     async function revokeReservationAccess(reservation) {
-        const confirmed = window.confirm(`Revoquer l'acces temporaire de la reservation ${reservation.reference_code || ""} ?`);
+        const confirmed = await window.AuthAPI.confirmAction(
+            `Révoquer l'accès temporaire de la réservation ${reservation.reference_code || ""} ?`,
+            {
+                title: "Révoquer l'accès",
+                confirmLabel: "Révoquer",
+                danger: true,
+            }
+        );
         if (!confirmed) return;
 
         try {
             await window.AuthAPI.revokeAdminReservationAccess(reservation.id_reservation);
             await loadAll();
-            setStatus(`Acces temporaire revoque pour ${reservation.reference_code || "la reservation"}.`);
+            setStatus(`Accès temporaire révoqué pour ${reservation.reference_code || "la réservation"}.`);
         } catch (error) {
-            setStatus(error.message || "Revocation impossible.", true);
+            setStatus(error.message || "Révocation impossible.", true);
         }
     }
 
@@ -621,14 +729,14 @@ document.addEventListener("DOMContentLoaded", async () => {
             return;
         }
 
-        const columnsCount = 7;
+        const columnsCount = 8;
         const tableWrap = document.createElement("div");
         tableWrap.className = "data-table-wrap admin-data-table-wrap";
         const table = document.createElement("table");
         table.className = "data-table admin-data-table station-tree-table";
         const thead = document.createElement("thead");
         const headRow = document.createElement("tr");
-        ["Station", "Localisation", "Latitude", "Longitude", "Statut", "Emplacements", "Actions"].forEach((label) => {
+        ["Station", "Localisation", "Latitude", "Longitude", "Statut", "Bornes", "Emplacements", "Actions"].forEach((label) => {
             const th = document.createElement("th");
             th.textContent = label;
             headRow.appendChild(th);
@@ -639,9 +747,12 @@ document.addEventListener("DOMContentLoaded", async () => {
         const tbody = document.createElement("tbody");
         rows.forEach((station) => {
             const stationId = String(station.id_station);
+            const stationBornes = bornes
+                .filter((borne) => String(borne.station) === stationId)
+                .sort((left, right) => Number(left.numero) - Number(right.numero));
             const stationEmplacements = emplacements
                 .filter((emplacement) => String(emplacement.station) === stationId)
-                .sort((left, right) => Number(left.numero) - Number(right.numero));
+                .sort((left, right) => Number(left.borne_numero ?? 0) - Number(right.borne_numero ?? 0) || Number(left.numero) - Number(right.numero));
             const expanded = expandedStations.has(stationId);
 
             const stationRow = document.createElement("tr");
@@ -659,20 +770,20 @@ document.addEventListener("DOMContentLoaded", async () => {
                 renderStations();
             });
             toggle.className = "table-action station-toggle";
-            toggle.setAttribute("aria-label", `${expanded ? "Masquer" : "Afficher"} les emplacements de ${station.nom}`);
+            toggle.setAttribute("aria-label", `${expanded ? "Masquer" : "Afficher"} les bornes et emplacements de ${station.nom}`);
             const nameStack = document.createElement("div");
             nameStack.className = "station-name-cell";
             const strong = document.createElement("strong");
             strong.textContent = station.nom;
             const small = document.createElement("small");
-            small.textContent = expanded ? "Emplacements affichés" : "Cliquer pour dérouler";
+            small.textContent = expanded ? "Infrastructure affichée" : "Cliquer pour dérouler";
             nameStack.appendChild(strong);
             nameStack.appendChild(small);
             nameCell.appendChild(toggle);
             nameCell.appendChild(nameStack);
             stationRow.appendChild(nameCell);
 
-            [station.localisation_text, station.latitude, station.longitude, station.statut, stationEmplacements.length].forEach((value) => {
+            [station.localisation_text, station.latitude, station.longitude, station.statut, stationBornes.length, stationEmplacements.length].forEach((value) => {
                 const td = document.createElement("td");
                 td.textContent = value ?? "-";
                 stationRow.appendChild(td);
@@ -716,7 +827,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 detailsRow.className = "station-details-row";
                 const detailsCell = document.createElement("td");
                 detailsCell.colSpan = columnsCount;
-                detailsCell.appendChild(renderStationEmplacements(station, stationEmplacements));
+                detailsCell.appendChild(renderStationEmplacements(station, stationBornes, stationEmplacements));
                 detailsRow.appendChild(detailsCell);
                 tbody.appendChild(detailsRow);
             }
@@ -728,55 +839,98 @@ document.addEventListener("DOMContentLoaded", async () => {
         renderPagination("stations-list", "stations");
     }
 
-    function renderStationEmplacements(station, stationEmplacements) {
+    function renderStationEmplacements(station, stationBornes, stationEmplacements) {
         const wrapper = document.createElement("div");
         wrapper.className = "station-emplacements-panel";
 
         const heading = document.createElement("div");
         heading.className = "station-emplacements-heading";
         const title = document.createElement("strong");
-        title.textContent = `Emplacements de ${station.nom}`;
+        title.textContent = `Bornes et emplacements de ${station.nom}`;
+        const addBorneLink = createActionLink("Ajouter une borne", "/admin-form.html?resource=borne");
+        addBorneLink.className = "table-action";
         const addLink = createActionLink("Ajouter un emplacement", "/admin-form.html?resource=emplacement");
         addLink.className = "table-action";
         heading.appendChild(title);
+        heading.appendChild(addBorneLink);
         heading.appendChild(addLink);
         wrapper.appendChild(heading);
 
-        if (!stationEmplacements.length) {
+        if (!stationBornes.length && !stationEmplacements.length) {
             const empty = document.createElement("div");
             empty.className = "empty-state";
-            empty.textContent = "Aucun emplacement pour cette station.";
+            empty.textContent = "Aucune borne ni emplacement pour cette station.";
             wrapper.appendChild(empty);
             return wrapper;
         }
 
         const grid = document.createElement("div");
         grid.className = "slot-grid";
-        stationEmplacements.forEach((emplacement) => {
+        const bornesToRender = stationBornes.length
+            ? stationBornes
+            : [{ id_borne: "__unassigned__", nom: "Borne non renseign\u00e9e", numero: "-", statut: "-" }];
+
+        bornesToRender.forEach((borne) => {
+            const borneEmplacements = stationEmplacements.filter((emplacement) => String(emplacement.borne) === String(borne.id_borne));
             const card = document.createElement("article");
             card.className = "slot-card";
             const head = document.createElement("div");
             head.className = "slot-card-head";
-            const title = document.createElement("strong");
-            title.textContent = `Emplacement ${emplacement.numero}`;
-            const statusBadge = createStatusBadge(emplacement.statut || "-", emplacement.statut === "disponible" ? "success" : "warning");
-            head.appendChild(title);
+            const borneTitle = document.createElement("strong");
+            borneTitle.textContent = borne.nom || `Borne ${borne.numero}`;
+            const statusBadge = createStatusBadge(borne.statut || "-", borne.statut === "active" ? "success" : "warning");
+            head.appendChild(borneTitle);
             head.appendChild(statusBadge);
-
-            const lock = document.createElement("p");
-            lock.textContent = `Serrure : ${emplacement.lock_state || "-"}`;
 
             const actions = document.createElement("div");
             actions.className = "table-actions";
-            actions.appendChild(createActionLink("Modifier", editHref("emplacement", emplacement.id_emplacement)));
-            actions.appendChild(createActionButton("Supprimer", () => deleteAndReload(
-                `Supprimer l'emplacement ${emplacement.numero} ?`,
-                () => window.AuthAPI.deleteAdminEmplacement(emplacement.id_emplacement)
-            ), "danger-action"));
+            if (borne.id_borne !== "__unassigned__") {
+                actions.appendChild(createActionLink("Modifier", editHref("borne", borne.id_borne)));
+                actions.appendChild(createActionButton("Supprimer", () => deleteAndReload(
+                    `Supprimer la borne ${borne.nom || borne.numero} ?`,
+                    () => window.AuthAPI.deleteAdminBorne(borne.id_borne)
+                ), "danger-action"));
+            }
+
+            const slots = document.createElement("div");
+            slots.className = "stacked-list";
+            if (!borneEmplacements.length) {
+                const empty = document.createElement("p");
+                empty.className = "helper";
+                empty.textContent = "Aucun emplacement rattach\u00e9.";
+                slots.appendChild(empty);
+            } else {
+                borneEmplacements.forEach((emplacement) => {
+                    const row = document.createElement("div");
+                    row.className = "list-item compact-list-item";
+                    const rowHead = document.createElement("div");
+                    rowHead.className = "list-item-head";
+                    const emplacementTitle = document.createElement("strong");
+                    emplacementTitle.textContent = `Emplacement ${emplacement.numero}`;
+                    rowHead.appendChild(emplacementTitle);
+                    rowHead.appendChild(createStatusBadge(emplacement.statut || "-", emplacement.statut === "disponible" ? "success" : "warning"));
+
+                    const lock = document.createElement("p");
+                    lock.textContent = `Serrure : ${emplacement.lock_state || "-"}`;
+
+                    const slotActions = document.createElement("div");
+                    slotActions.className = "table-actions";
+                    slotActions.appendChild(createActionLink("Modifier", editHref("emplacement", emplacement.id_emplacement)));
+                    slotActions.appendChild(createActionButton("Supprimer", () => deleteAndReload(
+                        `Supprimer l'emplacement ${emplacement.numero} ?`,
+                        () => window.AuthAPI.deleteAdminEmplacement(emplacement.id_emplacement)
+                    ), "danger-action"));
+
+                    row.appendChild(rowHead);
+                    row.appendChild(lock);
+                    row.appendChild(slotActions);
+                    slots.appendChild(row);
+                });
+            }
 
             card.appendChild(head);
-            card.appendChild(lock);
             card.appendChild(actions);
+            card.appendChild(slots);
             grid.appendChild(card);
         });
         wrapper.appendChild(grid);
@@ -848,6 +1002,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Code", render: (reservation) => reservation.reference_code || "-" },
                 { label: "Utilisateur", render: (reservation) => reservation.utilisateur_pseudo || "-" },
                 { label: "Station", render: (reservation) => reservation.station_nom || "-" },
+                { label: "Borne", render: (reservation) => reservation.borne_nom || "-" },
                 { label: "Emplacement", render: (reservation) => reservation.emplacement_numero || reservation.emplacement || "-" },
                 { label: "Début", render: (reservation) => formatDateTime(reservation.date_debut) },
                 { label: "Fin", render: (reservation) => formatDateTime(reservation.date_fin) },
@@ -872,6 +1027,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Utilisateur", render: (session) => session.utilisateur_pseudo || "-" },
                 { label: "Code réservation", render: (session) => session.reference_code || "-" },
                 { label: "Station", render: (session) => session.station || "-" },
+                { label: "Borne", render: (session) => session.borne || "-" },
                 { label: "Emplacement", render: (session) => session.emplacement || "-" },
                 { label: "Début", render: (session) => formatDateTime(session.start_time) },
                 { label: "Fin", render: (session) => formatDateTime(session.end_time) },
@@ -897,6 +1053,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Connexion", render: (device) => createStatusBadge(device.online ? "En ligne" : "Hors ligne", device.online ? "success" : "danger") },
                 { label: "Dernier état reçu", render: (device) => device.status_display || device.status || "-" },
                 { label: "Station", render: (device) => device.station_nom || "-" },
+                { label: "Borne", render: (device) => device.borne_nom || "-" },
                 { label: "Emplacement", render: (device) => device.emplacement_numero ?? "-" },
                 { label: "Serrure", render: (device) => device.lock_state || "-" },
                 { label: "Firmware", render: (device) => device.firmware_version || "-" },
@@ -917,6 +1074,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Sévérité", render: (alert) => createStatusBadge(alert.niveau_severite || "-", ["critical", "critique"].includes(alert.niveau_severite) ? "danger" : "warning") },
                 { label: "Statut", render: (alert) => alert.status || "-" },
                 { label: "Station", render: (alert) => alert.station_nom || "-" },
+                { label: "Borne", render: (alert) => alert.borne_nom || "-" },
                 { label: "Emplacement", render: (alert) => alert.emplacement_numero ?? "-" },
                 { label: "Message", render: (alert) => alert.message || "-" },
             ],
@@ -934,6 +1092,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Capteur", render: (row) => row.type || "-" },
                 { label: "Valeur", render: formatMeasurementValue },
                 { label: "Station", render: (row) => row.station_nom || "-" },
+                { label: "Borne", render: (row) => row.borne_nom || "-" },
                 { label: "Emplacement", render: (row) => row.emplacement_numero ?? "-" },
             ],
             paginateRows(supervision.measurements || [], supervisionPaginationState.measurements),
@@ -964,6 +1123,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 adminSupervision,
                 adminUsers,
                 adminStations,
+                adminBornes,
                 adminEmplacements,
                 adminTechnicians,
                 adminMaintenances,
@@ -972,6 +1132,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 window.AuthAPI.getAdminSupervision(),
                 window.AuthAPI.getAdminUsers(pageParams("users")),
                 window.AuthAPI.getAdminStations(pageParams("stations")),
+                window.AuthAPI.getAdminBornes(),
                 window.AuthAPI.getAdminEmplacements(),
                 window.AuthAPI.getAdminTechnicians(pageParams("technicians")),
                 window.AuthAPI.getAdminMaintenances(pageParams("maintenances")),
@@ -994,6 +1155,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
             users = adminUsers.results || [];
             stations = adminStations.results || [];
+            bornes = adminBornes.results || [];
             emplacements = adminEmplacements.results || [];
             technicians = adminTechnicians.results || [];
             maintenances = adminMaintenances.results || [];
@@ -1012,7 +1174,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             setStatus(
                 optionalDataFailed
                     ? "Administration chargée. Redémarrez le backend pour activer les vues réservations/sessions."
-                    : "Données chargées. La supervision se met à jour automatiquement en arrière-plan.",
+                    : "",
                 optionalDataFailed
             );
         } finally {
@@ -1057,6 +1219,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (grafanaLink) {
         grafanaLink.href = resolveGrafanaUrl();
     }
+    window.addEventListener("beforeunload", () => {
+        supervisionRealtimeStarted = false;
+        window.clearTimeout(supervisionReconnectTimer);
+        if (supervisionSocket) {
+            supervisionSocket.close();
+        }
+    });
 
     const session = await window.AuthAPI.ensureSession();
     if (!session) {
@@ -1079,6 +1248,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
 
         await loadAll();
+        supervisionRealtimeStarted = true;
+        connectSupervisionSocket();
         const initialTab = (window.location.hash || "#overview").replace("#", "");
         const allowedTabs = ["overview", "supervision", "users", "infrastructure", "reservations", "sessions", "operations"];
         setAdminTab(allowedTabs.includes(initialTab) ? initialTab : "overview", false);

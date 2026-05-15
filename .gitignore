@@ -21,3 +21,4 @@ sbom-source/
 rapport_final/
 scripts/build-report.ps1
 debug.log
+.dev-logs/

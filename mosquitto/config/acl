@@ -1,0 +1,40 @@
+# ACL Mosquitto cible pour la borne.
+#
+# Le backend lit toute la télémétrie et peut publier des commandes.
+# Le Raspberry publie les commandes vers les ESP32.
+# Chaque ESP32 publie sa télémétrie et ses ACK, et écoute sa commande.
+
+user station_backend
+topic readwrite station/health
+topic read station/+/telemetry
+topic read station/+/status
+topic read station/+/alert
+topic read station/+/ack
+topic write station/+/cmd
+# Autorisé pour le simulateur local lancé côté backend.
+topic write station/+/telemetry
+
+user raspberry_kiosk
+topic read station/+/ack
+topic write station/+/cmd
+
+user esp32_slot1
+topic read station/slot1/cmd
+topic write station/slot1/telemetry
+topic write station/slot1/status
+topic write station/slot1/alert
+topic write station/slot1/ack
+
+user esp32_slot2
+topic read station/slot2/cmd
+topic write station/slot2/telemetry
+topic write station/slot2/status
+topic write station/slot2/alert
+topic write station/slot2/ack
+
+user esp32_slot3
+topic read station/slot3/cmd
+topic write station/slot3/telemetry
+topic write station/slot3/status
+topic write station/slot3/alert
+topic write station/slot3/ack

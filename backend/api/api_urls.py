@@ -1,6 +1,8 @@
 from django.urls import path
 
 from .views import (
+    admin_borne_detail,
+    admin_bornes,
     admin_emplacement_detail,
     admin_emplacements,
     admin_overview,
@@ -53,6 +55,7 @@ from .views import (
     terminal_offline_events,
     terminal_mobile_session_status,
     terminal_mobile_session_status_from_body,
+    terminal_stop_session,
     mobile_session_authorize,
     mobile_session_detail,
 )
@@ -91,6 +94,7 @@ urlpatterns = [
         terminal_consume_mobile_session,
         name="api-terminal-mobile-session-consume",
     ),
+    path("terminal/sessions/stop/", terminal_stop_session, name="api-terminal-session-stop"),
     path("terminal/offline-cache/", terminal_offline_cache, name="api-terminal-offline-cache"),
     path("terminal/offline-events/", terminal_offline_events, name="api-terminal-offline-events"),
     path("mobile-sessions/<str:token>/", mobile_session_detail, name="api-mobile-session-detail"),
@@ -130,6 +134,8 @@ urlpatterns = [
     ),
     path("admin/stations/", admin_stations, name="api-admin-stations"),
     path("admin/stations/<uuid:station_id>/", admin_station_detail, name="api-admin-station-detail"),
+    path("admin/bornes/", admin_bornes, name="api-admin-bornes"),
+    path("admin/bornes/<uuid:borne_id>/", admin_borne_detail, name="api-admin-borne-detail"),
     path("admin/technicians/", admin_technicians, name="api-admin-technicians"),
     path("admin/technicians/<uuid:technician_id>/", admin_technician_detail, name="api-admin-technician-detail"),
     path("admin/maintenances/", admin_maintenances, name="api-admin-maintenances"),

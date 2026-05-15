@@ -43,8 +43,8 @@ Objectif
    L'utilisateur réserve un créneau et choisit le mode ``QR``.
 
 Préconditions
-   L'utilisateur est connecté à la PWA. Une station dispose d'un emplacement libre
-   sur le créneau choisi.
+   L'utilisateur est connecté à la PWA. Une station possède au moins une borne
+   active avec un emplacement libre sur le créneau choisi.
 
 Déroulement
    1. L'utilisateur ouvre la page de réservation.
@@ -80,8 +80,8 @@ Déroulement
    3. Le Raspberry reçoit le contenu scanné.
    4. Le Raspberry appelle ``POST /api/terminal/authenticate/`` avec le mode
       ``qr``.
-   5. Django vérifie le token, la réservation, la station, l'emplacement, la
-      révocation et l'expiration.
+   5. Django vérifie le token, la réservation, la station, la borne,
+      l'emplacement, la révocation et l'expiration.
    6. Django crée ou retrouve la session de charge.
    7. Le Raspberry publie ``START`` sur ``station/<slot_id>/cmd``.
    8. L'ESP32 acquitte la commande et démarre l'état local de charge.
@@ -91,8 +91,8 @@ Résultat attendu
    selon sa logique locale.
 
 Cas d'erreur
-   Un QR d'une autre station, un QR expiré, un QR révoqué ou un QR dont le mode ne
-   correspond pas à la réservation est refusé.
+   Un QR d'une autre station ou d'une autre borne, un QR expiré, un QR révoqué ou
+   un QR dont le mode ne correspond pas à la réservation est refusé.
 
 Scénario 3 : accès avec bouton Téléphone et QR de session mobile
 ----------------------------------------------------------------
@@ -116,7 +116,8 @@ Déroulement
       ``login.html?next=/mobile-session.html?token=<token>``.
    8. Après connexion, la PWA revient sur la session mobile.
    9. La PWA liste les réservations actives ou proches du début pour ce compte.
-   10. L'utilisateur choisit une réservation compatible avec la station.
+   10. L'utilisateur choisit une réservation compatible avec la station et la
+       borne devant laquelle il se trouve.
    11. La PWA appelle ``POST /api/mobile-sessions/<token>/authorize/``.
    12. Le kiosque interroge périodiquement le statut de la session.
    13. Quand le statut devient ``authorized``, le kiosque consomme l'autorisation,
@@ -129,7 +130,8 @@ Résultat attendu
 Cas d'erreur
    Si le token expire, il faut rescanner un nouveau QR du kiosque. Si aucune
    réservation compatible n'existe, la PWA affiche une liste vide. Si la
-   réservation appartient à une autre station, l'autorisation est refusée.
+   réservation appartient à une autre station ou une autre borne, l'autorisation
+   est refusée.
 
 Important
    Le QR affiché par le kiosque dans ce scénario n'est pas le QR de réservation.
@@ -153,8 +155,8 @@ Déroulement
    4. Il valide les codes.
    5. Le Raspberry appelle ``POST /api/terminal/authenticate/`` avec le mode
       ``code``.
-   6. Django vérifie la réservation, le hash du code SMS, la station et la
-      fenêtre temporelle.
+   6. Django vérifie la réservation, le hash du code SMS, la station, la borne et
+      la fenêtre temporelle.
    7. Si la validation réussit, le Raspberry publie ``START`` vers l'ESP32.
 
 Résultat attendu
@@ -165,7 +167,7 @@ Résultat attendu
 Cas d'erreur
    Une réservation en mode ``code`` est refusée si le profil n'a pas de téléphone.
    Un code SMS expiré, révoqué ou mal saisi est refusé. Un code associé à une
-   autre station est refusé.
+   autre station ou une autre borne est refusé.
 
 Scénario 5 : accès direct avec badge RFID
 -----------------------------------------
@@ -184,8 +186,8 @@ Déroulement
       ``rfid``.
    4. Django retrouve le moyen d'accès RFID, l'utilisateur et la réservation
       active compatible.
-   5. Django vérifie la station, le créneau, l'état de la réservation et la
-      révocation du badge.
+   5. Django vérifie la station, la borne, le créneau, l'état de la réservation
+      et la révocation du badge.
    6. Django crée ou retrouve la session de charge.
    7. Le Raspberry publie ``START`` vers l'ESP32.
 
@@ -228,21 +230,24 @@ Cas d'erreur
    compte est refusé. L'UID ne vient jamais de la PWA : il vient uniquement du
    lecteur RFID de la borne.
 
-Scénario 7 : mauvaise station ou mauvais emplacement
-----------------------------------------------------
+Scénario 7 : mauvaise station, mauvaise borne ou mauvais emplacement
+--------------------------------------------------------------------
 
 Objectif
-   Éviter qu'un utilisateur démarre une charge sur une station non assignée.
+   Éviter qu'un utilisateur démarre une charge sur une station, une borne ou un
+   emplacement non assigné.
 
 Déroulement
    1. L'utilisateur tente de s'authentifier sur une borne.
-   2. Le kiosque transmet la station locale avec la demande terminal.
-   3. Django compare cette station à celle de la réservation.
+   2. Le kiosque transmet la station et la borne locales avec la demande
+      terminal.
+   3. Django compare la station, la borne et l'emplacement avec ceux de la
+      réservation.
 
 Résultat attendu
-   Si la réservation appartient à une autre station, l'accès est refusé. Le
-   kiosque doit expliquer que la réservation est prévue ailleurs lorsque
-   l'information est disponible.
+   Si la réservation appartient à une autre station ou à une autre borne,
+   l'accès est refusé. Le kiosque doit expliquer que la réservation est prévue
+   ailleurs lorsque l'information est disponible.
 
 Scénario 8 : backend indisponible et mode dégradé
 -------------------------------------------------
@@ -260,8 +265,8 @@ Déroulement
    2. Le kiosque tente l'appel nominal au backend.
    3. Si l'API est indisponible, le kiosque appelle le cache local
       ``/offline/authenticate``.
-   4. Le cache vérifie la station, le créneau, le mode d'accès et le hash du
-      secret.
+   4. Le cache vérifie la station, la borne, le créneau, le mode d'accès et le
+      hash du secret.
    5. Si le cache valide l'accès, le Raspberry enregistre un événement offline et
       publie ``START`` vers l'ESP32.
    6. Quand le backend revient, le Raspberry resynchronise les événements offline.
@@ -271,10 +276,10 @@ Résultat attendu
    crée jamais une nouvelle réservation, un nouveau badge ou un nouveau secret.
 
 Cas d'erreur
-   Si le cache est vide, expiré, ambigu ou associé à une autre station, l'accès
-   est refusé. La session mobile par téléphone n'est pas un bon candidat au mode
-   dégradé complet, car elle nécessite une interaction backend pour associer le
-   téléphone, l'utilisateur et la réservation.
+   Si le cache est vide, expiré, ambigu ou associé à une autre station ou une
+   autre borne, l'accès est refusé. La session mobile par téléphone n'est pas un
+   bon candidat au mode dégradé complet, car elle nécessite une interaction
+   backend pour associer le téléphone, l'utilisateur et la réservation.
 
 Scénario 9 : commande ESP32 et télémétrie
 -----------------------------------------
@@ -284,7 +289,8 @@ Objectif
 
 Déroulement
    1. Le kiosque reçoit une validation d'accès du backend ou du cache offline.
-   2. Il extrait l'emplacement et construit ``slot<numero>``.
+   2. Il extrait la borne et l'emplacement, puis construit ``slot<numero>`` pour
+      router la commande vers l'ESP32 concerné.
    3. Il publie une commande sur ``station/<slot_id>/cmd``.
    4. L'ESP32 reçoit ``START``.
    5. L'ESP32 répond sur ``station/<slot_id>/ack`` avec le même ``command_id``.
@@ -328,7 +334,8 @@ Objectif
 
 Déroulement
    1. L'utilisateur choisit une station et un créneau.
-   2. Le backend calcule les emplacements disponibles et en attribue un.
+   2. Le backend calcule les bornes et emplacements disponibles, puis attribue
+      un emplacement.
    3. L'utilisateur choisit le moyen d'accès.
    4. Le backend crée la réservation et prépare les secrets nécessaires.
 
@@ -367,7 +374,8 @@ Cas aucune réservation compatible
    Le kiosque reste en attente jusqu'à expiration de la session.
 
 Cas une réservation compatible
-   La PWA affiche la réservation avec la station, l'emplacement et le créneau.
+   La PWA affiche la réservation avec la station, la borne, l'emplacement et le
+   créneau.
    L'utilisateur confirme. Le backend marque la session de borne comme
    ``authorized`` et le kiosque peut démarrer le parcours physique.
 
@@ -398,8 +406,8 @@ Révocation admin
 
 Support terrain
    Le code de réservation reste l'identifiant de support principal. Il permet de
-   retrouver la réservation, la station prévue, le mode choisi, l'état de
-   l'authentification et les éventuelles erreurs terminal.
+   retrouver la réservation, la station prévue, la borne prévue, le mode choisi,
+   l'état de l'authentification et les éventuelles erreurs terminal.
 
 Synchronisation offline
    Une révocation récente doit être propagée au cache Raspberry. Tant que le
@@ -464,6 +472,10 @@ Tableau de décision rapide
    * - Réservation sur autre station
      - N'importe quel moyen d'accès
      - Station locale incompatible
+     - Refus
+   * - Réservation sur autre borne
+     - N'importe quel moyen d'accès
+     - Borne locale incompatible
      - Refus
    * - Secret révoqué ou expiré
      - N'importe quel moyen d'accès

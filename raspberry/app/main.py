@@ -18,6 +18,7 @@ OFFLINE_STORE = OfflineStore()
 BACKEND_API_BASE_URL = os.environ.get("BACKEND_API_BASE_URL", "http://backend:8000/api").rstrip("/")
 TERMINAL_API_SECRET = os.environ.get("TERMINAL_API_SECRET", "").strip()
 TERMINAL_STATION_ID = os.environ.get("TERMINAL_STATION_ID", "").strip()
+TERMINAL_BORNE_ID = os.environ.get("TERMINAL_BORNE_ID", "").strip()
 OFFLINE_SYNC_INTERVAL_SECONDS = int(os.environ.get("OFFLINE_SYNC_INTERVAL_SECONDS", "60"))
 OFFLINE_EVENT_BATCH_SIZE = int(os.environ.get("OFFLINE_EVENT_BATCH_SIZE", "50"))
 TERMINAL_PROXY_ROUTES = {
@@ -26,6 +27,7 @@ TERMINAL_PROXY_ROUTES = {
     "/backend-api/terminal/mobile-sessions/": "mobile_sessions_create",
     "/backend-api/terminal/mobile-sessions/status/": "mobile_sessions_status",
     "/backend-api/terminal/mobile-sessions/consume/": "mobile_sessions_consume",
+    "/backend-api/terminal/sessions/stop/": "sessions_stop",
 }
 TERMINAL_BACKEND_PATHS = {
     "authenticate": "/terminal/authenticate/",
@@ -33,6 +35,7 @@ TERMINAL_BACKEND_PATHS = {
     "mobile_sessions_create": "/terminal/mobile-sessions/",
     "mobile_sessions_status": "/terminal/mobile-sessions/status/",
     "mobile_sessions_consume": "/terminal/mobile-sessions/consume/",
+    "sessions_stop": "/terminal/sessions/stop/",
 }
 
 
@@ -96,18 +99,32 @@ def proxy_backend_json(method, route_key, payload=None):
 
 def sync_offline_cache():
     """Pull near-term reservations from the backend into the local SQLite cache."""
-    query = urlencode({"station_id": TERMINAL_STATION_ID}) if TERMINAL_STATION_ID else ""
+    query_params = {
+        key: value
+        for key, value in {
+            "station_id": TERMINAL_STATION_ID,
+            "borne_id": TERMINAL_BORNE_ID,
+        }.items()
+        if value
+    }
+    query = urlencode(query_params) if query_params else ""
     url = f"{BACKEND_API_BASE_URL}/terminal/offline-cache/{f'?{query}' if query else ''}"
     request = Request(url, headers=backend_headers({"Accept": "application/json"}))
     with urlopen(request, timeout=8) as response:
         payload = json.loads(response.read().decode("utf-8"))
     reservations = payload.get("results") or []
+    OFFLINE_STORE.configure_grace_periods(
+        start_minutes=payload.get("start_grace_minutes"),
+        end_minutes=payload.get("end_grace_minutes"),
+    )
     cached = OFFLINE_STORE.replace_reservations(reservations, station_id=TERMINAL_STATION_ID)
     return {
         "cached": cached,
         "generated_at": payload.get("generated_at"),
         "expires_at": payload.get("expires_at"),
         "station_id": payload.get("station_id") or TERMINAL_STATION_ID,
+        "start_grace_minutes": payload.get("start_grace_minutes"),
+        "end_grace_minutes": payload.get("end_grace_minutes"),
     }
 
 
@@ -119,6 +136,7 @@ def sync_offline_events():
 
     payload = {
         "station_id": TERMINAL_STATION_ID,
+        "borne_id": TERMINAL_BORNE_ID,
         "events": events,
     }
     body = json.dumps(payload).encode("utf-8")
@@ -252,7 +270,8 @@ class KioskHandler(SimpleHTTPRequestHandler):
             try:
                 payload = self._read_json()
                 station_id = str(payload.get("station_id") or TERMINAL_STATION_ID).strip()
-                result = OFFLINE_STORE.authenticate(payload, station_id=station_id)
+                borne_id = str(payload.get("borne_id") or TERMINAL_BORNE_ID).strip()
+                result = OFFLINE_STORE.authenticate(payload, station_id=station_id, borne_id=borne_id)
             except json.JSONDecodeError:
                 self._send_json({"detail": "JSON invalide."}, status=400)
                 return
@@ -280,6 +299,9 @@ class KioskHandler(SimpleHTTPRequestHandler):
                 action,
                 command_id=payload.get("command_id") or "",
                 session_id=payload.get("session_id") or "",
+                station=payload.get("station") or "",
+                borne=payload.get("borne") or "",
+                emplacement=payload.get("emplacement") or "",
                 source="raspberry",
             )
         except json.JSONDecodeError:
@@ -313,6 +335,7 @@ class KioskHandler(SimpleHTTPRequestHandler):
                 {
                     "backend_api_base_url": BACKEND_API_BASE_URL,
                     "station_id": TERMINAL_STATION_ID,
+                    "borne_id": TERMINAL_BORNE_ID,
                     **OFFLINE_STORE.stats(),
                 }
             )

@@ -1,7 +1,8 @@
 """MicroPython firmware prototype for one charging slot ESP32.
 
 The same file can be reused by the three physical slots by changing SLOT_ID.
-It publishes telemetry to MQTT and listens for backend/Raspberry commands.
+In production the ESP32 connects to the Mosquitto broker hosted on the local
+Raspberry Pi kiosk, publishes telemetry, and listens for Raspberry commands.
 """
 
 import time
@@ -14,6 +15,8 @@ from umqtt.simple import MQTTClient
 WIFI_SSID = "WIFI_SSID"
 WIFI_PASSWORD = "WIFI_PASSWORD"
 
+# Production target: IP address or hostname of the Raspberry Pi running Mosquitto.
+# Development target: Wi-Fi IP address of the PC running the Docker MQTT broker.
 MQTT_HOST = "192.168.1.10"
 MQTT_PORT = 1883
 MQTT_USER = None
@@ -21,6 +24,7 @@ MQTT_PASSWORD = None
 MQTT_BASE_TOPIC = "station"
 SLOT_ID = "slot1"
 CLIENT_ID = "esp32-slot1"
+MQTT_KEEPALIVE_SECONDS = 60
 
 HALL_PIN = 19
 DOOR_PIN = 18
@@ -327,7 +331,7 @@ def handle_stop(client, reason="remote_stop"):
 
 
 def on_message(topic_bytes, message):
-    """Handle backend/Raspberry commands."""
+    """Handle Raspberry commands received through the local MQTT broker."""
     try:
         payload = ujson.loads(message)
     except ValueError:
@@ -360,7 +364,7 @@ def connect_mqtt():
         port=MQTT_PORT,
         user=MQTT_USER,
         password=MQTT_PASSWORD,
-        keepalive=60,
+        keepalive=MQTT_KEEPALIVE_SECONDS,
     )
     client.set_callback(on_message)
     client.connect()

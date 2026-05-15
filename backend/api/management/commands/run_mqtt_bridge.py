@@ -4,9 +4,9 @@ from api.mqtt import run_mqtt_bridge
 
 
 class Command(BaseCommand):
-    """Run the MQTT bridge that ingests ESP32 telemetry into the backend."""
+    """Run the MQTT bridge that ingests ESP32 telemetry/status into the backend."""
 
-    help = "Subscribe to ESP32 MQTT telemetry and enqueue persistence tasks."
+    help = "Subscribe to ESP32 MQTT telemetry/status and enqueue persistence tasks."
 
     def handle(self, *args, **options):
         """Start the long-running MQTT bridge process."""

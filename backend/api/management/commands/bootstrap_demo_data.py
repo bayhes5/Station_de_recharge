@@ -4,7 +4,7 @@ from datetime import timedelta
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from api.models import Device, Emplacement, Maintenance, ProfilUtilisateur, Station, Technicien, Utilisateur
+from api.models import Borne, Device, Emplacement, Maintenance, ProfilUtilisateur, Station, Technicien, Utilisateur
 
 
 class Command(BaseCommand):
@@ -44,11 +44,18 @@ class Command(BaseCommand):
         station.statut = station_status
         station.save()
 
+        borne = Borne.default_for_station(station)
+        borne.nom = os.environ.get("DEMO_BORNE_NAME", "Borne 1")
+        borne.statut = os.environ.get("DEMO_BORNE_STATUS", "active")
+        borne.mqtt_prefix = os.environ.get("DEMO_BORNE_MQTT_PREFIX", "")
+        borne.save(update_fields=["nom", "statut", "mqtt_prefix"])
+
         for numero in range(1, emplacements_count + 1):
             emplacement, _ = Emplacement.objects.get_or_create(
-                station=station,
+                borne=borne,
                 numero=numero,
                 defaults={
+                    "station": station,
                     "statut": "disponible",
                     "lock_state": "verrouille",
                 },

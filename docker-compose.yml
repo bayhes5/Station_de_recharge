@@ -107,6 +107,8 @@ services:
   mqtt:
     image: eclipse-mosquitto:2
     container_name: mqtt_broker
+    env_file:
+      - .env
     volumes:
       - ./mosquitto/config:/mosquitto/config:ro
       - mqtt_data:/mosquitto/data
@@ -114,7 +116,11 @@ services:
     ports:
       - "1883:1883"
     healthcheck:
-      test: ["CMD-SHELL", "mosquitto_sub -h localhost -t '$$SYS/#' -C 1 -W 3 >/dev/null 2>&1 || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "AUTH=''; if [ -n \"$$MQTT_USERNAME\" ]; then AUTH=\"-u $$MQTT_USERNAME -P $$MQTT_PASSWORD\"; fi; mosquitto_pub -h localhost $$AUTH -t 'station/health' -m 'ok' >/dev/null 2>&1 || exit 1"
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -261,6 +267,8 @@ services:
       MQTT_ACK_REQUIRED: ${MQTT_ACK_REQUIRED:-false}
       BACKEND_API_BASE_URL: http://backend:8000/api
       TERMINAL_API_SECRET: ${TERMINAL_API_SECRET:-dev-terminal-secret}
+      TERMINAL_STATION_ID: ${TERMINAL_STATION_ID:-}
+      TERMINAL_BORNE_ID: ${TERMINAL_BORNE_ID:-}
     command: sh -c "pip install --no-cache-dir -r requirements.txt && python main.py"
     depends_on:
       - backend

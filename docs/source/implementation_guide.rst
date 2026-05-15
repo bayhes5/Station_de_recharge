@@ -45,14 +45,15 @@ pseudo comme identifiant principal, tout en gardant les permissions Django grâc
 à ``AbstractBaseUser`` et ``PermissionsMixin``. ``ProfilUtilisateur`` sépare les
 données personnelles du compte d'authentification.
 
-``Station`` et ``Emplacement`` décrivent la structure physique. Une station
-contient plusieurs emplacements ; chaque emplacement porte son état métier et
-son état de serrure.
+``Station``, ``Borne`` et ``Emplacement`` décrivent la structure physique. Une
+station contient plusieurs bornes, et chaque borne contient plusieurs
+emplacements. L'emplacement reste l'objet réservé et piloté électriquement ; il
+porte son état métier et son état de serrure.
 
 ``Reservation`` relie un utilisateur, un emplacement, un moyen
-d'authentification et une fenêtre de temps. La durée choisie dans la version actuelle
-est de 30 minutes pour simplifier l'expérience, le calcul de disponibilité et
-l'expiration des accès temporaires.
+d'authentification et une fenêtre de temps. Les durées proposées sont 30 minutes,
+1 heure, 2 heures et 4 heures, avec 1 heure par défaut. Cette règle garde une
+expérience simple tout en restant réaliste pour une recharge de vélo électrique.
 
 ``Session`` représente la charge réellement ouverte à la borne. Elle est créée
 quand le kiosque valide l'accès. ``SessionTelemetry`` stocke les mesures
@@ -62,9 +63,10 @@ quand le kiosque valide l'accès. ``SessionTelemetry`` stocke les mesures
 code SMS temporaire. Les secrets ne sont pas stockés en clair : ils sont hachés
 ou dérivés depuis un nonce et ``SECRET_KEY``.
 
-``Device``, ``Capteur`` et ``CapteurData`` relient un ESP32 à son emplacement et
-stockent les mesures horodatées. ``Alerte`` stocke les anomalies opérationnelles
-créées depuis la télémétrie.
+``Device``, ``Capteur`` et ``CapteurData`` relient un ESP32 à son emplacement.
+La supervision remonte donc la station, la borne et l'emplacement associés à
+chaque mesure. ``Alerte`` stocke les anomalies opérationnelles créées depuis la
+télémétrie.
 
 Authentification applicative
 ----------------------------
@@ -121,14 +123,29 @@ Le frontend correspondant se trouve dans ``frontend/reservation.html`` et
 ``frontend/js/reservation.js``. La carte utilise Leaflet afin de rester simple,
 lisible et suffisante pour localiser les stations.
 
-L'utilisateur choisit une station et un créneau, mais pas forcément un
-emplacement précis. Le backend centralise la règle de disponibilité dans
+L'utilisateur choisit une station, un début de réservation et une durée de
+recharge, mais pas forcément un emplacement précis. Le backend centralise la règle de disponibilité dans
 ``_available_emplacements`` et ``_reservation_overlaps``. Ce choix évite que deux
 navigateurs prennent des décisions concurrentes côté client.
 
-La fenêtre de réservation est forcée à 30 minutes avec
-``_duration_is_valid``. Les tests associés sont dans
-``backend/api/tests/test_reservations.py``.
+La durée est validée côté backend avec ``_duration_is_valid``. Les durées
+acceptées sont centralisées dans ``backend/api/reservation_rules.py``. Les tests
+associés sont dans ``backend/api/tests/test_reservations.py`` et
+``backend/api/tests/test_serializers.py``.
+
+La validation à la borne utilise deux marges métier : ``RESERVATION_START_GRACE_MINUTES``
+autorise l'arrivée un peu avant le début du créneau et
+``RESERVATION_END_GRACE_MINUTES`` autorise un léger retard après la fin. Par
+défaut, ces valeurs sont de 5 minutes et 10 minutes. Elles sont utilisées par
+les endpoints terminal, les sessions mobiles et le cache offline.
+
+Ces marges ne sont pas prises en compte par ``_available_emplacements`` ni par
+``_reservation_overlaps``. Le backend réserve uniquement la fenêtre payée par
+l'utilisateur afin de maximiser l'utilisation de la station. Deux réservations
+adjacentes, par exemple 13h00-14h00 puis 14h00-15h00, peuvent donc être affectées
+au même emplacement. Au moment de l'ouverture, ``_session_start_conflict_response``
+empêche toutefois de démarrer en avance si l'emplacement est encore couvert par
+le créneau précédent ou par une session de charge active.
 
 QR code et code SMS temporaire
 ------------------------------
@@ -371,8 +388,10 @@ L'endpoint ``GET /api/admin/supervision/`` agrège :
 * les compteurs de supervision.
 
 Le frontend est dans ``frontend/admin-dashboard.html`` et
-``frontend/js/admin-dashboard.js``. L'onglet supervision rafraîchit les données
-en arrière-plan et fournit un lien direct vers le dashboard Grafana :
+``frontend/js/admin-dashboard.js``. L'onglet supervision reçoit les mises à jour
+via ``/ws/admin/supervision/`` quand Django Channels est disponible, puis garde un
+rafraîchissement HTTP périodique en secours. Il fournit aussi un lien direct vers
+le dashboard Grafana :
 
 .. code-block:: text
 
@@ -406,7 +425,7 @@ Les principales fonctions sont :
 * gestion des utilisateurs ;
 * gestion des RFID utilisateur ;
 * régénération et révocation des accès de réservation ;
-* gestion des stations et emplacements ;
+* gestion des stations, bornes et emplacements ;
 * gestion des techniciens ;
 * gestion des maintenances ;
 * consultation des réservations et sessions.

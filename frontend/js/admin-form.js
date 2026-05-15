@@ -75,6 +75,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     let users = [];
     let stations = [];
+    let bornes = [];
     let technicians = [];
     let currentItem = null;
     let passwordResetDialog = null;
@@ -117,6 +118,22 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { name: "statut", label: "Statut", type: "select", defaultValue: "active", required: true, options: STATION_STATUS_OPTIONS },
             ],
         },
+        borne: {
+            singular: "borne",
+            plural: "bornes",
+            tab: "infrastructure",
+            idKey: "id_borne",
+            list: () => window.AuthAPI.getAdminBornes(),
+            create: (payload) => window.AuthAPI.createAdminBorne(payload),
+            update: (id, payload) => window.AuthAPI.updateAdminBorne(id, payload),
+            fields: [
+                { name: "station", label: "Station", type: "select", required: true, options: "stations" },
+                { name: "numero", label: "Num\u00e9ro", type: "number", required: true },
+                { name: "nom", label: "Nom", type: "text", required: true },
+                { name: "mqtt_prefix", label: "Pr\u00e9fixe MQTT", type: "text" },
+                { name: "statut", label: "Statut", type: "select", defaultValue: "active", required: true, options: STATION_STATUS_OPTIONS },
+            ],
+        },
         emplacement: {
             singular: "emplacement",
             plural: "emplacements",
@@ -126,7 +143,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             create: (payload) => window.AuthAPI.createAdminEmplacement(payload),
             update: (id, payload) => window.AuthAPI.updateAdminEmplacement(id, payload),
             fields: [
-                { name: "station", label: "Station", type: "select", required: true, options: "stations" },
+                { name: "borne", label: "Borne", type: "select", required: true, options: "bornes" },
                 { name: "numero", label: "Num\u00e9ro", type: "number", required: true },
                 { name: "statut", label: "Statut", type: "select", defaultValue: "disponible", required: true, options: EMPLACEMENT_STATUS_OPTIONS },
                 { name: "lock_state", label: "\u00c9tat serrure", type: "select", defaultValue: "verrouille", required: true, options: LOCK_STATE_OPTIONS },
@@ -394,7 +411,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (!authMethods.length) {
             const empty = document.createElement("div");
             empty.className = "empty-state";
-            empty.textContent = "Aucun badge RFID actif. Les QR codes et codes temporaires apparaissent dans l'administration des reservations.";
+            empty.textContent = "Aucun badge RFID actif. Les QR codes et codes temporaires apparaissent dans l'administration des réservations.";
             container.appendChild(empty);
             return;
         }
@@ -425,7 +442,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             const revokeButton = document.createElement("button");
             revokeButton.className = "btn btn-secondary danger-action";
             revokeButton.type = "button";
-            revokeButton.textContent = "Revoquer";
+            revokeButton.textContent = "Révoquer";
             revokeButton.addEventListener("click", () => revokeAuthMethod(method, revokeButton));
             actions.appendChild(revokeButton);
 
@@ -437,7 +454,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         const temporaryAccessNote = document.createElement("p");
         temporaryAccessNote.className = "helper";
-        temporaryAccessNote.textContent = "Les QR codes et codes temporaires de cet utilisateur restent visibles et gerables dans l'administration des reservations.";
+        temporaryAccessNote.textContent = "Les QR codes et codes temporaires de cet utilisateur restent visibles et gérables dans l'administration des réservations.";
         container.appendChild(temporaryAccessNote);
     }
 
@@ -469,7 +486,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     async function revokeAuthMethod(method, triggerButton) {
-        const confirmed = window.confirm(`Revoquer ce badge RFID pour ${currentItem.pseudo} ?`);
+        const confirmed = await window.AuthAPI.confirmAction(
+            `Révoquer ce badge RFID pour ${currentItem.pseudo} ?`,
+            {
+                title: "Révoquer le badge RFID",
+                confirmLabel: "Révoquer",
+                danger: true,
+            }
+        );
         if (!confirmed) return;
 
         triggerButton.disabled = true;
@@ -487,8 +511,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     async function resetCurrentUserPassword(triggerButton) {
         if (!currentItem) return;
 
-        const confirmed = window.confirm(
-            `G\u00e9n\u00e9rer un nouveau mot de passe temporaire pour ${currentItem.pseudo} ?`
+        const confirmed = await window.AuthAPI.confirmAction(
+            `G\u00e9n\u00e9rer un nouveau mot de passe temporaire pour ${currentItem.pseudo} ?`,
+            {
+                title: "Reinitialiser le mot de passe",
+                confirmLabel: "Generer",
+            }
         );
         if (!confirmed) return;
 
@@ -564,6 +592,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         const source = Array.isArray(field.options) ? field.options : {
             users,
             stations,
+            bornes,
             technicians,
         }[field.options] || [];
 
@@ -578,6 +607,9 @@ document.addEventListener("DOMContentLoaded", async () => {
             } else if (field.options === "stations") {
                 option.value = item.id_station;
                 option.textContent = `${item.nom} - ${optionLabel(item.localisation_text)}`;
+            } else if (field.options === "bornes") {
+                option.value = item.id_borne;
+                option.textContent = `${item.station_nom || "Station"} - ${item.nom || `Borne ${item.numero}`}`;
             } else if (field.options === "technicians") {
                 option.value = item.id_technicien;
                 option.textContent = `${item.nom} (${item.email})`;
@@ -642,11 +674,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     async function loadOptionData() {
         const needsUsers = config.fields.some((field) => field.options === "users");
         const needsStations = config.fields.some((field) => field.options === "stations");
+        const needsBornes = config.fields.some((field) => field.options === "bornes");
         const needsTechnicians = config.fields.some((field) => field.options === "technicians");
 
         const tasks = [];
         if (needsUsers) tasks.push(window.AuthAPI.getAdminUsers().then((result) => { users = result.results || []; }));
         if (needsStations) tasks.push(window.AuthAPI.getAdminStations().then((result) => { stations = result.results || []; }));
+        if (needsBornes) tasks.push(window.AuthAPI.getAdminBornes().then((result) => { bornes = result.results || []; }));
         if (needsTechnicians) tasks.push(window.AuthAPI.getAdminTechnicians().then((result) => { technicians = result.results || []; }));
         await Promise.all(tasks);
     }
@@ -702,7 +736,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (currentItem) setFormValues(currentItem);
         renderPasswordResetPanel();
         renderAuthMethodsPanel();
-        setStatus(isEdit ? "Formulaire charg\u00e9." : "Formulaire pr\u00eat.");
+        setStatus("");
     } catch (error) {
         setStatus(error.message || "Impossible de charger le formulaire.", true);
         submitButton.disabled = true;

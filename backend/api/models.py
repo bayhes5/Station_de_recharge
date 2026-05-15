@@ -45,6 +45,14 @@ class StationStatus(models.TextChoices):
     INACTIVE = "inactive", "Inactive"
 
 
+class BorneStatus(models.TextChoices):
+    """Operational lifecycle values for one physical kiosk/charging cabinet."""
+
+    ACTIVE = "active", "Active"
+    MAINTENANCE = "maintenance", "Maintenance"
+    INACTIVE = "inactive", "Inactive"
+
+
 class EmplacementStatus(models.TextChoices):
     """Availability values for one charging bay."""
 
@@ -405,8 +413,56 @@ class Station(models.Model):
         return self.nom
 
 
+class Borne(models.Model):
+    """Represent one physical charging cabinet attached to a station."""
+
+    id_borne = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    station = models.ForeignKey(
+        Station,
+        on_delete=models.CASCADE,
+        related_name="bornes",
+        db_column="id_station",
+    )
+    numero = models.PositiveIntegerField()
+    nom = models.CharField(max_length=100)
+    mqtt_prefix = models.CharField(max_length=120, blank=True, default="")
+    statut = models.CharField(max_length=50, choices=BorneStatus.choices, default=BorneStatus.ACTIVE)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "borne"
+        unique_together = ("station", "numero")
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(statut__in=BorneStatus.values),
+                name="chk_borne_statut",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["station", "statut"], name="idx_borne_station_statut"),
+            models.Index(fields=["mqtt_prefix"], name="idx_borne_mqtt_prefix"),
+        ]
+
+    @classmethod
+    def default_for_station(cls, station):
+        """Return the default cabinet used by compatibility flows."""
+        borne, _created = cls.objects.get_or_create(
+            station=station,
+            numero=1,
+            defaults={
+                "nom": "Borne 1",
+                "statut": BorneStatus.ACTIVE,
+            },
+        )
+        return borne
+
+    def __str__(self):
+        """Return a readable station and cabinet identifier."""
+        return f"{self.station.nom} - borne {self.numero}"
+
+
 class Emplacement(models.Model):
-    """Represent a numbered charging bay within a station."""
+    """Represent a numbered charging bay within a physical cabinet."""
 
     id_emplacement = models.UUIDField(
         primary_key=True,
@@ -419,6 +475,13 @@ class Emplacement(models.Model):
         related_name="emplacements",
         db_column="id_station",
     )
+    borne = models.ForeignKey(
+        Borne,
+        on_delete=models.CASCADE,
+        related_name="emplacements",
+        db_column="id_borne",
+        blank=True,
+    )
     numero = models.PositiveIntegerField()
     statut = models.CharField(
         max_length=50, choices=EmplacementStatus.choices, db_column="etat"
@@ -429,7 +492,7 @@ class Emplacement(models.Model):
 
     class Meta:
         db_table = "emplacement"
-        unique_together = ("station", "numero")
+        unique_together = ("borne", "numero")
         constraints = [
             models.CheckConstraint(
                 condition=Q(statut__in=EmplacementStatus.values),
@@ -442,12 +505,21 @@ class Emplacement(models.Model):
         ]
         indexes = [
             models.Index(fields=["station", "statut"], name="idx_emp_station_statut"),
+            models.Index(fields=["borne", "statut"], name="idx_emp_borne_statut"),
             models.Index(fields=["lock_state", "statut"], name="idx_emp_lock_state"),
         ]
 
+    def save(self, *args, **kwargs):
+        """Keep the denormalized station field aligned with the parent cabinet."""
+        if self.borne_id:
+            self.station = self.borne.station
+        elif self.station_id:
+            self.borne = Borne.default_for_station(self.station)
+        super().save(*args, **kwargs)
+
     def __str__(self):
         """Return a readable station and bay identifier."""
-        return f"{self.station.nom} - {self.numero}"
+        return f"{self.station.nom} - borne {self.borne.numero} - emplacement {self.numero}"
 
 
 class Reservation(models.Model):

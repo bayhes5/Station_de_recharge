@@ -15,7 +15,7 @@ de base pour les trois emplacements en changeant uniquement :
 * ``SLOT_ID`` ;
 * ``CLIENT_ID`` ;
 * les identifiants Wi-Fi ;
-* l'adresse du broker MQTT ;
+* l'adresse du broker MQTT local du Raspberry ;
 * les pins réels des capteurs, relais et serrure.
 
 Le code cible actuellement :
@@ -36,8 +36,10 @@ Extrait de configuration :
 
    WIFI_SSID = "WIFI_SSID"
    WIFI_PASSWORD = "WIFI_PASSWORD"
-   MQTT_HOST = "192.168.1.10"
+   MQTT_HOST = "192.168.1.10"  # IP du Raspberry Pi qui héberge Mosquitto
    MQTT_PORT = 1883
+   MQTT_USER = "esp32_slot1"
+   MQTT_PASSWORD = "mot-de-passe-mqtt"
    MQTT_BASE_TOPIC = "station"
    SLOT_ID = "slot1"
    CLIENT_ID = "esp32-slot1"
@@ -59,11 +61,12 @@ Procédure de test sur carte physique :
 1. installer MicroPython sur l'ESP32 ;
 2. ouvrir Thonny avec l'interpréteur MicroPython ESP32 ;
 3. adapter ``WIFI_SSID``, ``WIFI_PASSWORD`` et ``MQTT_HOST`` ;
-4. adapter ``SLOT_ID`` et ``CLIENT_ID`` pour l'emplacement ;
-5. enregistrer ``esp32/emplacement1/main.py`` sur la carte sous le nom
+4. renseigner ``MQTT_USER`` et ``MQTT_PASSWORD`` si le broker sécurisé est actif ;
+5. adapter ``SLOT_ID`` et ``CLIENT_ID`` pour l'emplacement ;
+6. enregistrer ``esp32/emplacement1/main.py`` sur la carte sous le nom
    ``main.py`` ;
-6. redémarrer la carte ;
-7. vérifier les topics MQTT depuis le PC.
+7. redémarrer la carte ;
+8. vérifier les topics MQTT depuis le PC ou le Raspberry.
 
 Commande d'écoute :
 
@@ -71,8 +74,10 @@ Commande d'écoute :
 
    docker compose exec mqtt mosquitto_sub -h localhost -t 'station/#' -v
 
-Si l'ESP32 utilise le broker Docker du PC, ``MQTT_HOST`` doit être l'adresse IP
-du PC sur le même réseau Wi-Fi, pas ``localhost``.
+En production, ``MQTT_HOST`` doit être l'adresse IP du Raspberry sur le réseau
+Wi-Fi local de la borne. En développement, si l'ESP32 utilise le broker Docker
+du PC, ``MQTT_HOST`` doit être l'adresse IP du PC sur le même réseau Wi-Fi, pas
+``localhost``. Depuis un ESP32, ``localhost`` désigne l'ESP32 lui-même.
 
 Topics MQTT
 -----------

@@ -281,6 +281,34 @@
             </div>
         </section>
 
+        <section id="screen-ready" class="screen charge-step-screen" aria-live="polite" aria-labelledby="ready-title">
+            <div class="charge-step-card">
+                <span class="charge-step-label">Acc&egrave;s valid&eacute;</span>
+                <h2 id="ready-title">Recharger &agrave; l'emplacement <span id="ready-slot">-</span></h2>
+                <p id="ready-message">Votre r&eacute;servation est valid&eacute;e. Branchez votre v&eacute;lo puis d&eacute;marrez la charge.</p>
+                <div id="ready-details" class="charge-details"></div>
+                <div class="charge-actions">
+                    <button id="ready-cancel" class="ghost" type="button">Annuler</button>
+                    <button id="ready-start" class="submit-button" type="button">D&eacute;marrer la charge</button>
+                </div>
+            </div>
+        </section>
+
+        <section id="screen-charging" class="screen charge-step-screen charging-screen" aria-live="polite" aria-labelledby="charging-title">
+            <div class="charge-step-card">
+                <span class="charge-step-label">Session active</span>
+                <div class="charging-animation" aria-hidden="true">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+                <h2 id="charging-title">Chargement en cours...</h2>
+                <p id="charging-message">La charge est active sur l'emplacement <span id="charging-slot">-</span>.</p>
+                <div id="charging-details" class="charge-details"></div>
+                <button id="charging-stop" class="stop-button" type="button">Arr&ecirc;ter la charge</button>
+            </div>
+        </section>
+
         <section id="screen-result" class="screen result-screen" aria-live="polite" aria-labelledby="result-title">
             <div id="result-badge" class="result-badge">OK</div>
             <h2 id="result-title">Validation</h2>

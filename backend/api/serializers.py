@@ -9,6 +9,7 @@ import re
 
 from .models import (
     Authentification,
+    Borne,
     Consentement,
     Emplacement,
     Maintenance,
@@ -17,6 +18,14 @@ from .models import (
     Station,
     Technicien,
     TypeAuth,
+)
+from .reservation_rules import (
+    DEFAULT_RESERVATION_DURATION_MINUTES,
+    RESERVATION_DURATION_MINUTES,
+    default_reservation_end,
+    reservation_duration_error_message,
+    reservation_duration_is_allowed,
+    reservation_duration_minutes,
 )
 
 
@@ -284,17 +293,76 @@ class StationSerializer(serializers.ModelSerializer):
         fields = ("id_station", "nom", "localisation_text", "latitude", "longitude", "statut")
 
 
-class EmplacementSerializer(serializers.ModelSerializer):
-    """Serialize charging bay records with their station label."""
+class BorneSerializer(serializers.ModelSerializer):
+    """Serialize physical kiosk/cabinet records with their station label."""
 
     station_nom = serializers.CharField(source="station.nom", read_only=True)
+    emplacements_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Borne
+        fields = (
+            "id_borne",
+            "station",
+            "station_nom",
+            "numero",
+            "nom",
+            "mqtt_prefix",
+            "statut",
+            "emplacements_count",
+        )
+        extra_kwargs = {
+            "station": {"required": True},
+            "statut": {"required": False},
+            "mqtt_prefix": {"required": False, "allow_blank": True},
+        }
+
+    def get_emplacements_count(self, obj):
+        """Return the number of charging bays attached to the cabinet."""
+        return obj.emplacements.count()
+
+
+class EmplacementSerializer(serializers.ModelSerializer):
+    """Serialize charging bay records with their station and cabinet labels."""
+
+    station_nom = serializers.CharField(source="station.nom", read_only=True)
+    borne_nom = serializers.CharField(source="borne.nom", read_only=True)
+    borne_numero = serializers.IntegerField(source="borne.numero", read_only=True)
 
     class Meta:
         model = Emplacement
-        fields = ("id_emplacement", "station", "station_nom", "numero", "statut", "lock_state")
+        fields = (
+            "id_emplacement",
+            "station",
+            "station_nom",
+            "borne",
+            "borne_nom",
+            "borne_numero",
+            "numero",
+            "statut",
+            "lock_state",
+        )
         extra_kwargs = {
-            "station": {"required": True},
+            "station": {"required": False},
+            "borne": {"required": False},
         }
+
+    def validate(self, attrs):
+        """Derive the station from the selected cabinet and keep both aligned."""
+        station = attrs.get("station") or getattr(self.instance, "station", None)
+        borne = attrs.get("borne") or getattr(self.instance, "borne", None)
+
+        if borne is not None:
+            if station is not None and station != borne.station:
+                raise serializers.ValidationError({"borne": "Cette borne n'appartient pas a la station selectionnee."})
+            attrs["station"] = borne.station
+            return attrs
+
+        if station is None:
+            raise serializers.ValidationError({"station": "Une station ou une borne est obligatoire."})
+
+        attrs["borne"] = Borne.default_for_station(station)
+        return attrs
 
 
 class AuthMethodSerializer(serializers.ModelSerializer):
@@ -324,6 +392,8 @@ class ReservationSerializer(serializers.ModelSerializer):
     """Serialize reservations with station, bay and authentication metadata."""
 
     station_nom = serializers.CharField(source="emplacement.station.nom", read_only=True)
+    borne_nom = serializers.CharField(source="emplacement.borne.nom", read_only=True)
+    borne_numero = serializers.IntegerField(source="emplacement.borne.numero", read_only=True)
     emplacement_numero = serializers.IntegerField(source="emplacement.numero", read_only=True)
     utilisateur_pseudo = serializers.CharField(source="utilisateur.pseudo", read_only=True)
     auth_mode = serializers.CharField(source="auth_choice", read_only=True)
@@ -331,6 +401,7 @@ class ReservationSerializer(serializers.ModelSerializer):
     auth_display_value = serializers.CharField(source="authentification.display_value", read_only=True)
     auth_expiration = serializers.DateTimeField(source="authentification.expiration", read_only=True)
     auth_is_active = serializers.BooleanField(source="authentification.is_active", read_only=True)
+    duration_minutes = serializers.SerializerMethodField()
     can_cancel = serializers.SerializerMethodField()
 
     class Meta:
@@ -343,6 +414,8 @@ class ReservationSerializer(serializers.ModelSerializer):
             "emplacement",
             "emplacement_numero",
             "station_nom",
+            "borne_nom",
+            "borne_numero",
             "authentification",
             "auth_mode",
             "auth_type",
@@ -351,6 +424,7 @@ class ReservationSerializer(serializers.ModelSerializer):
             "auth_is_active",
             "date_debut",
             "date_fin",
+            "duration_minutes",
             "statut",
             "can_cancel",
         )
@@ -363,6 +437,10 @@ class ReservationSerializer(serializers.ModelSerializer):
         """Return whether the reservation can still be cancelled by a user."""
         return obj.statut not in {"annulee", "terminee"} and obj.date_debut > timezone.now()
 
+    def get_duration_minutes(self, obj):
+        """Return the reservation duration in minutes."""
+        return reservation_duration_minutes(obj.date_debut, obj.date_fin)
+
 
 class ReservationCreateSerializer(serializers.Serializer):
     """Validate reservation creation input from the user-facing API."""
@@ -371,12 +449,30 @@ class ReservationCreateSerializer(serializers.Serializer):
     emplacement = serializers.UUIDField(required=False)
     date_debut = serializers.DateTimeField()
     date_fin = serializers.DateTimeField(required=False)
+    duration_minutes = serializers.IntegerField(
+        required=False,
+        min_value=min(RESERVATION_DURATION_MINUTES),
+        max_value=max(RESERVATION_DURATION_MINUTES),
+    )
     auth_mode = serializers.ChoiceField(choices=("rfid", "qr", "code"))
     auth_value = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     def validate(self, attrs):
-        """Force reservations to occupy one fixed 30-minute slot."""
-        attrs["date_fin"] = attrs["date_debut"] + timedelta(minutes=30)
+        """Validate or derive the reservation end from an allowed duration."""
+        duration_minutes = attrs.get("duration_minutes")
+        if duration_minutes is not None:
+            if duration_minutes not in RESERVATION_DURATION_MINUTES:
+                raise serializers.ValidationError({"duration_minutes": reservation_duration_error_message()})
+            attrs["date_fin"] = attrs["date_debut"] + timedelta(minutes=duration_minutes)
+            return attrs
+
+        if not attrs.get("date_fin"):
+            attrs["duration_minutes"] = DEFAULT_RESERVATION_DURATION_MINUTES
+            attrs["date_fin"] = default_reservation_end(attrs["date_debut"])
+            return attrs
+
+        if not reservation_duration_is_allowed(attrs["date_debut"], attrs["date_fin"]):
+            raise serializers.ValidationError({"date_fin": reservation_duration_error_message()})
         return attrs
 
 

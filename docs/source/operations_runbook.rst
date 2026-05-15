@@ -62,6 +62,43 @@ Ports directs :
    1883  Mosquitto
    5432  PostgreSQL/TimescaleDB
 
+Scénario complet sans matériel
+------------------------------
+
+Le script ``scripts/run-demo-scenario.ps1`` joue un parcours de démonstration de
+bout en bout sans ESP32 physique :
+
+1. création d'une réservation QR sur la station de démonstration ;
+2. création d'une session mobile de borne ;
+3. connexion de l'utilisateur de démonstration ;
+4. sélection et autorisation de la réservation ;
+5. consommation par le kiosque ;
+6. publication ``START`` vers le slot MQTT ;
+7. simulation de télémétrie uniquement pour l'emplacement validé ;
+8. publication ``STOP`` ;
+9. clôture de session backend ;
+10. résumé final reservation/session/device.
+
+Commande :
+
+.. code-block:: powershell
+
+   .\scripts\run-demo-scenario.ps1 -Reference DEMOQR1 -Emplacement 1 -TelemetryCount 5
+
+Résultat attendu :
+
+* réservation ``terminee`` ;
+* session ``closed`` ;
+* télémétrie attachée à la session ;
+* device de l'emplacement revenu ``online`` ;
+* aucune simulation parasite sur les autres emplacements.
+
+Pour rejouer plus vite lorsque la stack est déjà lancée :
+
+.. code-block:: powershell
+
+   .\scripts\run-demo-scenario.ps1 -SkipDockerStart -TelemetryCount 3
+
 Supervision MQTT et Grafana
 ---------------------------
 
@@ -146,6 +183,75 @@ En présence d'un ESP32 réel, on doit voir :
 * l'ACK sur ``station/slot1/ack`` ;
 * les statuts sur ``station/slot1/status`` ;
 * la télémétrie périodique sur ``station/slot1/telemetry``.
+
+Validation ACK sans matériel
+----------------------------
+
+Même sans ESP32 physique, le comportement de sécurité peut être validé : si
+``MQTT_ACK_REQUIRED`` vaut ``true``, le kiosque doit refuser de considérer une
+commande comme réussie lorsqu'aucun ACK n'arrive sur ``station/<slot_id>/ack``.
+
+Test automatisé du client MQTT Raspberry :
+
+.. code-block:: powershell
+
+   .\.venv\Scripts\python.exe -m pytest raspberry\tests -q
+
+Test manuel avec la stack Docker, sans ESP32 connecté :
+
+.. code-block:: powershell
+
+   $env:MQTT_ACK_REQUIRED="true"
+   docker compose up -d --force-recreate raspberry
+   curl -X POST http://localhost:9000/mqtt/command `
+     -H "Content-Type: application/json" `
+     -d '{"slot_id":"slot1","action":"START","session_id":"ack-test"}'
+
+Résultat attendu :
+
+* réponse HTTP ``503`` ;
+* message indiquant l'absence de confirmation ESP32 ;
+* aucune charge considérée comme réellement démarrée côté kiosque.
+
+Revenir au mode de développement sans ESP32 :
+
+.. code-block:: powershell
+
+   $env:MQTT_ACK_REQUIRED="false"
+   docker compose up -d --force-recreate raspberry
+
+Sur une vraie borne, ``MQTT_ACK_REQUIRED`` doit rester à ``true``.
+
+Sécurisation Mosquitto sans matériel
+------------------------------------
+
+Le broker de développement accepte les connexions anonymes pour faciliter les
+tests locaux. Avant un déploiement terrain, préparer les comptes MQTT :
+
+.. code-block:: powershell
+
+   .\scripts\init-mqtt-auth.ps1
+
+Le script crée ``mosquitto/config/passwords`` avec les comptes :
+
+* ``station_backend`` ;
+* ``raspberry_kiosk`` ;
+* ``esp32_slot1`` ;
+* ``esp32_slot2`` ;
+* ``esp32_slot3``.
+
+Activer ensuite ``mosquitto/config/mosquitto.secure.conf`` comme configuration
+Mosquitto et redémarrer le service. Les règles dans ``mosquitto/config/acl``
+doivent garantir qu'un ESP32 ne peut publier que sur son propre slot.
+
+Contrôle recommandé avec Mosquitto sécurisé :
+
+.. code-block:: bash
+
+   docker compose exec mqtt mosquitto_pub -h localhost -u esp32_slot1 -P <mot-de-passe> -t station/slot1/status -m '{"state":"idle"}'
+   docker compose exec mqtt mosquitto_pub -h localhost -u esp32_slot1 -P <mot-de-passe> -t station/slot2/status -m '{"state":"idle"}'
+
+La première commande doit réussir, la seconde doit être refusée par l'ACL.
 
 Test RFID Raspberry
 -------------------

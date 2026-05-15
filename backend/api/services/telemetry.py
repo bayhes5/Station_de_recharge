@@ -36,7 +36,14 @@ SENSOR_FIELDS = {
 RESOLVED_ALERT_STATUSES = ["resolved", "resolue", "closed", "fermee"]
 DEVICE_STATUS_ALIASES = {
     "available": DeviceStatus.ONLINE,
+    "boot": DeviceStatus.ONLINE,
+    "locked": DeviceStatus.ONLINE,
+    "reserved": DeviceStatus.ONLINE,
     "ready": DeviceStatus.ONLINE,
+    "unlocked": DeviceStatus.ONLINE,
+    "waiting_cable": DeviceStatus.ONLINE,
+    "waiting_lock": DeviceStatus.ONLINE,
+    "charging_started": DeviceStatus.CHARGING,
     "running": DeviceStatus.CHARGING,
     "emergency": DeviceStatus.ERROR,
     "fault": DeviceStatus.ERROR,
@@ -51,6 +58,13 @@ class TelemetryResult:
     capteur_count: int
     alert_count: int
     session_telemetry_created: bool
+
+
+@dataclass(frozen=True)
+class DeviceStatusResult:
+    """Summarize the state update created from one ESP32 status payload."""
+
+    device: Device
 
 
 def _parse_timestamp(value: Any):
@@ -113,11 +127,12 @@ def _slot_number(slot_id: str) -> int | None:
 def _get_device(slot_id: str) -> Device:
     """Return the device mapped to the slot, creating it on first telemetry."""
     try:
-        return Device.objects.select_related("emplacement").get(mac_address=slot_id)
+        return Device.objects.select_related("emplacement", "emplacement__borne").get(mac_address=slot_id)
     except Device.DoesNotExist:
         slot_number = _slot_number(slot_id)
-        emplacement_query = Emplacement.objects.select_related("station").order_by(
+        emplacement_query = Emplacement.objects.select_related("station", "borne").order_by(
             "station__nom",
+            "borne__numero",
             "numero",
         )
         if slot_number is not None:
@@ -282,6 +297,21 @@ def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp, 
         if was_created:
             created.append(alert)
     return created
+
+
+@transaction.atomic
+def ingest_slot_status(slot_id: str, payload: dict[str, Any]) -> DeviceStatusResult:
+    """Persist one ESP32 status event without requiring a sensor sample."""
+    if not slot_id:
+        raise ValueError("slot_id est obligatoire.")
+
+    timestamp = _parse_timestamp(payload.get("timestamp"))
+    status_value = payload.get("state") or payload.get("status") or payload.get("event")
+    device = _get_device(slot_id)
+    device.last_seen = timestamp
+    device.status = _device_status(status_value)
+    device.save(update_fields=["last_seen", "status"])
+    return DeviceStatusResult(device=device)
 
 
 @transaction.atomic

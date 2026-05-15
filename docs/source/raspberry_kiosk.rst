@@ -53,16 +53,20 @@ Les variables minimales pour tester sur un Raspberry physique sont :
 .. code-block:: bash
 
    export BACKEND_API_BASE_URL=http://<ip-backend>:8000/api
-   export MQTT_HOST=<ip-broker-mqtt>
+   export MQTT_HOST=localhost
    export MQTT_PORT=1883
    export MQTT_BASE_TOPIC=station
+   export MQTT_ACK_REQUIRED=true
    export TERMINAL_API_SECRET=<même-secret-que-le-backend>
    export TERMINAL_STATION_ID=<id-station>
+   export TERMINAL_BORNE_ID=<id-borne>
    export RFID_READER_BACKEND=acr122u
 
-En développement, si le backend et Mosquitto tournent sur le PC dans Docker,
-``<ip-backend>`` et ``<ip-broker-mqtt>`` correspondent à l'adresse du PC sur le
-réseau Wi-Fi local.
+En production, Mosquitto tourne sur le Raspberry : ``MQTT_HOST=localhost`` pour
+le kiosque, tandis que les ESP32 utilisent l'adresse IP Wi-Fi du Raspberry. En
+développement, si le backend et Mosquitto tournent sur le PC dans Docker,
+``<ip-backend>`` correspond à l'adresse du PC sur le réseau Wi-Fi local et
+``MQTT_HOST`` peut pointer vers cette même adresse.
 
 Lecture RFID ACR122U
 --------------------
@@ -140,7 +144,7 @@ Le kiosque doit couvrir les situations suivantes :
 * téléphone utilisateur scannant le QR de session affiché par la borne ;
 * code SMS temporaire saisi avec le code de réservation ;
 * association d'un badge avec un code court généré depuis le profil web ;
-* mauvaise station ou mauvais emplacement, avec message explicite ;
+* mauvaise station, mauvaise borne ou mauvais emplacement, avec message explicite ;
 * backend indisponible, avec bascule limitée vers le cache local si le droit a
   déjà été synchronisé.
 
@@ -171,11 +175,20 @@ Le mode dégradé s'appuie sur ``offline_store.py``. Le Raspberry synchronise à
 l'avance les autorisations proches du créneau via le backend, puis peut les
 vérifier localement si l'API devient indisponible.
 
+Le backend transmet aussi les marges de validation temporelle :
+``start_grace_minutes`` et ``end_grace_minutes``. Le cache local les applique
+pour garder le même comportement qu'en ligne : arrivée légèrement anticipée et
+courte tolérance après la fin du créneau. Par défaut, l'arrivée anticipée est
+limitée à 5 minutes et la tolérance de fin à 10 minutes. En mode dégradé, le
+cache refuse aussi une ouverture anticipée si l'emplacement est encore couvert
+par le créneau précédent.
+
 Règles de sécurité :
 
 * le cache ne crée aucun nouveau droit ;
 * les secrets restent stockés sous forme de hash ;
-* la portée est limitée à la station déclarée par ``TERMINAL_STATION_ID`` ;
+* la portée est limitée à la station déclarée par ``TERMINAL_STATION_ID`` et,
+  sur une installation réelle, à la borne déclarée par ``TERMINAL_BORNE_ID`` ;
 * les événements offline sont rejoués au backend dès que la communication
   revient ;
 * en cas d'ambiguïté ou de cache expiré, l'accès doit être refusé.

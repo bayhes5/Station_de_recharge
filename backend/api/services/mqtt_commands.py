@@ -11,7 +11,11 @@ def build_slot_command_topic(slot_id: str) -> str:
 
 
 def publish_slot_command(slot_id: str, action: str, **metadata):
-    """Publish a START/STOP/UNLOCK command to one ESP32 slot."""
+    """Publish a diagnostic command to one ESP32 slot.
+
+    Production kiosk flows should publish from the Raspberry, because it owns the
+    local Mosquitto connection and can keep operating during backend outages.
+    """
     try:
         import paho.mqtt.client as mqtt
     except ImportError as exc:

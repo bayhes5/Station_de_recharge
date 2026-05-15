@@ -19,8 +19,8 @@ La base est organisée autour de cinq ensembles fonctionnels :
 
 * **comptes et sécurité** : utilisateurs, profils, rôles, moyens
   d’authentification, consentements et journal de sécurité ;
-* **infrastructure terrain** : stations, emplacements de charge, devices ESP32
-  et capteurs ;
+* **infrastructure terrain** : stations, bornes physiques, emplacements de
+  charge, devices ESP32 et capteurs ;
 * **réservation et session** : réservation utilisateur, authentification choisie
   et session de charge effective ;
 * **télémétrie et alertes** : mesures capteurs, mesures électriques et alertes
@@ -78,8 +78,11 @@ puis d'exporter l'image en SVG ou PNG si une version graphique doit être intég
      - ``auth_method``
      - Chaque moyen d'accès est classé par type.
    * - ``station``
+     - ``borne``
+     - Une station contient une ou plusieurs bornes physiques.
+   * - ``borne``
      - ``emplacement``
-     - Une station contient plusieurs emplacements.
+     - Une borne contient plusieurs emplacements.
    * - ``emplacement``
      - ``device``
      - Un emplacement est piloté par un équipement embarqué.
@@ -136,9 +139,12 @@ Clés structurantes
    * - ``station``
      - ``id_station``
      - Nom, localisation et statut d'exploitation.
-   * - ``emplacement``
-     - ``id_emplacement``, ``id_station``
+   * - ``borne``
+     - ``id_borne``, ``id_station``
      - Numéro unique dans une station.
+   * - ``emplacement``
+     - ``id_emplacement``, ``id_borne``, ``id_station``
+     - Numéro unique dans une borne.
    * - ``device``
      - ``id_device``, ``id_emplacement``
      - Un device par emplacement, ``last_seen`` pour la supervision.
@@ -252,13 +258,25 @@ faire évoluer la base.
        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
    );
 
+   CREATE TABLE borne (
+       id_borne UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+       id_station UUID NOT NULL REFERENCES station(id_station) ON DELETE CASCADE,
+       numero INTEGER NOT NULL,
+       nom VARCHAR(100) NOT NULL,
+       mqtt_prefix VARCHAR(100) NOT NULL DEFAULT 'station',
+       statut VARCHAR(50) NOT NULL,
+       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       UNIQUE (id_station, numero)
+   );
+
    CREATE TABLE emplacement (
        id_emplacement UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+       id_borne UUID NOT NULL REFERENCES borne(id_borne) ON DELETE CASCADE,
        id_station UUID NOT NULL REFERENCES station(id_station) ON DELETE CASCADE,
        numero INTEGER NOT NULL,
        etat VARCHAR(50) NOT NULL,
        statut_cadenas VARCHAR(50) NOT NULL,
-       UNIQUE (id_station, numero)
+       UNIQUE (id_borne, numero)
    );
 
    CREATE TABLE device (
@@ -355,6 +373,8 @@ faire évoluer la base.
    CREATE INDEX idx_auth_expiration ON auth_method(expiration);
    CREATE INDEX idx_station_nom ON station(nom);
    CREATE INDEX idx_station_statut ON station(statut);
+   CREATE INDEX idx_borne_station_statut ON borne(id_station, statut);
+   CREATE INDEX idx_emp_borne_statut ON emplacement(id_borne, etat);
    CREATE INDEX idx_emp_station_statut ON emplacement(id_station, etat);
    CREATE INDEX idx_emp_lock_state ON emplacement(statut_cadenas, etat);
    CREATE INDEX idx_reservation_emp_dates ON reservation(id_emplacement, date_debut, date_fin);
@@ -536,14 +556,32 @@ Site physique de recharge.
   ``maintenance``, ``inactive``.
 * ``created_at`` : date d’enregistrement.
 
+``borne``
+~~~~~~~~~
+
+Équipement physique installé dans une station. Une borne peut piloter plusieurs
+emplacements et porte la configuration locale utilisée par le Raspberry et MQTT.
+
+* ``id_borne`` : UUID primaire.
+* ``id_station`` : station parente.
+* ``numero`` : numéro de borne unique dans la station. Exemple : ``1``.
+* ``nom`` : libellé lisible. Exemple : ``Borne 1``.
+* ``mqtt_prefix`` : préfixe MQTT utilisé pour router les messages terrain.
+  Exemple : ``station``.
+* ``statut`` : état d'exploitation. Valeurs fermées côté application :
+  ``active``, ``maintenance``, ``inactive``.
+* ``created_at`` : date d’enregistrement.
+
 ``emplacement``
 ~~~~~~~~~~~~~~~
 
-Point de charge numéroté dans une station.
+Point de charge numéroté dans une borne.
 
 * ``id_emplacement`` : UUID primaire.
-* ``id_station`` : station parente.
-* ``numero`` : numéro visible sur site. Exemple : ``1``.
+* ``id_borne`` : borne parente.
+* ``id_station`` : station dérivée de la borne, conservée pour les filtres et les
+  requêtes de disponibilité.
+* ``numero`` : numéro visible sur la borne. Exemple : ``1``.
 * ``etat`` : disponibilité opérationnelle. Valeurs fermées côté application :
   ``disponible``, ``reserve``, ``occupe``, ``maintenance``.
 * ``statut_cadenas`` : état du verrou. Valeurs fermées côté application :

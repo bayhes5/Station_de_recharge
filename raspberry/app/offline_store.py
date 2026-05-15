@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Any
 
 
-START_GRACE_MINUTES = int(os.environ.get("OFFLINE_START_GRACE_MINUTES", "15"))
+START_GRACE_MINUTES = int(os.environ.get("OFFLINE_START_GRACE_MINUTES", "5"))
+END_GRACE_MINUTES = int(os.environ.get("OFFLINE_END_GRACE_MINUTES", "10"))
 DEFAULT_DB_PATH = Path(__file__).resolve().parent / "offline_cache.sqlite3"
 
 
@@ -80,7 +81,10 @@ class OfflineAuthResult:
             "session": {
                 "id": self.session_id,
                 "station": reservation["station_nom"],
+                "borne": reservation.get("borne_nom") or "-",
+                "borne_numero": reservation.get("borne_numero"),
                 "emplacement": reservation["emplacement_numero"],
+                "slot_id": reservation.get("slot_id") or f"slot{reservation['emplacement_numero']}",
                 "start_time": utc_now().isoformat(),
                 "end_time": None,
                 "status": "active",
@@ -157,6 +161,14 @@ class OfflineStore:
                 )
                 """
             )
+
+    def configure_grace_periods(self, start_minutes: int | None = None, end_minutes: int | None = None):
+        """Update local validation tolerances from the backend cache payload."""
+        global START_GRACE_MINUTES, END_GRACE_MINUTES
+        if isinstance(start_minutes, int) and start_minutes >= 0:
+            START_GRACE_MINUTES = start_minutes
+        if isinstance(end_minutes, int) and end_minutes >= 0:
+            END_GRACE_MINUTES = end_minutes
 
     def replace_reservations(self, reservations: list[dict[str, Any]], station_id: str = "") -> int:
         """Replace cached reservations for one station or for the whole kiosk cache."""
@@ -280,6 +292,12 @@ class OfflineStore:
     def _row_payload(self, row: sqlite3.Row) -> dict[str, Any]:
         return json.loads(row["payload_json"])
 
+    def _row_matches_borne(self, row: sqlite3.Row, borne_id: str = "") -> bool:
+        """Return whether a cached row belongs to the requested physical cabinet."""
+        if not borne_id:
+            return True
+        return str(self._row_payload(row).get("borne_id") or "") == str(borne_id)
+
     def _active_rows(self, now: datetime, station_id: str = "") -> list[sqlite3.Row]:
         with self._connect() as connection:
             query = """
@@ -289,7 +307,7 @@ class OfflineStore:
                 AND datetime(date_debut) <= datetime(?)
             """
             params: list[Any] = [
-                (now - timedelta(minutes=START_GRACE_MINUTES)).isoformat(),
+                (now - timedelta(minutes=END_GRACE_MINUTES)).isoformat(),
                 (now + timedelta(minutes=START_GRACE_MINUTES)).isoformat(),
             ]
             if station_id:
@@ -305,10 +323,39 @@ class OfflineStore:
 
         if start and start - timedelta(minutes=START_GRACE_MINUTES) > now:
             raise ValueError("La reservation n'a pas encore commence.")
-        if end and end < now:
+        if end and end + timedelta(minutes=END_GRACE_MINUTES) < now:
             raise ValueError("La fenetre de reservation est expiree.")
-        if auth_expiration and auth_expiration < now:
+        if auth_expiration and auth_expiration + timedelta(minutes=END_GRACE_MINUTES) < now:
             raise ValueError("Le moyen d'authentification est expire.")
+
+    def _ensure_no_paid_window_conflict(self, row: sqlite3.Row, now: datetime):
+        """Avoid early-starting a bay still owned by the previous paid slot."""
+        start = parse_datetime(row["date_debut"])
+        if not start or now >= start:
+            return
+
+        with self._connect() as connection:
+            conflict = connection.execute(
+                """
+                SELECT id_reservation
+                FROM cached_reservations
+                WHERE emplacement_id = ?
+                AND id_reservation != ?
+                AND statut IN ('confirmee', 'active')
+                AND datetime(date_debut) <= datetime(?)
+                AND datetime(date_fin) > datetime(?)
+                LIMIT 1
+                """,
+                (
+                    row["emplacement_id"],
+                    row["id_reservation"],
+                    now.isoformat(),
+                    now.isoformat(),
+                ),
+            ).fetchone()
+
+        if conflict:
+            raise ValueError("L'emplacement est encore reserve par le creneau precedent.")
 
     def _success(self, row: sqlite3.Row, auth_mode: str, auth_source: str) -> OfflineAuthResult:
         reservation = self._row_payload(row)
@@ -325,7 +372,7 @@ class OfflineStore:
         )
         return OfflineAuthResult(reservation=reservation, session_id=session_id)
 
-    def authenticate(self, payload: dict[str, Any], station_id: str = "") -> OfflineAuthResult:
+    def authenticate(self, payload: dict[str, Any], station_id: str = "", borne_id: str = "") -> OfflineAuthResult:
         """Validate a terminal authentication payload against the local cache."""
         auth_mode = str(payload.get("auth_mode") or "").strip().lower()
         auth_value = str(payload.get("auth_value") or "").strip()
@@ -346,13 +393,16 @@ class OfflineStore:
             matches = [
                 row
                 for row in self._active_rows(now, station_id=station_id)
-                if row["auth_mode"] == "rfid" and row["auth_hash"] == auth_hash
+                if row["auth_mode"] == "rfid"
+                and row["auth_hash"] == auth_hash
+                and self._row_matches_borne(row, borne_id=borne_id)
             ]
             if not matches:
                 raise ValueError("Aucune reservation offline active pour ce badge RFID.")
             if len(matches) > 1:
                 raise ValueError("Plusieurs reservations offline correspondent a ce badge RFID.")
             self._validate_time_window(matches[0], now)
+            self._ensure_no_paid_window_conflict(matches[0], now)
             return self._success(matches[0], auth_mode="rfid", auth_source="rfid")
 
         if not reservation_code:
@@ -371,10 +421,14 @@ class OfflineStore:
             raise ValueError("Reservation absente du cache offline.")
         if station_id and row["station_id"] != station_id:
             raise ValueError(f"Reservation associee a une autre station: {row['station_nom']}.")
+        if not self._row_matches_borne(row, borne_id=borne_id):
+            reservation = self._row_payload(row)
+            raise ValueError(f"Reservation associee a une autre borne: {reservation.get('borne_nom') or '-'}.")
         if row["auth_mode"] != auth_mode:
             raise ValueError("Mauvais moyen d'authentification.")
 
         self._validate_time_window(row, now)
+        self._ensure_no_paid_window_conflict(row, now)
         if row["auth_hash"] != hash_secret(auth_value):
             raise ValueError("Authentification offline refusee.")
         return self._success(row, auth_mode=auth_mode, auth_source="typed_or_scanned")

@@ -34,13 +34,21 @@ Réservation
 -----------
 
 Le flux utilisateur de réservation sélectionne une station sur une carte, puis
-un créneau de début. L'utilisateur ne choisit pas directement l'emplacement :
-le backend vérifie les disponibilités de la station sur la fenêtre de 30 minutes
-et attribue automatiquement un emplacement libre au moment de la création.
+un début et une durée de recharge. L'utilisateur ne choisit pas directement
+l'emplacement : le backend vérifie les bornes et emplacements disponibles sur la
+fenêtre demandée, puis attribue automatiquement un emplacement libre au moment de
+la création. Les durées proposées sont 30 minutes, 1 heure, 2 heures et 4 heures,
+avec 1 heure par défaut.
 
 Les emplacements restent des objets métier côté backend. Ils portent la
 réservation effective, les sessions de charge et le rattachement aux devices
 ESP32.
+
+L'infrastructure est structurée en trois niveaux : ``Station`` pour le lieu,
+``Borne`` pour l'armoire ou le kiosque physique, puis ``Emplacement`` pour le
+point de charge réellement réservé. Le champ station reste disponible sur
+l'emplacement pour les filtres rapides, mais il est dérivé de la borne afin de
+conserver la hiérarchie terrain.
 
 Moyens d'accès
 --------------
@@ -78,14 +86,17 @@ Un mode dégradé est prévu pour maintenir une continuité minimale si le serve
 central ou la liaison applicative devient indisponible. Dans ce cas, le
 Raspberry peut s'appuyer sur un cache local de droits déjà synchronisés,
 strictement limité dans le temps, pour autoriser uniquement les actions prévues
-sur les emplacements de la station. Les ESP32 conservent de leur côté les
-événements et télémétries non transmis dans un journal local, par exemple via
-LittleFS, puis les republient lorsque la communication revient.
+sur les emplacements de la station et de la borne concernées. Les ESP32
+conservent de leur côté les événements et télémétries non transmis dans un
+journal local, par exemple via LittleFS, puis les republient lorsque la
+communication revient.
 
-Ce choix évite de faire de la communication directe Raspberry -> ESP32 le mode
-principal. Le backend reste la source de vérité pour la sécurité, l'audit et la
-cohérence des réservations ; le mode local sert uniquement de continuité
-opérationnelle.
+Ce choix sépare clairement l'autorité métier et l'exécution terrain. Le backend
+reste la source de vérité pour les réservations, les révocations, l'audit et la
+cohérence globale. Le Raspberry, lui, exécute localement les commandes déjà
+validées et conserve une continuité limitée grâce à son cache offline. Les ESP32
+ne prennent jamais de décision d'accès : ils reçoivent des ordres locaux via
+MQTT, appliquent les sécurités physiques et publient leurs états.
 
 Reverse proxy local
 -------------------
@@ -112,18 +123,22 @@ Le dossier ``esp32/`` contient la logique embarquée de référence pour un
 emplacement de recharge. En configuration locale, le backend crée
 trois emplacements et associe un device ``ESP32`` à chacun d'eux.
 
-Les ESP32, la simulation Wokwi ou le service Docker ``mqtt-simulator`` publient
-les mesures sur le canal ``station/<slot_id>/telemetry``. Le service
-``mqtt-bridge`` écoute ces canaux, délègue le traitement à Celery, puis le backend stocke les
-échantillons dans ``CapteurData`` et met à jour ``Device.last_seen``. Cette
-chaîne alimente l'interface de supervision et le dashboard Grafana en quasi temps
-réel.
+En production, le broker Mosquitto est installé localement sur le Raspberry de
+la borne. Les ESP32, la simulation Wokwi ou le service Docker
+``mqtt-simulator`` publient les mesures sur le canal
+``station/<slot_id>/telemetry``. Les ESP32 publient également leurs événements
+d'état sur ``station/<slot_id>/status`` et leurs alertes explicites sur
+``station/<slot_id>/alert``. Le service ``mqtt-bridge`` écoute ces canaux quand
+la liaison serveur est disponible, délègue le traitement à Celery, puis le
+backend stocke les échantillons dans ``CapteurData`` et met à jour
+``Device.last_seen``. Cette chaîne alimente l'interface de supervision et le
+dashboard Grafana en quasi temps réel.
 
 La supervision distingue la connexion de l'équipement et son dernier état métier
 reçu. La connexion est calculée avec ``Device.last_seen`` : un ESP32 sans
-télémétrie récente est considéré hors ligne, même si son dernier ``status``
-stocké vaut ``online``. Le champ ``status`` reste une information métier
-historisée, par exemple ``charging`` ou ``error``.
+télémétrie ni statut MQTT récent est considéré hors ligne, même si son dernier
+``status`` stocké vaut ``online``. Le champ ``status`` reste une information
+métier historisée, par exemple ``charging`` ou ``error``.
 
 Les alertes opérationnelles sont créées depuis la télémétrie : intrusion,
 câble retiré, surchauffe, surconsommation et état critique. Une alerte démarre

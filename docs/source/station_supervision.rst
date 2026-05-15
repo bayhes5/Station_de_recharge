@@ -52,7 +52,7 @@ La station doit néanmoins rester exploitable de façon limitée si le serveur o
 la liaison applicative tombe. Le mode dégradé repose sur deux mécanismes locaux :
 
 * le Raspberry conserve un cache local des autorisations récemment synchronisées
-  et encore valides, par station et par emplacement ;
+  et encore valides, par station, borne et emplacement ;
 * chaque ESP32 conserve localement les événements et mesures non transmis, par
   exemple dans LittleFS, afin de les republier après rétablissement de la
   communication.
@@ -68,12 +68,12 @@ faire disparaître les mesures de charge, les arrêts de sécurité ou les alert
 Au retour du réseau, les événements sont rejoués vers le backend, qui redevient
 la source consolidée pour l'historique et Grafana.
 
-Cette architecture est plus robuste qu'une communication directe Raspberry ->
-ESP32 utilisée comme chemin principal. Une communication directe nominale
-dupliquerait les règles métier dans le kiosque, rendrait la révocation des accès
-plus difficile, réduirait l'audit centralisé et augmenterait le risque de
-divergence entre stations. Le lien local reste donc un mécanisme de continuité,
-pas une source d'autorité.
+Cette architecture est plus robuste qu'un lien ESP32 dépendant directement du
+backend central. Le Raspberry reste le contrôleur terrain : il publie les
+commandes locales vers les ESP32 après validation backend, ou depuis un cache
+offline déjà synchronisé en mode dégradé. Les règles métier ne sont pas
+dupliquées dans les ESP32 ; elles restent côté backend, puis le Raspberry exécute
+la décision au plus près du matériel.
 
 Services Docker
 ---------------
@@ -81,11 +81,40 @@ Services Docker
 La stack locale contient les services de supervision suivants :
 
 * ``mqtt`` : broker Mosquitto local, exposé sur le port ``1883`` ;
-* ``redis`` : cache, broker Celery et support futur de Django Channels ;
+* ``redis`` : cache, broker Celery et bus temps réel de Django Channels ;
 * ``celery`` : worker de traitement asynchrone ;
-* ``mqtt-bridge`` : consommateur backend abonné aux télémétries ESP32 ;
+* ``mqtt-bridge`` : consommateur backend abonné aux télémétries, statuts et alertes ESP32 ;
 * ``grafana`` : supervision technique exposée sur ``http://localhost:3000`` ;
 * ``db`` : TimescaleDB/PostgreSQL, compatible avec les modèles Django existants.
+
+Supervision web temps réel
+--------------------------
+
+L'onglet administrateur ``Supervision`` reste disponible en HTTP avec :
+
+.. code-block:: text
+
+   GET /api/admin/supervision/
+
+Cet endpoint retourne une photographie complète de l'état terrain : compteurs,
+devices ESP32, alertes récentes et dernières mesures capteurs.
+
+Pour éviter d'attendre le rafraîchissement périodique, le backend expose aussi
+un canal WebSocket réservé aux administrateurs :
+
+.. code-block:: text
+
+   /ws/admin/supervision/
+
+Le navigateur ouvre ce canal avec le jeton d'accès JWT en paramètre. Le backend
+vérifie que l'utilisateur est actif et administrateur avant d'accepter la
+connexion. À chaque télémétrie MQTT, statut ESP32 ou alerte, le worker publie un
+événement Channels dans le groupe ``admin_supervision``. Les dashboards connectés
+reçoivent alors une nouvelle photographie de supervision.
+
+Le polling toutes les 30 secondes reste volontairement conservé côté frontend :
+il sert de filet de sécurité si le WebSocket n'est pas disponible, si le jeton
+expire ou si le reverse proxy n'est pas encore configuré pour ``/ws/``.
 
 Canaux de télémétrie et de commande
 -----------------------------------
@@ -95,6 +124,23 @@ Les ESP32 publient leur télémétrie sur :
 .. code-block:: text
 
    station/<slot_id>/telemetry
+
+Ils publient aussi leurs événements d'état sur :
+
+.. code-block:: text
+
+   station/<slot_id>/status
+
+Ils publient enfin leurs alertes locales immédiates sur :
+
+.. code-block:: text
+
+   station/<slot_id>/alert
+
+Ces événements servent de heartbeat opérationnel. Un ESP32 qui vient d'accepter
+une commande ``START`` peut donc être vu comme connecté dès le message
+``reserved`` ou ``charging_started``, même si la mesure DHT22/INA219 suivante
+n'est pas encore arrivée.
 
 Exemple de message :
 
@@ -131,6 +177,9 @@ Le message de commande est un JSON simple :
 
 Le Raspberry publie ce message via son client de messagerie local. Le backend
 dispose du même mécanisme côté serveur avec la commande ``send_slot_command``.
+En production, le chemin privilégié reste la publication depuis le Raspberry,
+car il est connecté au broker Mosquitto local de la borne et peut fonctionner
+même si le backend est temporairement indisponible.
 
 Le Raspberry attend aussi une confirmation ESP32 sur :
 
@@ -208,6 +257,32 @@ Publier une télémétrie de test sans ESP32 :
 
    docker compose exec mqtt mosquitto_pub -h localhost -t 'station/slot1/telemetry' -m '{"state":"charging","current":1.2,"voltage":12.0,"temperature":32.5,"humidity":45,"door":true,"cable":true}'
 
+Sécurisation du broker MQTT
+---------------------------
+
+La configuration active ``mosquitto/config/mosquitto.conf`` reste ouverte pour
+les tests locaux, Wokwi et les premiers essais ESP32 sur le réseau Wi-Fi. Pour
+une borne réelle, utiliser ``mosquitto/config/mosquitto.secure.conf`` :
+
+* ``allow_anonymous false`` bloque les connexions anonymes ;
+* ``password_file`` impose un compte MQTT ;
+* ``acl_file`` limite les topics accessibles à chaque rôle ;
+* le healthcheck Docker publie sur ``station/health`` avec les identifiants
+  ``MQTT_USERNAME`` / ``MQTT_PASSWORD`` si ces variables sont renseignées.
+
+Préparer le fichier de mots de passe :
+
+.. code-block:: powershell
+
+   .\scripts\init-mqtt-auth.ps1
+
+Puis copier le contenu de ``mosquitto.secure.conf`` vers ``mosquitto.conf`` ou
+adapter le montage Docker pour pointer vers la configuration sécurisée. En
+développement, un seul compte ``station_backend`` peut suffire pour le backend,
+le simulateur et le Raspberry. En installation réelle, utiliser des comptes
+séparés : ``station_backend``, ``raspberry_kiosk`` et un compte par ESP32
+(``esp32_slot1``, ``esp32_slot2``, ``esp32_slot3``).
+
 Vérifier que Django et la base répondent :
 
 .. code-block:: bash
@@ -236,6 +311,26 @@ des mesures normales et des anomalies pour tester la chaîne d'alertes :
 * surchauffe ;
 * surconsommation ;
 * état critique.
+
+Pour un test de bout en bout depuis le kiosk, préférer le mode lié à la session
+active. Après validation QR et ouverture de la session de charge, cette commande
+retrouve l'emplacement réellement attribué à la réservation, reprend le
+``session_id`` backend et ne publie que sur le ``slot_id`` de cet emplacement :
+
+.. code-block:: powershell
+
+   cd backend
+   ..\.venv\Scripts\python.exe manage.py simulate_mqtt_telemetry --active-session --scenario normal --interval 2
+
+Il est aussi possible de cibler explicitement une réservation :
+
+.. code-block:: powershell
+
+   cd backend
+   ..\.venv\Scripts\python.exe manage.py simulate_mqtt_telemetry --reservation-code QR-SIM-1 --scenario normal --interval 2
+
+Ce mode évite de marquer plusieurs ESP32 en ``charging`` alors qu'une seule
+réservation a été validée.
 
 Pour envoyer seulement quelques messages et vérifier le format sans broker :
 
@@ -335,8 +430,9 @@ supervision expose en plus un libellé lisible pour l'interface :
 ``Boîtier fermé`` / ``Boîtier ouvert`` et ``Câble présent`` / ``Câble retiré``.
 
 Dans l'interface administrateur, la colonne ``Connexion`` indique si l'ESP32 a
-émis une télémétrie récente. Elle est calculée à partir de ``Device.last_seen``
-et non à partir du champ ``status``. La colonne ``Dernier état reçu`` affiche la
+émis récemment une télémétrie ou un statut MQTT. Elle est calculée à partir de
+``Device.last_seen`` et non à partir du champ ``status``. La colonne
+``Dernier état reçu`` affiche la
 dernière valeur métier transmise par l'équipement, par exemple ``charging`` pour
 une charge en cours. Un ESP32 provisionné mais jamais vu reste donc hors ligne et
 affiche ``Aucune télémétrie reçue`` tant qu'aucun message réel n'a été ingéré.

@@ -32,9 +32,11 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .models import (
     Alerte,
     Authentification,
+    Borne,
     CapteurData,
     Consentement,
     Device,
+    DeviceStatus,
     Emplacement,
     JournalSecurite,
     Maintenance,
@@ -48,10 +50,12 @@ from .models import (
 )
 from .permissions import IsStaffUser
 from .services.sms import SmsDeliveryError, mask_phone_number, send_sms
+from .services.supervision import build_admin_supervision_payload
 from .serializers import (
     AdminUserUpdateSerializer,
     AdminUserSerializer,
     AuthMethodSerializer,
+    BorneSerializer,
     ConsentPreferenceSerializer,
     EmplacementSerializer,
     MaintenanceAdminSerializer,
@@ -64,9 +68,17 @@ from .serializers import (
     TechnicianSerializer,
     TechnicianMaintenanceSerializer,
 )
+from .reservation_rules import (
+    RESERVATION_DURATION_MINUTES,
+    RESERVATION_STEP_MINUTES,
+    reservation_duration_error_message,
+    reservation_duration_is_allowed,
+    reservation_duration_minutes,
+)
 
 User = get_user_model()
-RESERVATION_START_GRACE_MINUTES = getattr(settings, "RESERVATION_START_GRACE_MINUTES", 15)
+RESERVATION_START_GRACE_MINUTES = getattr(settings, "RESERVATION_START_GRACE_MINUTES", 5)
+RESERVATION_END_GRACE_MINUTES = getattr(settings, "RESERVATION_END_GRACE_MINUTES", 10)
 DEFAULT_SESSION_MAX_MINUTES = getattr(settings, "CHARGING_SESSION_MAX_MINUTES", 240)
 ADMIN_TEMPORARY_PASSWORD_LENGTH = 16
 ADMIN_TEMPORARY_PASSWORD_SPECIALS = "!@#$%&*-_?"
@@ -362,10 +374,14 @@ def _serialize_reservation(reservation):
         "utilisateur_pseudo": reservation.utilisateur.pseudo if reservation.utilisateur else "-",
         "station": reservation.emplacement.station.nom,
         "station_nom": reservation.emplacement.station.nom,
+        "borne": reservation.emplacement.borne.nom,
+        "borne_nom": reservation.emplacement.borne.nom,
+        "borne_numero": reservation.emplacement.borne.numero,
         "emplacement": reservation.emplacement.numero,
         "emplacement_numero": reservation.emplacement.numero,
         "date_debut": reservation.date_debut.isoformat(),
         "date_fin": reservation.date_fin.isoformat(),
+        "duration_minutes": reservation_duration_minutes(reservation.date_debut, reservation.date_fin),
         "statut": reservation.statut,
         "auth_mode": reservation.auth_choice,
         "can_cancel": _reservation_can_be_cancelled(reservation),
@@ -374,14 +390,41 @@ def _serialize_reservation(reservation):
 
 def _serialize_session(session):
     """Return a compact representation of a charging session."""
+    device = getattr(session.emplacement, "device", None)
     return {
         "id": str(session.id_session),
         "station": session.emplacement.station.nom,
+        "borne": session.emplacement.borne.nom,
+        "borne_numero": session.emplacement.borne.numero,
         "emplacement": session.emplacement.numero,
+        "slot_id": device.mac_address if device and device.mac_address else f"slot{session.emplacement.numero}",
         "start_time": session.start_time.isoformat(),
         "end_time": session.end_time.isoformat() if session.end_time else None,
         "status": "active" if session.end_time is None else "closed",
     }
+
+
+def _close_charging_session(session, now=None):
+    """Close an active charging session and mark its reservation as finished."""
+    closed_at = now or timezone.now()
+    updated = False
+    if session.end_time is None:
+        session.end_time = max(closed_at, session.start_time + timedelta(seconds=1))
+        session.save(update_fields=["end_time"])
+        updated = True
+
+    reservation = session.reservation
+    if reservation.statut != "terminee":
+        reservation.statut = "terminee"
+        reservation.save(update_fields=["statut"])
+
+    device = getattr(session.emplacement, "device", None)
+    if device and device.status == DeviceStatus.CHARGING:
+        device.status = DeviceStatus.ONLINE
+        device.last_seen = closed_at
+        device.save(update_fields=["status", "last_seen"])
+
+    return updated
 
 
 def _reservation_can_be_cancelled(reservation):
@@ -419,12 +462,29 @@ def _serialize_station(station):
     }
 
 
+def _serialize_borne(borne):
+    """Return physical cabinet fields with its parent station label."""
+    return {
+        "id_borne": str(borne.id_borne),
+        "station": str(borne.station_id),
+        "station_nom": borne.station.nom,
+        "numero": borne.numero,
+        "nom": borne.nom,
+        "mqtt_prefix": borne.mqtt_prefix,
+        "statut": borne.statut,
+        "emplacements_count": borne.emplacements.count(),
+    }
+
+
 def _serialize_emplacement(emplacement):
     """Return charging bay details with the parent station label."""
     return {
         "id_emplacement": str(emplacement.id_emplacement),
         "station": str(emplacement.station_id),
         "station_nom": emplacement.station.nom,
+        "borne": str(emplacement.borne_id),
+        "borne_nom": emplacement.borne.nom,
+        "borne_numero": emplacement.borne.numero,
         "numero": emplacement.numero,
         "statut": emplacement.statut,
         "lock_state": emplacement.lock_state,
@@ -452,10 +512,11 @@ def _serialize_device_supervision(device, now=None):
     online = _device_is_online(device, now=now)
     emplacement = device.emplacement
     station = emplacement.station
+    borne = emplacement.borne
     return {
         "id_device": str(device.id_device),
         "slot_id": device.mac_address or str(device.id_device),
-        "slot_label": f"{station.nom} - emplacement {emplacement.numero}",
+        "slot_label": f"{station.nom} - {borne.nom} - emplacement {emplacement.numero}",
         "type_device": device.type_device,
         "firmware_version": device.firmware_version,
         "ip_address": device.ip_address,
@@ -465,6 +526,8 @@ def _serialize_device_supervision(device, now=None):
         "online": online,
         "health": "online" if online else "offline",
         "station_nom": station.nom,
+        "borne_nom": borne.nom,
+        "borne_numero": borne.numero,
         "emplacement_numero": emplacement.numero,
         "emplacement_statut": emplacement.statut,
         "lock_state": emplacement.lock_state,
@@ -478,6 +541,7 @@ def _serialize_alert_supervision(alert):
     device = data.capteur.device if data and data.capteur else None
     emplacement = session.emplacement if session else device.emplacement if device else None
     station = emplacement.station if emplacement else None
+    borne = emplacement.borne if emplacement else None
     return {
         "id_alerte": str(alert.id_alerte),
         "type": alert.type,
@@ -486,6 +550,8 @@ def _serialize_alert_supervision(alert):
         "status": alert.status,
         "timestamp": alert.timestamp.isoformat() if alert.timestamp else None,
         "station_nom": station.nom if station else "-",
+        "borne_nom": borne.nom if borne else "-",
+        "borne_numero": borne.numero if borne else "-",
         "emplacement_numero": emplacement.numero if emplacement else "-",
         "session_id": str(session.id_session) if session else None,
     }
@@ -497,6 +563,7 @@ def _serialize_sensor_data_supervision(sensor_data):
     device = capteur.device
     emplacement = device.emplacement if device else None
     station = emplacement.station if emplacement else None
+    borne = emplacement.borne if emplacement else None
     display_value = None
     if capteur.type == "door":
         display_value = "Boitier ferme" if sensor_data.valeur == 1 else "Boitier ouvert"
@@ -510,8 +577,10 @@ def _serialize_sensor_data_supervision(sensor_data):
         "display_value": display_value,
         "timestamp": sensor_data.timestamp.isoformat() if sensor_data.timestamp else None,
         "slot_id": device.mac_address if device else "-",
-        "slot_label": f"{station.nom} - emplacement {emplacement.numero}" if emplacement and station else "-",
+        "slot_label": f"{station.nom} - {borne.nom} - emplacement {emplacement.numero}" if emplacement and station and borne else "-",
         "station_nom": station.nom if station else "-",
+        "borne_nom": borne.nom if borne else "-",
+        "borne_numero": borne.numero if borne else "-",
         "emplacement_numero": emplacement.numero if emplacement else "-",
     }
 
@@ -644,6 +713,9 @@ def _serialize_mobile_session(payload):
         "status": payload.get("status", "pending"),
         "station_id": payload.get("station_id"),
         "station_nom": payload.get("station_nom"),
+        "borne_id": payload.get("borne_id"),
+        "borne_nom": payload.get("borne_nom"),
+        "borne_numero": payload.get("borne_numero"),
         "created_at": payload.get("created_at"),
         "expires_at": payload.get("expires_at"),
         "expires_in": max(0, int((expires_at - timezone.now()).total_seconds())),
@@ -1044,12 +1116,23 @@ def _get_reservation_session(reservation):
         return None
 
 
+def _start_grace_delta():
+    """Return the allowed early-arrival margin for a reservation."""
+    return timedelta(minutes=RESERVATION_START_GRACE_MINUTES)
+
+
+def _end_grace_delta():
+    """Return the allowed late-arrival margin for a reservation."""
+    return timedelta(minutes=RESERVATION_END_GRACE_MINUTES)
+
+
 def _terminal_reservation_queryset():
     """Return reservations with the related data needed by terminal flows."""
     return Reservation.objects.select_related(
         "utilisateur",
         "emplacement",
         "emplacement__station",
+        "emplacement__borne",
         "authentification",
         "authentification__type_auth",
         "session",
@@ -1058,11 +1141,12 @@ def _terminal_reservation_queryset():
 
 def _active_rfid_reservations_for_auth(auth_method, now):
     """Return active or startable reservations that match a saved RFID badge."""
-    start_grace = timedelta(minutes=RESERVATION_START_GRACE_MINUTES)
+    start_grace = _start_grace_delta()
+    end_grace = _end_grace_delta()
     return list(
         _terminal_reservation_queryset()
         .filter(
-            Q(date_fin__gte=now) | Q(session__end_time__isnull=True, session__isnull=False),
+            Q(date_fin__gte=now - end_grace) | Q(session__end_time__isnull=True, session__isnull=False),
             utilisateur=auth_method.utilisateur,
             authentification=auth_method,
             auth_choice="rfid",
@@ -1075,11 +1159,12 @@ def _active_rfid_reservations_for_auth(auth_method, now):
 
 def _startable_user_reservations(user, now):
     """Return reservations that can be started from a kiosk soon or now."""
-    start_grace = timedelta(minutes=RESERVATION_START_GRACE_MINUTES)
+    start_grace = _start_grace_delta()
+    end_grace = _end_grace_delta()
     return list(
         _terminal_reservation_queryset()
         .filter(
-            Q(date_fin__gte=now) | Q(session__end_time__isnull=True, session__isnull=False),
+            Q(date_fin__gte=now - end_grace) | Q(session__end_time__isnull=True, session__isnull=False),
             utilisateur=user,
             statut__in=["confirmee", "active"],
             date_debut__lte=now + start_grace,
@@ -1091,13 +1176,18 @@ def _startable_user_reservations(user, now):
 def _serialize_offline_cached_reservation(reservation):
     """Return the minimal secret-free payload cached by a kiosk for offline checks."""
     auth_method = reservation.authentification
+    device = getattr(reservation.emplacement, "device", None)
     return {
         "id_reservation": str(reservation.id_reservation),
         "reference_code": reservation.reference_code,
         "station_id": str(reservation.emplacement.station_id),
         "station_nom": reservation.emplacement.station.nom,
+        "borne_id": str(reservation.emplacement.borne_id),
+        "borne_nom": reservation.emplacement.borne.nom,
+        "borne_numero": reservation.emplacement.borne.numero,
         "emplacement_id": str(reservation.emplacement_id),
         "emplacement_numero": reservation.emplacement.numero,
+        "slot_id": device.mac_address if device and device.mac_address else f"slot{reservation.emplacement.numero}",
         "auth_mode": reservation.auth_choice,
         "auth_hash": auth_method.hash_valeur if auth_method else "",
         "auth_expires_at": auth_method.expiration.isoformat() if auth_method and auth_method.expiration else None,
@@ -1119,9 +1209,14 @@ def _offline_event_timestamp(value):
     return parsed
 
 
-def _reconcile_offline_session_started(request, event, station_id):
+def _reconcile_offline_session_started(request, event, station_id, borne_id=""):
     """Create or recover the backend session for one accepted offline start event."""
     reservation_id = event.get("reservation_id") or (event.get("payload") or {}).get("reservation", {}).get("id_reservation")
+    borne_id = (
+        borne_id
+        or (event.get("payload") or {}).get("borne_id")
+        or (event.get("payload") or {}).get("reservation", {}).get("borne_id")
+    )
     if not reservation_id:
         return None, "reservation_id manquant."
 
@@ -1131,6 +1226,8 @@ def _reconcile_offline_session_started(request, event, station_id):
 
     if station_id and str(reservation.emplacement.station_id) != station_id:
         return None, "Reservation associee a une autre station."
+    if borne_id and str(reservation.emplacement.borne_id) != str(borne_id):
+        return None, "Reservation associee a une autre borne."
 
     start_time = _offline_event_timestamp(event.get("created_at"))
     with transaction.atomic():
@@ -1216,7 +1313,7 @@ def _resolve_direct_rfid_reservation(auth_value, now):
 
 
 def _reservation_overlaps(emplacement, date_debut, date_fin):
-    """Return whether a charging bay is already booked in a time window."""
+    """Return whether a charging bay is already booked in the paid window."""
     return Reservation.objects.filter(
         emplacement=emplacement,
         date_debut__lt=date_fin,
@@ -1225,8 +1322,42 @@ def _reservation_overlaps(emplacement, date_debut, date_fin):
     ).exists()
 
 
+def _session_start_conflict_response(reservation, now):
+    """Return a conflict response if another booking still owns the bay."""
+    active_session = (
+        ChargingSession.objects.select_related("reservation")
+        .filter(emplacement=reservation.emplacement, end_time__isnull=True)
+        .exclude(reservation=reservation)
+        .first()
+    )
+    if active_session:
+        return Response(
+            {"detail": "L'emplacement est deja utilise par une autre session de charge."},
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    if now < reservation.date_debut:
+        paid_window_owner = (
+            Reservation.objects.filter(
+                emplacement=reservation.emplacement,
+                date_debut__lte=now,
+                date_fin__gt=now,
+                statut__in=["confirmee", "active", "en_attente"],
+            )
+            .exclude(id_reservation=reservation.id_reservation)
+            .first()
+        )
+        if paid_window_owner:
+            return Response(
+                {"detail": "L'emplacement est encore reserve par le creneau precedent."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+    return None
+
+
 def _available_emplacements(station, date_debut, date_fin):
-    """Return available charging bays for a station and reservation window."""
+    """Return available charging bays for a station and paid reservation window."""
     overlapping_reservations = Reservation.objects.filter(
         emplacement=OuterRef("pk"),
         date_debut__lt=date_fin,
@@ -1235,23 +1366,23 @@ def _available_emplacements(station, date_debut, date_fin):
     )
     return list(
         Emplacement.objects.filter(station=station)
-        .select_related("station")
+        .select_related("station", "borne")
         .annotate(has_overlap=Exists(overlapping_reservations))
         .filter(has_overlap=False)
-        .order_by("numero")
+        .order_by("borne__numero", "numero")
     )
 
 
 def _round_to_thirty_minutes(dt):
     """Return whether a datetime is aligned to a 30-minute boundary."""
-    if dt.minute % 30 != 0 or dt.second != 0 or dt.microsecond != 0:
+    if dt.minute % RESERVATION_STEP_MINUTES != 0 or dt.second != 0 or dt.microsecond != 0:
         return False
     return True
 
 
 def _duration_is_valid(date_debut, date_fin):
-    """Return whether the requested reservation duration is exactly 30 minutes."""
-    return (date_fin - date_debut) == timedelta(minutes=30)
+    """Return whether the requested reservation duration is supported."""
+    return reservation_duration_is_allowed(date_debut, date_fin)
 
 
 def home(request):
@@ -1548,9 +1679,9 @@ def export_account(request):
     """Export the authenticated user's account, reservations and audit history."""
     user = request.user
     profile = _get_or_create_profile(user)
-    reservations = user.reservations.select_related("emplacement", "emplacement__station").order_by("-date_debut")
+    reservations = user.reservations.select_related("emplacement", "emplacement__station", "emplacement__borne").order_by("-date_debut")
     sessions = ChargingSession.objects.filter(reservation__utilisateur=user).select_related(
-        "reservation", "emplacement", "emplacement__station"
+        "reservation", "emplacement", "emplacement__station", "emplacement__borne"
     ).order_by("-start_time")
 
     payload = {
@@ -1593,13 +1724,13 @@ def dashboard(request):
     """Return the authenticated user's dashboard metrics and recent activity."""
     sessions_qs = (
         ChargingSession.objects.filter(reservation__utilisateur=request.user)
-        .select_related("reservation", "emplacement", "emplacement__station")
+        .select_related("reservation", "emplacement", "emplacement__station", "emplacement__borne")
         .order_by("-start_time")
     )
 
     reservations_qs = (
         Reservation.objects.filter(utilisateur=request.user)
-        .select_related("emplacement", "emplacement__station", "authentification", "authentification__type_auth")
+        .select_related("emplacement", "emplacement__station", "emplacement__borne", "authentification", "authentification__type_auth")
         .order_by("-date_debut")
     )
 
@@ -1649,6 +1780,7 @@ def admin_overview(request):
                 "users_total": User.objects.count(),
                 "active_users": User.objects.filter(is_active=True).count(),
                 "stations_total": Station.objects.count(),
+                "bornes_total": Borne.objects.count(),
                 "emplacements_total": Emplacement.objects.count(),
                 "reservations_total": Reservation.objects.count(),
                 "reservations_upcoming": Reservation.objects.filter(date_debut__gte=timezone.now()).exclude(statut="annulee").count(),
@@ -1665,9 +1797,13 @@ def admin_overview(request):
                 _serialize_station(station)
                 for station in Station.objects.order_by("-id_station")[:5]
             ],
+            "recent_bornes": [
+                _serialize_borne(borne)
+                for borne in Borne.objects.select_related("station").order_by("-id_borne")[:5]
+            ],
             "recent_emplacements": [
                 _serialize_emplacement(emplacement)
-                for emplacement in Emplacement.objects.select_related("station").order_by("-id_emplacement")[:5]
+                for emplacement in Emplacement.objects.select_related("station", "borne").order_by("-id_emplacement")[:5]
             ],
         }
     )
@@ -1678,48 +1814,7 @@ def admin_overview(request):
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_supervision(request):
     """Return live supervision data for devices, alerts and sensors."""
-    now = timezone.now()
-    devices = list(
-        Device.objects.select_related(
-            "emplacement",
-            "emplacement__station",
-        ).order_by("emplacement__station__nom", "emplacement__numero")
-    )
-    active_alerts = Alerte.objects.exclude(status__in=["resolved", "resolue", "closed", "fermee"])
-    recent_alerts = (
-        Alerte.objects.select_related(
-            "session",
-            "session__emplacement",
-            "session__emplacement__station",
-        )
-        .order_by("-timestamp")[:20]
-    )
-    recent_sensor_data = (
-        CapteurData.objects.select_related(
-            "capteur",
-            "capteur__device",
-            "capteur__device__emplacement",
-            "capteur__device__emplacement__station",
-        )
-        .order_by("-timestamp")[:30]
-    )
-    sensor_since = now - timedelta(hours=24)
-
-    return Response(
-        {
-            "stats": {
-                "devices_total": len(devices),
-                "devices_online": sum(1 for device in devices if _device_is_online(device, now=now)),
-                "devices_offline": sum(1 for device in devices if not _device_is_online(device, now=now)),
-                "active_alerts": active_alerts.count(),
-                "critical_alerts": active_alerts.filter(niveau_severite__in=["critical", "critique"]).count(),
-                "telemetry_samples_24h": CapteurData.objects.filter(timestamp__gte=sensor_since).count(),
-            },
-            "devices": [_serialize_device_supervision(device, now=now) for device in devices],
-            "alerts": [_serialize_alert_supervision(alert) for alert in recent_alerts],
-            "measurements": [_serialize_sensor_data_supervision(data) for data in recent_sensor_data],
-        }
-    )
+    return Response(build_admin_supervision_payload())
 
 
 @_schema("Lister les reservations administrateur", tags=["Administration"])
@@ -1732,6 +1827,7 @@ def admin_reservations(request):
             "utilisateur",
             "emplacement",
             "emplacement__station",
+            "emplacement__borne",
             "authentification",
             "authentification__type_auth",
         )
@@ -1759,6 +1855,7 @@ def admin_sessions(request):
             "reservation__utilisateur",
             "emplacement",
             "emplacement__station",
+            "emplacement__borne",
         )
         .order_by("-start_time")
     )
@@ -2021,6 +2118,50 @@ def admin_station_detail(request, station_id):
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+@_schema("Lister les bornes", tags=["Administration"], operation_id="admin_bornes_list", methods=["GET"])
+@_schema("Creer une borne", request=BorneSerializer, tags=["Administration"], operation_id="admin_borne_create", methods=["POST"])
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_bornes(request):
+    """List physical charging cabinets or create one from the administration API."""
+    if request.method == "GET":
+        bornes = Borne.objects.select_related("station").prefetch_related("emplacements").order_by("station__nom", "numero")
+        return _list_response(request, bornes, serializer_class=BorneSerializer)
+
+    serializer = BorneSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    borne = serializer.save()
+    _clear_station_catalog_cache()
+    return Response(BorneSerializer(borne).data, status=status.HTTP_201_CREATED)
+
+
+@_schema("Lire une borne", tags=["Administration"], operation_id="admin_borne_retrieve", methods=["GET"])
+@_schema("Modifier une borne", request=BorneSerializer, tags=["Administration"], operation_id="admin_borne_update", methods=["PATCH"])
+@_schema("Supprimer une borne", responses={204: None}, tags=["Administration"], operation_id="admin_borne_delete", methods=["DELETE"])
+@api_view(["GET", "PATCH", "DELETE"])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_borne_detail(request, borne_id):
+    """Retrieve, update or delete one physical charging cabinet."""
+    try:
+        borne = Borne.objects.select_related("station").prefetch_related("emplacements").get(id_borne=borne_id)
+    except Borne.DoesNotExist:
+        return Response({"detail": "Borne introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == "GET":
+        return Response(BorneSerializer(borne).data)
+
+    if request.method == "PATCH":
+        serializer = BorneSerializer(instance=borne, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        _clear_station_catalog_cache()
+        return Response(BorneSerializer(borne).data)
+
+    _clear_station_catalog_cache()
+    borne.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 @_schema("Lister les emplacements", tags=["Administration"], operation_id="admin_emplacements_list", methods=["GET"])
 @_schema("Creer un emplacement", request=EmplacementSerializer, tags=["Administration"], operation_id="admin_emplacement_create", methods=["POST"])
 @api_view(["GET", "POST"])
@@ -2028,7 +2169,7 @@ def admin_station_detail(request, station_id):
 def admin_emplacements(request):
     """List charging bays or create one from the administration API."""
     if request.method == "GET":
-        emplacements = Emplacement.objects.select_related("station").order_by("station__nom", "numero")
+        emplacements = Emplacement.objects.select_related("station", "borne").order_by("station__nom", "borne__numero", "numero")
         return _list_response(request, emplacements, serializer_class=EmplacementSerializer)
 
     serializer = EmplacementSerializer(data=request.data)
@@ -2046,7 +2187,7 @@ def admin_emplacements(request):
 def admin_emplacement_detail(request, emplacement_id):
     """Retrieve, update or delete one charging bay from the admin API."""
     try:
-        emplacement = Emplacement.objects.select_related("station").get(id_emplacement=emplacement_id)
+        emplacement = Emplacement.objects.select_related("station", "borne").get(id_emplacement=emplacement_id)
     except Emplacement.DoesNotExist:
         return Response({"detail": "Emplacement introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -2191,6 +2332,7 @@ def auth_history(request):
         .select_related(
             "emplacement",
             "emplacement__station",
+            "emplacement__borne",
             "authentification",
             "authentification__type_auth",
         )
@@ -2205,6 +2347,8 @@ def auth_history(request):
                 "id_reservation": str(reservation.id_reservation),
                 "reference_code": reservation.reference_code,
                 "station_nom": reservation.emplacement.station.nom,
+                "borne_nom": reservation.emplacement.borne.nom,
+                "borne_numero": reservation.emplacement.borne.numero,
                 "emplacement": reservation.emplacement.numero,
                 "auth_mode": reservation.auth_choice,
                 "auth_type": auth_method.type_auth.libelle if auth_method and auth_method.type_auth else reservation.auth_choice.upper(),
@@ -2261,9 +2405,9 @@ def reservation_availability(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    if (date_fin_dt - date_debut_dt) != timedelta(minutes=30):
+    if not _duration_is_valid(date_debut_dt, date_fin_dt):
         return Response(
-            {"detail": "Une reservation bloque un emplacement pendant exactement 30 minutes."},
+            {"detail": reservation_duration_error_message()},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -2279,6 +2423,8 @@ def reservation_availability(request):
             "available_count": len(available_emplacements),
             "total_count": station.emplacements.count(),
             "available": bool(available_emplacements),
+            "duration_minutes": reservation_duration_minutes(date_debut_dt, date_fin_dt),
+            "allowed_durations_minutes": list(RESERVATION_DURATION_MINUTES),
             "available_emplacements": [
                 _serialize_emplacement(emplacement)
                 for emplacement in available_emplacements
@@ -2297,8 +2443,12 @@ def stations_catalog(request):
         stations = (
             Station.objects.prefetch_related(
                 Prefetch(
+                    "bornes",
+                    queryset=Borne.objects.prefetch_related("emplacements").order_by("numero"),
+                ),
+                Prefetch(
                     "emplacements",
-                    queryset=Emplacement.objects.select_related("station").order_by("numero"),
+                    queryset=Emplacement.objects.select_related("station", "borne").order_by("borne__numero", "numero"),
                 )
             )
             .order_by("nom")
@@ -2307,6 +2457,10 @@ def stations_catalog(request):
             "results": [
                 {
                     **_serialize_station(station),
+                    "bornes": [
+                        _serialize_borne(borne)
+                        for borne in station.bornes.all()
+                    ],
                     "emplacements": [
                         _serialize_emplacement(emplacement)
                         for emplacement in station.emplacements.all()
@@ -2331,7 +2485,7 @@ def reservations(request):
     if request.method == "GET":
         queryset = (
             Reservation.objects.filter(utilisateur=request.user)
-            .select_related("emplacement", "emplacement__station", "authentification", "authentification__type_auth")
+            .select_related("emplacement", "emplacement__station", "emplacement__borne", "authentification", "authentification__type_auth")
             .order_by("-date_debut")
         )
         return _list_response(request, queryset, serializer_class=ReservationSerializer)
@@ -2352,9 +2506,9 @@ def reservations(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    if (data["date_fin"] - data["date_debut"]) != timedelta(minutes=30):
+    if not _duration_is_valid(data["date_debut"], data["date_fin"]):
         return Response(
-            {"detail": "Une reservation bloque un emplacement pendant exactement 30 minutes."},
+            {"detail": reservation_duration_error_message()},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -2444,7 +2598,7 @@ def reservations(request):
 def cancel_reservation(request, reservation_id):
     """Cancel one reservation owned by the authenticated user."""
     try:
-        reservation = Reservation.objects.select_related("utilisateur", "emplacement", "emplacement__station").get(
+        reservation = Reservation.objects.select_related("utilisateur", "emplacement", "emplacement__station", "emplacement__borne").get(
             id_reservation=reservation_id,
             utilisateur=request.user,
         )
@@ -2470,6 +2624,7 @@ def reservation_access_payload(request, reservation_id):
             "utilisateur",
             "emplacement",
             "emplacement__station",
+            "emplacement__borne",
             "authentification",
             "authentification__type_auth",
         ).get(
@@ -2522,6 +2677,7 @@ def send_reservation_access_code(request, reservation_id):
             "utilisateur__profil",
             "emplacement",
             "emplacement__station",
+            "emplacement__borne",
             "authentification",
             "authentification__type_auth",
         ).get(
@@ -2579,7 +2735,7 @@ def send_reservation_access_code(request, reservation_id):
 def admin_cancel_reservation(request, reservation_id):
     """Cancel any cancellable reservation from the administration API."""
     try:
-        reservation = Reservation.objects.select_related("utilisateur", "emplacement", "emplacement__station").get(
+        reservation = Reservation.objects.select_related("utilisateur", "emplacement", "emplacement__station", "emplacement__borne").get(
             id_reservation=reservation_id,
         )
     except Reservation.DoesNotExist:
@@ -2604,6 +2760,7 @@ def admin_reservation_access_payload(request, reservation_id):
             "utilisateur",
             "emplacement",
             "emplacement__station",
+            "emplacement__borne",
             "authentification",
             "authentification__type_auth",
         ).get(id_reservation=reservation_id)
@@ -2641,6 +2798,7 @@ def admin_revoke_reservation_access(request, reservation_id):
             "utilisateur",
             "emplacement",
             "emplacement__station",
+            "emplacement__borne",
             "authentification",
             "authentification__type_auth",
         ).get(id_reservation=reservation_id)
@@ -2893,9 +3051,21 @@ def terminal_create_mobile_session(request):
         return secret_error
 
     station_id = (request.data.get("station_id") or "").strip()
+    borne_id = (request.data.get("borne_id") or "").strip()
     station = None
+    borne = None
+    if borne_id:
+        borne = Borne.objects.select_related("station").filter(id_borne=borne_id).first()
+        if borne is None:
+            return Response({"detail": "Borne introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        if station_id and str(borne.station_id) != station_id:
+            return Response(
+                {"detail": "Cette borne est associee a une autre station."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        station = borne.station
     if station_id:
-        station = Station.objects.filter(id_station=station_id).first()
+        station = station or Station.objects.filter(id_station=station_id).first()
         if station is None:
             return Response({"detail": "Station introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -2907,6 +3077,9 @@ def terminal_create_mobile_session(request):
         "status": "pending",
         "station_id": str(station.id_station) if station else None,
         "station_nom": station.nom if station else "",
+        "borne_id": str(borne.id_borne) if borne else None,
+        "borne_nom": borne.nom if borne else "",
+        "borne_numero": borne.numero if borne else None,
         "created_at": now.isoformat(),
         "expires_at": expires_at.isoformat(),
     }
@@ -2934,11 +3107,15 @@ def mobile_session_detail(request, token):
         return Response({"detail": "Session mobile invalide ou expiree."}, status=status.HTTP_404_NOT_FOUND)
 
     station_id = payload.get("station_id")
+    borne_id = payload.get("borne_id")
     reservations = []
     for reservation in _startable_user_reservations(request.user, timezone.now()):
         serialized = _serialize_reservation(reservation)
         serialized["compatible_station"] = not station_id or str(reservation.emplacement.station_id) == station_id
+        serialized["compatible_borne"] = not borne_id or str(reservation.emplacement.borne_id) == borne_id
+        serialized["compatible_terminal"] = serialized["compatible_station"] and serialized["compatible_borne"]
         serialized["station_id"] = str(reservation.emplacement.station_id)
+        serialized["borne_id"] = str(reservation.emplacement.borne_id)
         reservations.append(serialized)
 
     return Response(
@@ -2987,6 +3164,19 @@ def mobile_session_authorize(request, token):
                 "detail": "Cette reservation est associee a une autre station.",
                 "station": reservation.emplacement.station.nom,
                 "station_id": str(reservation.emplacement.station_id),
+                "emplacement": reservation.emplacement.numero,
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
+    borne_id = payload.get("borne_id")
+    if borne_id and str(reservation.emplacement.borne_id) != borne_id:
+        return Response(
+            {
+                "detail": "Cette reservation est associee a une autre borne.",
+                "station": reservation.emplacement.station.nom,
+                "station_id": str(reservation.emplacement.station_id),
+                "borne": reservation.emplacement.borne.nom,
+                "borne_id": str(reservation.emplacement.borne_id),
                 "emplacement": reservation.emplacement.numero,
             },
             status=status.HTTP_409_CONFLICT,
@@ -3102,13 +3292,14 @@ def _terminal_consume_mobile_session_response(request, token):
     now = timezone.now()
     session = _get_reservation_session(reservation)
     session_is_active = session is not None and session.end_time is None
-    start_grace = timedelta(minutes=RESERVATION_START_GRACE_MINUTES)
+    start_grace = _start_grace_delta()
+    end_grace = _end_grace_delta()
 
     if reservation.statut == "annulee":
         return Response({"detail": "La reservation est annulee."}, status=status.HTTP_400_BAD_REQUEST)
     if reservation.date_debut - start_grace > now and not session_is_active:
         return Response({"detail": "La reservation n'a pas encore commence."}, status=status.HTTP_400_BAD_REQUEST)
-    if reservation.date_fin < now and not session_is_active:
+    if reservation.date_fin + end_grace < now and not session_is_active:
         return Response({"detail": "La fenetre de reservation est expiree."}, status=status.HTTP_400_BAD_REQUEST)
 
     station_id = payload.get("station_id") or (request.data.get("station_id") or "").strip()
@@ -3122,6 +3313,23 @@ def _terminal_consume_mobile_session_response(request, token):
             },
             status=status.HTTP_409_CONFLICT,
         )
+    borne_id = payload.get("borne_id") or (request.data.get("borne_id") or "").strip()
+    if borne_id and str(reservation.emplacement.borne_id) != borne_id:
+        return Response(
+            {
+                "detail": "Cette reservation est associee a une autre borne.",
+                "station": reservation.emplacement.station.nom,
+                "station_id": str(reservation.emplacement.station_id),
+                "borne": reservation.emplacement.borne.nom,
+                "borne_id": str(reservation.emplacement.borne_id),
+                "emplacement": reservation.emplacement.numero,
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    conflict_response = _session_start_conflict_response(reservation, now)
+    if conflict_response is not None:
+        return conflict_response
 
     session, created = ChargingSession.objects.get_or_create(
         reservation=reservation,
@@ -3164,13 +3372,15 @@ def terminal_offline_cache(request):
         return secret_error
 
     station_id = (request.query_params.get("station_id") or "").strip()
+    borne_id = (request.query_params.get("borne_id") or "").strip()
     now = timezone.now()
     horizon = now + timedelta(hours=OFFLINE_CACHE_HORIZON_HOURS)
+    end_grace = _end_grace_delta()
     queryset = (
         _terminal_reservation_queryset()
         .filter(
             statut__in=["confirmee", "active"],
-            date_fin__gte=now - timedelta(minutes=RESERVATION_START_GRACE_MINUTES),
+            date_fin__gte=now - end_grace,
             date_debut__lte=horizon,
             authentification__isnull=False,
             authentification__is_active=True,
@@ -3179,12 +3389,17 @@ def terminal_offline_cache(request):
     )
     if station_id:
         queryset = queryset.filter(emplacement__station_id=station_id)
+    if borne_id:
+        queryset = queryset.filter(emplacement__borne_id=borne_id)
 
     return Response(
         {
             "generated_at": now.isoformat(),
             "expires_at": horizon.isoformat(),
             "station_id": station_id,
+            "borne_id": borne_id,
+            "start_grace_minutes": RESERVATION_START_GRACE_MINUTES,
+            "end_grace_minutes": RESERVATION_END_GRACE_MINUTES,
             "results": [_serialize_offline_cached_reservation(reservation) for reservation in queryset],
         }
     )
@@ -3201,6 +3416,7 @@ def terminal_offline_events(request):
 
     events = request.data.get("events")
     station_id = (request.data.get("station_id") or "").strip()
+    borne_id = (request.data.get("borne_id") or "").strip()
     if not isinstance(events, list):
         return Response({"detail": "events doit etre une liste."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -3220,7 +3436,7 @@ def terminal_offline_events(request):
             rejected.append({"event_id": event_id, "detail": "Type evenement non supporte."})
             continue
 
-        result, error = _reconcile_offline_session_started(request, event, station_id)
+        result, error = _reconcile_offline_session_started(request, event, station_id, borne_id=borne_id)
         if error:
             rejected.append({"event_id": event_id, "detail": error})
         else:
@@ -3250,6 +3466,7 @@ def terminal_authenticate(request):
     auth_mode = (request.data.get("auth_mode") or "").strip().lower()
     auth_value = (request.data.get("auth_value") or "").strip()
     station_id = (request.data.get("station_id") or "").strip()
+    borne_id = (request.data.get("borne_id") or "").strip()
     parsed_qr = _parse_qr_payload(auth_value)
     if parsed_qr:
         reservation_code = reservation_code or parsed_qr["reservation_code"]
@@ -3280,12 +3497,13 @@ def terminal_authenticate(request):
 
     session = _get_reservation_session(reservation)
     session_is_active = session is not None and session.end_time is None
-    start_grace = timedelta(minutes=RESERVATION_START_GRACE_MINUTES)
+    start_grace = _start_grace_delta()
+    end_grace = _end_grace_delta()
 
     if reservation.date_debut - start_grace > now and not session_is_active:
         return Response({"detail": "La reservation n'a pas encore commence."}, status=status.HTTP_400_BAD_REQUEST)
 
-    if reservation.date_fin < now and not session_is_active:
+    if reservation.date_fin + end_grace < now and not session_is_active:
         return Response({"detail": "La fenetre de reservation est expiree."}, status=status.HTTP_400_BAD_REQUEST)
 
     expected_mode = reservation.auth_choice
@@ -3297,7 +3515,7 @@ def terminal_authenticate(request):
     if not auth_method.is_active:
         return Response({"detail": "Le moyen d'authentification est revoque."}, status=status.HTTP_400_BAD_REQUEST)
 
-    if auth_method.expiration and auth_method.expiration < now and not session_is_active:
+    if auth_method.expiration and auth_method.expiration + end_grace < now and not session_is_active:
         return Response({"detail": "Le moyen d'authentification est expire."}, status=status.HTTP_400_BAD_REQUEST)
 
     if station_id and str(reservation.emplacement.station_id) != station_id:
@@ -3310,6 +3528,22 @@ def terminal_authenticate(request):
             },
             status=status.HTTP_409_CONFLICT,
         )
+    if borne_id and str(reservation.emplacement.borne_id) != borne_id:
+        return Response(
+            {
+                "detail": "Cette reservation est associee a une autre borne.",
+                "station": reservation.emplacement.station.nom,
+                "station_id": str(reservation.emplacement.station_id),
+                "borne": reservation.emplacement.borne.nom,
+                "borne_id": str(reservation.emplacement.borne_id),
+                "emplacement": reservation.emplacement.numero,
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    conflict_response = _session_start_conflict_response(reservation, now)
+    if conflict_response is not None:
+        return conflict_response
 
     provided_hash = _hash_secret(auth_value)
     if not direct_rfid and provided_hash != auth_method.hash_valeur:
@@ -3341,6 +3575,64 @@ def terminal_authenticate(request):
             "session_created": created,
             "session": _serialize_session(session),
             "auth_expiration": auth_method.expiration.isoformat() if auth_method.expiration else None,
+        }
+    )
+
+
+@_schema("Clôturer une session de charge depuis le terminal", request=OpenApiTypes.OBJECT, tags=["Terminal"])
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def terminal_stop_session(request):
+    """Close the active charging session after the ESP32 confirms a stop command."""
+    secret_error = _terminal_secret_response(request)
+    if secret_error is not None:
+        return secret_error
+
+    session_id = (request.data.get("session_id") or "").strip()
+    station_id = (request.data.get("station_id") or "").strip()
+    if not session_id:
+        return Response({"detail": "session_id est obligatoire."}, status=status.HTTP_400_BAD_REQUEST)
+
+    session = (
+        ChargingSession.objects.select_related("reservation", "emplacement", "emplacement__station", "emplacement__borne")
+        .filter(id_session=session_id)
+        .first()
+    )
+    if session is None:
+        return Response({"detail": "Session introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    if station_id and str(session.emplacement.station_id) != station_id:
+        return Response(
+            {
+                "detail": "Cette session est associée à une autre station.",
+                "station": session.emplacement.station.nom,
+                "station_id": str(session.emplacement.station_id),
+                "emplacement": session.emplacement.numero,
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
+    borne_id = (request.data.get("borne_id") or "").strip()
+    if borne_id and str(session.emplacement.borne_id) != borne_id:
+        return Response(
+            {
+                "detail": "Cette session est associee a une autre borne.",
+                "station": session.emplacement.station.nom,
+                "station_id": str(session.emplacement.station_id),
+                "borne": session.emplacement.borne.nom,
+                "borne_id": str(session.emplacement.borne_id),
+                "emplacement": session.emplacement.numero,
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    closed = _close_charging_session(session)
+    session.refresh_from_db()
+
+    return Response(
+        {
+            "message": "Session de charge clôturée." if closed else "Session de charge déjà clôturée.",
+            "session_closed": closed,
+            "session": _serialize_session(session),
         }
     )
 

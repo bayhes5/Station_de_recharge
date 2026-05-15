@@ -85,6 +85,110 @@ function formatDuration(seconds) {
     return remainingHours > 0 ? `${days} j ${remainingHours} h` : `${days} j`;
 }
 
+function renderQrSvg(container, svgText) {
+    container.replaceChildren();
+
+    if (!svgText) {
+        return false;
+    }
+
+    const documentParser = new DOMParser();
+    const parsedDocument = documentParser.parseFromString(svgText, "image/svg+xml");
+    const svg = parsedDocument.documentElement;
+
+    if (!svg || svg.tagName.toLowerCase() !== "svg" || svg.querySelector("script, foreignObject")) {
+        return false;
+    }
+
+    svg.querySelectorAll("*").forEach((element) => {
+        [...element.attributes].forEach((attribute) => {
+            const name = attribute.name.toLowerCase();
+            const value = attribute.value.trim().toLowerCase();
+            if (name.startsWith("on") || ((name === "href" || name === "xlink:href") && value.startsWith("javascript:"))) {
+                element.removeAttribute(attribute.name);
+            }
+        });
+    });
+
+    container.appendChild(document.importNode(svg, true));
+    return true;
+}
+
+function confirmAction(message, options = {}) {
+    const {
+        title = "Confirmation",
+        confirmLabel = "Confirmer",
+        cancelLabel = "Annuler",
+        danger = false,
+    } = options;
+
+    return new Promise((resolve) => {
+        const previousFocus = document.activeElement;
+        const backdrop = document.createElement("div");
+        backdrop.className = "modal-backdrop";
+
+        const dialog = document.createElement("section");
+        dialog.className = "modal-dialog confirm-dialog";
+        dialog.setAttribute("role", "dialog");
+        dialog.setAttribute("aria-modal", "true");
+        dialog.setAttribute("aria-labelledby", "confirm-dialog-title");
+
+        const heading = document.createElement("div");
+        heading.className = "modal-heading";
+        const titleElement = document.createElement("h2");
+        titleElement.id = "confirm-dialog-title";
+        titleElement.textContent = title;
+        heading.appendChild(titleElement);
+
+        const text = document.createElement("p");
+        text.className = "confirm-message";
+        text.textContent = message;
+
+        const actions = document.createElement("div");
+        actions.className = "cta-row confirm-actions";
+
+        const cancelButton = document.createElement("button");
+        cancelButton.type = "button";
+        cancelButton.className = "btn btn-secondary";
+        cancelButton.textContent = cancelLabel;
+
+        const confirmButton = document.createElement("button");
+        confirmButton.type = "button";
+        confirmButton.className = danger ? "btn btn-secondary danger-action" : "btn btn-primary";
+        confirmButton.textContent = confirmLabel;
+
+        actions.append(cancelButton, confirmButton);
+        dialog.append(heading, text, actions);
+        backdrop.appendChild(dialog);
+        document.body.appendChild(backdrop);
+
+        function close(result) {
+            backdrop.remove();
+            document.removeEventListener("keydown", onKeyDown);
+            if (previousFocus?.focus) {
+                previousFocus.focus();
+            }
+            resolve(result);
+        }
+
+        function onKeyDown(event) {
+            if (event.key === "Escape") {
+                close(false);
+            }
+        }
+
+        cancelButton.addEventListener("click", () => close(false));
+        confirmButton.addEventListener("click", () => close(true));
+        backdrop.addEventListener("click", (event) => {
+            if (event.target === backdrop) {
+                close(false);
+            }
+        });
+        document.addEventListener("keydown", onKeyDown);
+        confirmButton.focus();
+    });
+}
+
 function getTokenPayload(token) {
     return decodeJwt(token);
 }
@@ -507,6 +611,32 @@ async function deleteAdminStation(id) {
     });
 }
 
+async function getAdminBornes(params) {
+    return doRequest(withQuery("/admin/bornes/", params), {
+        method: "GET",
+    });
+}
+
+async function createAdminBorne(data) {
+    return doRequest("/admin/bornes/", {
+        method: "POST",
+        body: JSON.stringify(data),
+    });
+}
+
+async function updateAdminBorne(id, data) {
+    return doRequest(`/admin/bornes/${id}/`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+    });
+}
+
+async function deleteAdminBorne(id) {
+    return doRequest(`/admin/bornes/${id}/`, {
+        method: "DELETE",
+    });
+}
+
 async function getAdminEmplacements(params) {
     return doRequest(withQuery("/admin/emplacements/", params), {
         method: "GET",
@@ -712,6 +842,10 @@ window.AuthAPI = {
     createAdminStation,
     updateAdminStation,
     deleteAdminStation,
+    getAdminBornes,
+    createAdminBorne,
+    updateAdminBorne,
+    deleteAdminBorne,
     getAdminEmplacements,
     createAdminEmplacement,
     updateAdminEmplacement,
@@ -733,6 +867,8 @@ window.AuthAPI = {
     getTokenTimeRemaining,
     getSessionSnapshot,
     formatDuration,
+    renderQrSvg,
+    confirmAction,
     setTokens,
     getAccessToken,
     getRefreshToken,

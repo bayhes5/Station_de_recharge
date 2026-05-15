@@ -53,6 +53,9 @@ INSTALLED_APPS = [
     "corsheaders",
 ]
 
+if find_spec("daphne"):
+    INSTALLED_APPS.insert(0, "daphne")
+
 if find_spec("channels"):
     INSTALLED_APPS.append("channels")
 

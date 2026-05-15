@@ -1,6 +1,6 @@
 Project station_recharge {
   database_type: "PostgreSQL"
-  Note: "MCD/MLD de reference pour la station de recharge intelligente. Source importable dans dbdiagram.io."
+  Note: "MCD/MLD de référence pour la station de recharge intelligente. Source importable dans dbdiagram.io."
 }
 
 Table utilisateur {
@@ -86,15 +86,30 @@ Table station {
   created_at timestamp [not null]
 }
 
+Table borne {
+  id_borne uuid [pk]
+  id_station uuid [not null, ref: > station.id_station]
+  numero integer [not null]
+  nom varchar(100) [not null]
+  mqtt_prefix varchar(100) [not null]
+  statut varchar(50) [not null]
+  created_at timestamp [not null]
+
+  indexes {
+    (id_station, numero) [unique]
+  }
+}
+
 Table emplacement {
   id_emplacement uuid [pk]
+  id_borne uuid [not null, ref: > borne.id_borne]
   id_station uuid [not null, ref: > station.id_station]
   numero integer [not null]
   etat varchar(50) [not null]
   statut_cadenas varchar(50) [not null]
 
   indexes {
-    (id_station, numero) [unique]
+    (id_borne, numero) [unique]
   }
 }
 

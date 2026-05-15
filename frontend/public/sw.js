@@ -1,4 +1,4 @@
-const CACHE_VERSION = "metropole-verte-v1";
+const CACHE_VERSION = "metropole-verte-v2";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -7,9 +7,11 @@ const APP_SHELL = [
   "/dashboard.html",
   "/reservation.html",
   "/profile.html",
-  "/css/auth.css",
   "/manifest.webmanifest",
-  "/icons/pwa-icon.svg"
+  "/icons/pwa-icon.svg",
+  "/icons/pwa-icon-192.png",
+  "/icons/pwa-icon-512.png",
+  "/icons/pwa-maskable-512.png"
 ];
 
 self.addEventListener("install", (event) => {
@@ -45,6 +47,21 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(request.url);
   if (url.pathname.startsWith("/api/")) {
+    return;
+  }
+
+  if (url.pathname.startsWith("/assets/")) {
+    event.respondWith(
+      caches.match(request)
+        .then((cached) => cached || fetch(request).then((response) => {
+          if (!response || response.status !== 200) {
+            return response;
+          }
+          const copy = response.clone();
+          caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
+          return response;
+        }))
+    );
     return;
   }
 

@@ -9,6 +9,7 @@ from rest_framework import status
 from api.models import (
     Alerte,
     Authentification,
+    Borne,
     Capteur,
     CapteurData,
     Device,
@@ -43,6 +44,7 @@ def test_admin_overview_returns_counts(admin_client, station, emplacements):
 
     assert response.status_code == status.HTTP_200_OK
     assert response.data["stats"]["stations_total"] == 1
+    assert response.data["stats"]["bornes_total"] == 1
     assert response.data["stats"]["emplacements_total"] == 3
 
 
@@ -105,13 +107,14 @@ def test_admin_supervision_returns_devices_alerts_and_measurements(admin_client,
     assert response.data["stats"]["devices_online"] == 1
     assert response.data["stats"]["active_alerts"] == 1
     assert response.data["devices"][0]["slot_id"] == "slot1"
-    assert response.data["devices"][0]["slot_label"] == "Station Centre - emplacement 1"
+    assert response.data["devices"][0]["slot_label"] == "Station Centre - Borne 1 - emplacement 1"
+    assert response.data["devices"][0]["borne_nom"] == "Borne 1"
     assert response.data["devices"][0]["status_display"] == "Charge en cours"
     assert response.data["alerts"][0]["type"] == "overheat"
     assert response.data["alerts"][0]["station_nom"] == "Station Centre"
     assert response.data["alerts"][0]["emplacement_numero"] == 1
     assert response.data["measurements"][0]["type"] == "temperature"
-    assert response.data["measurements"][0]["slot_label"] == "Station Centre - emplacement 1"
+    assert response.data["measurements"][0]["slot_label"] == "Station Centre - Borne 1 - emplacement 1"
 
 
 @pytest.mark.django_db
@@ -161,8 +164,8 @@ def test_admin_supervision_formats_boolean_sensor_measurements(admin_client, emp
 
     assert response.status_code == status.HTTP_200_OK
     display_values = {measurement["type"]: measurement["display_value"] for measurement in response.data["measurements"]}
-    assert display_values["door"] == "Boitier ouvert"
-    assert display_values["cable"] == "Cable present"
+    assert display_values["door"] == "Boîtier ouvert"
+    assert display_values["cable"] == "Câble présent"
 
 
 @pytest.mark.django_db
@@ -409,6 +412,39 @@ def test_admin_can_crud_station(admin_client):
 
 
 @pytest.mark.django_db
+def test_admin_can_crud_borne(admin_client, station):
+    create_response = admin_client.post(
+        reverse("api-admin-bornes"),
+        {
+            "station": str(station.id_station),
+            "numero": 2,
+            "nom": "Borne rapide",
+            "mqtt_prefix": "station-centre/borne-2",
+            "statut": "active",
+        },
+        format="json",
+    )
+
+    assert create_response.status_code == status.HTTP_201_CREATED
+    borne_id = create_response.data["id_borne"]
+    assert create_response.data["station_nom"] == "Station Centre"
+
+    patch_response = admin_client.patch(
+        reverse("api-admin-borne-detail", kwargs={"borne_id": borne_id}),
+        {"statut": "maintenance"},
+        format="json",
+    )
+
+    assert patch_response.status_code == status.HTTP_200_OK
+    assert patch_response.data["statut"] == "maintenance"
+
+    delete_response = admin_client.delete(reverse("api-admin-borne-detail", kwargs={"borne_id": borne_id}))
+
+    assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+    assert not Borne.objects.filter(id_borne=borne_id).exists()
+
+
+@pytest.mark.django_db
 def test_admin_station_create_rejects_invalid_status(admin_client):
     response = admin_client.post(
         reverse("api-admin-stations"),
@@ -427,11 +463,12 @@ def test_admin_station_create_rejects_invalid_status(admin_client):
 
 
 @pytest.mark.django_db
-def test_admin_can_crud_emplacement(admin_client, station):
+def test_admin_can_crud_emplacement(admin_client, station, borne):
     create_response = admin_client.post(
         reverse("api-admin-emplacements"),
         {
             "station": str(station.id_station),
+            "borne": str(borne.id_borne),
             "numero": 1,
             "statut": "disponible",
             "lock_state": "verrouille",
@@ -441,6 +478,7 @@ def test_admin_can_crud_emplacement(admin_client, station):
 
     assert create_response.status_code == status.HTTP_201_CREATED
     emplacement_id = create_response.data["id_emplacement"]
+    assert create_response.data["borne_nom"] == "Borne 1"
 
     patch_response = admin_client.patch(
         reverse("api-admin-emplacement-detail", kwargs={"emplacement_id": emplacement_id}),

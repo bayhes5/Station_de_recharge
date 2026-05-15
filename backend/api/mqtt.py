@@ -19,13 +19,18 @@ def _handle_message(topic: str, payload: bytes):
 
 
 def run_mqtt_bridge():
-    """Subscribe to ESP32 MQTT telemetry and enqueue backend ingestion."""
+    """Subscribe to ESP32 MQTT telemetry/status/alerts and enqueue backend ingestion."""
     try:
         import paho.mqtt.client as mqtt
     except ImportError as exc:
         raise RuntimeError("Installe paho-mqtt pour lancer le bridge MQTT.") from exc
 
-    topic = f"{settings.MQTT_BASE_TOPIC}/+/telemetry"
+    topics = [
+        (f"{settings.MQTT_BASE_TOPIC}/+/telemetry", settings.MQTT_QOS),
+        (f"{settings.MQTT_BASE_TOPIC}/+/status", settings.MQTT_QOS),
+        (f"{settings.MQTT_BASE_TOPIC}/+/alert", settings.MQTT_QOS),
+    ]
+    topic_label = ", ".join(topic for topic, _qos in topics)
     client = mqtt.Client(client_id=settings.MQTT_BACKEND_CLIENT_ID)
 
     if settings.MQTT_USERNAME:
@@ -37,10 +42,10 @@ def run_mqtt_bridge():
         logger.info("MQTT connecte a %s:%s code=%s", settings.MQTT_HOST, settings.MQTT_PORT, reason_code)
         print(
             f"MQTT bridge connected to {settings.MQTT_HOST}:{settings.MQTT_PORT} "
-            f"code={reason_code}; subscribing to {topic}",
+            f"code={reason_code}; subscribing to {topic_label}",
             flush=True,
         )
-        client.subscribe(topic, qos=settings.MQTT_QOS)
+        client.subscribe(topics)
 
     def on_message(client, userdata, message):
         logger.debug("MQTT message topic=%s payload=%s", message.topic, message.payload)

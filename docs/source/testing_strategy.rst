@@ -162,6 +162,16 @@ Test manuel d'une commande via Raspberry :
      -H "Content-Type: application/json" \
      -d '{"slot_id":"slot1","action":"START","session_id":"demo"}'
 
+Test unitaire du comportement ACK côté Raspberry :
+
+.. code-block:: powershell
+
+   .\.venv\Scripts\python.exe -m pytest raspberry\tests -q
+
+Ce test vérifie trois cas sans ESP32 physique : commande acceptée sans ACK en
+développement, refus en mode ``MQTT_ACK_REQUIRED=true`` et acceptation lorsqu'un
+ACK correspondant au ``command_id`` est reçu.
+
 Test local de télémétrie temps réel sans ESP32 :
 
 .. code-block:: bash
@@ -170,6 +180,15 @@ Test local de télémétrie temps réel sans ESP32 :
    docker compose --profile simulation run --rm mqtt-simulator
    docker compose logs -f mqtt-bridge
    docker compose logs -f celery
+
+Test complet QR -> kiosk -> télémétrie -> Grafana sans ESP32 :
+
+.. code-block:: powershell
+
+   .\scripts\run-demo-scenario.ps1 -Reference DEMOQR1 -Emplacement 1 -TelemetryCount 5
+
+Le script vérifie que la télémétrie simulée se limite à l'emplacement autorisé
+par la réservation et que la session est clôturée proprement après ``STOP``.
 
 Contrôle rapide des mesures en base :
 

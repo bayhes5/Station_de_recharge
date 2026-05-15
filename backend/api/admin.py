@@ -4,6 +4,7 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from .models import (
     Alerte,
     Authentification,
+    Borne,
     Capteur,
     CapteurData,
     Consentement,
@@ -82,6 +83,7 @@ admin.site.register(Reservation)
 admin.site.register(Session)
 admin.site.register(SessionTelemetry)
 admin.site.register(Station)
+admin.site.register(Borne)
 admin.site.register(Emplacement)
 admin.site.register(Device)
 admin.site.register(Capteur)

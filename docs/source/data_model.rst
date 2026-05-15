@@ -14,7 +14,7 @@ projet :
 
 * utilisateurs, profils, rôles et moyens d’authentification ;
 * consentements et journal de sécurité ;
-* stations, emplacements, devices ESP32 et capteurs ;
+* stations, bornes, emplacements, devices ESP32 et capteurs ;
 * réservations, sessions de charge et télémétrie ;
 * alertes, techniciens et maintenances ;
 * pistes RGPD et performance avec vues, anonymisation, TimescaleDB et index.
@@ -175,17 +175,21 @@ Les mécanismes PostgreSQL avancés du MCD, comme l’extension ``anon``, les
 ``SECURITY LABEL`` et les vues SQL d'export, ne sont pas encore actives. Le
 projet gère pour l’instant l’export et la suppression côté API Django.
 
-Stations et emplacements
-~~~~~~~~~~~~~~~~~~~~~~~~
+Stations, bornes et emplacements
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``Station`` et ``Emplacement`` correspondent directement au MCD.
+``Station``, ``Borne`` et ``Emplacement`` décrivent l'infrastructure physique.
 
 Le modèle Django ajoute ``latitude`` et ``longitude`` sur ``Station`` afin de
-supporter la carte de réservation. ``Emplacement`` garde le numéro, l’état
+supporter la carte de réservation. ``Borne`` représente une armoire ou un
+kiosque physique rattaché à une station. ``Emplacement`` garde le numéro, l’état
 métier et l’état de cadenas.
 
-Une contrainte d’unicité empêche deux emplacements d’une même station de porter
-le même numéro.
+La hiérarchie métier est donc : station, borne, emplacement. Une contrainte
+d’unicité empêche deux emplacements d’une même borne de porter le même numéro.
+Le champ ``station`` reste aussi présent sur ``Emplacement`` pour conserver des
+requêtes simples et une compatibilité avec les flux existants ; il est aligné
+automatiquement avec la station de la borne.
 
 Devices ESP32
 ~~~~~~~~~~~~~
@@ -295,7 +299,7 @@ comme une simple commande SQL ajoutée en fin de migration.
 
 Les index déjà présents couvrent les requêtes les plus importantes :
 
-* emplacements par station et statut opérationnel ;
+* emplacements par borne, station et statut opérationnel ;
 * réservations par utilisateur, statut, emplacement et dates ;
 * sessions par emplacement et dates ;
 * devices par dernière activité ;
