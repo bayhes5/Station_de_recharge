@@ -9,11 +9,12 @@ APP_DIR = Path(__file__).resolve().parents[1] / "app"
 sys.path.insert(0, str(APP_DIR))
 
 from charge_state import (  # noqa: E402
+    ACCESS_VALIDATED,
     CHARGING,
     ERROR,
     IDLE,
     STOPPED,
-    WAITING_CABLE,
+    WAITING_PLUG,
     ChargeStateError,
     ChargeStateStore,
 )
@@ -36,7 +37,7 @@ def store(request):
     return ChargeStateStore(db_path)
 
 
-def test_start_records_waiting_cable_after_confirmed_ack(store):
+def test_start_records_waiting_plug_after_confirmed_ack(store):
     snapshot = store.start_requested(
         slot_id="slot1",
         session_id="session-1",
@@ -45,7 +46,7 @@ def test_start_records_waiting_cable_after_confirmed_ack(store):
         emplacement="1",
     )
 
-    assert snapshot.state == "reserved"
+    assert snapshot.state == ACCESS_VALIDATED
     assert snapshot.active is True
 
     confirmed = store.command_recorded(
@@ -60,7 +61,7 @@ def test_start_records_waiting_cable_after_confirmed_ack(store):
         },
     )
 
-    assert confirmed.state == WAITING_CABLE
+    assert confirmed.state == WAITING_PLUG
     assert confirmed.session_id == "session-1"
     assert confirmed.station == "Station A"
 
@@ -80,6 +81,31 @@ def test_start_moves_directly_to_charging_when_ack_reports_charge(store):
     )
 
     assert snapshot.state == CHARGING
+
+
+def test_legacy_waiting_cable_state_is_reported_as_waiting_plug(store):
+    store.start_requested(slot_id="slot1", session_id="session-1")
+    store.command_recorded(
+        slot_id="slot1",
+        action="START",
+        session_id="session-1",
+        mqtt_result={
+            "ack_required": True,
+            "ack_status": "accepted",
+            "command_confirmed": True,
+        },
+    )
+    connection = store._connect()  # noqa: SLF001 - compatibility check.
+    try:
+        connection.execute(
+            "UPDATE charge_state SET state = ? WHERE slot_id = ?",
+            ("waiting_cable", "slot1"),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    assert store.snapshot("slot1").state == WAITING_PLUG
 
 
 def test_duplicate_start_is_rejected_while_slot_is_active(store):

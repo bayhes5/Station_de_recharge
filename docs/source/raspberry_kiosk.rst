@@ -281,8 +281,9 @@ locale.
 .. code-block:: text
 
    idle          : aucun ordre local en cours
-   reserved      : START accepté côté kiosk, commande publiée ou en cours
-   waiting_cable : START confirmé par l'ESP32, attente câble + boîtier fermé
+   reserved      : réservation connue localement, avant validation d'accès
+   access_validated : accès validé côté kiosk, commande START prête à partir
+   waiting_plug  : START confirmé par l'ESP32, attente câble + boîtier fermé
    charging      : charge confirmée active
    stopping      : STOP demandé, attente confirmation ou clôture
    stopped       : session arrêtée localement
@@ -291,7 +292,7 @@ locale.
 Règles principales :
 
 * un ``START`` est refusé si l'emplacement est déjà ``reserved``,
-  ``waiting_cable``, ``charging`` ou ``stopping`` ;
+  ``access_validated``, ``waiting_plug``, ``charging`` ou ``stopping`` ;
 * un ``STOP`` doit porter le même ``session_id`` que la session locale active ;
 * un ACK ESP32 non confirmant fait passer l'emplacement en ``error`` ;
 * l'état ``error`` impose une vérification technicien avant de relancer une

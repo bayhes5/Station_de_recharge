@@ -200,10 +200,10 @@ Transitions principales :
 * ``STOP`` ou une anomalie font revenir à ``idle``.
 
 Le Raspberry maintient en parallèle une machine d'état locale plus explicite
-(``reserved``, ``waiting_cable``, ``charging``, ``stopping``, ``stopped``,
-``error``). Elle évite les doubles commandes et signale les états douteux côté
-kiosk. L'ESP32 reste responsable des sécurités immédiates : relais, serrure,
-câble, boîtier, courant et température.
+(``reserved``, ``access_validated``, ``waiting_plug``, ``charging``,
+``stopping``, ``stopped``, ``error``). Elle évite les doubles commandes et
+signale les états douteux côté kiosk. L'ESP32 reste responsable des sécurités
+immédiates : relais, serrure, câble, boîtier, courant et température.
 
 Sécurités locales
 -----------------

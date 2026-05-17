@@ -20,13 +20,18 @@ from typing import Any
 
 IDLE = "idle"
 RESERVED = "reserved"
-WAITING_CABLE = "waiting_cable"
+ACCESS_VALIDATED = "access_validated"
+WAITING_PLUG = "waiting_plug"
 CHARGING = "charging"
 STOPPING = "stopping"
 STOPPED = "stopped"
 ERROR = "error"
 
-ACTIVE_STATES = {RESERVED, WAITING_CABLE, CHARGING, STOPPING}
+LEGACY_STATE_ALIASES = {
+    "waiting_cable": WAITING_PLUG,
+}
+
+ACTIVE_STATES = {RESERVED, ACCESS_VALIDATED, WAITING_PLUG, CHARGING, STOPPING}
 TERMINAL_STATES = {IDLE, STOPPED}
 KNOWN_STATES = ACTIVE_STATES | TERMINAL_STATES | {ERROR}
 
@@ -149,7 +154,7 @@ class ChargeStateStore:
             return self._write_snapshot(
                 connection,
                 slot_id=normalized_slot,
-                state=RESERVED,
+                state=ACCESS_VALIDATED,
                 session_id=normalized_session,
                 station=station,
                 borne=borne,
@@ -271,7 +276,7 @@ class ChargeStateStore:
             if status in {"charging", "charging_started"}:
                 return CHARGING, "START confirme, charge active."
             if mqtt_result.get("command_confirmed"):
-                return WAITING_CABLE, "START confirme, attente cable et boitier ferme."
+                return WAITING_PLUG, "START confirme, attente cable et boitier ferme."
             return current.state, "START publie, confirmation ESP32 non exigee."
 
         if action == "STOP":
@@ -301,6 +306,7 @@ class ChargeStateStore:
         detail: str = "",
         payload: dict[str, Any] | None = None,
     ) -> ChargeStateSnapshot:
+        state = LEGACY_STATE_ALIASES.get(state, state)
         if state not in KNOWN_STATES:
             raise ChargeStateError(f"Etat de charge inconnu: {state}.")
         updated_at = datetime.now(timezone.utc).isoformat()
@@ -355,6 +361,7 @@ class ChargeStateStore:
     ) -> ChargeStateSnapshot:
         if row is None:
             return ChargeStateSnapshot(slot_id=slot_id, state=IDLE)
+        state = LEGACY_STATE_ALIASES.get(row["state"], row["state"])
         payload: dict[str, Any] = {}
         try:
             payload = json.loads(row["payload_json"] or "{}")
@@ -362,7 +369,7 @@ class ChargeStateStore:
             payload = {}
         return ChargeStateSnapshot(
             slot_id=row["slot_id"],
-            state=row["state"],
+            state=state,
             session_id=row["session_id"],
             station=row["station"],
             borne=row["borne"],

@@ -181,6 +181,27 @@ def test_process_mqtt_status_updates_device_presence(emplacements):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("state", ["access_validated", "waiting_plug"])
+def test_process_mqtt_status_accepts_canonical_charge_states(emplacements, state):
+    """Map canonical Raspberry charge states to an online device presence."""
+    Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="demo",
+        mac_address="slot1",
+        status="offline",
+    )
+
+    result = process_mqtt_message(
+        "station/slot1/status",
+        json.dumps({"state": state}),
+    )
+
+    assert result["device_status"] == "online"
+    assert Device.objects.get(mac_address="slot1").status == "online"
+
+
+@pytest.mark.django_db
 def test_process_mqtt_status_maps_charging_started(emplacements):
     """Reflect the ESP32 charging state as soon as it reports charge start."""
     Device.objects.create(

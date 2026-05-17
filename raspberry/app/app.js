@@ -358,8 +358,9 @@ function chargeStateDetails(result) {
         return "";
     }
     const labels = {
-        reserved: "ordre START enregistré",
-        waiting_cable: "en attente du câble et du boîtier fermé",
+        reserved: "réservation connue localement",
+        access_validated: "accès validé",
+        waiting_plug: "en attente du câble et du boîtier fermé",
         charging: "charge confirmée",
         stopping: "arrêt en cours",
         stopped: "charge arrêtée",
