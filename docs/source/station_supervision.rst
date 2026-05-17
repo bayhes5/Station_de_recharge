@@ -521,6 +521,25 @@ Les conditions de résolution automatique sont :
 * ``overcurrent`` : le courant repasse sous ``3.0 A`` ;
 * ``state_error`` : l'état n'est plus ``error``, ``emergency`` ou ``fault``.
 
+Accès technicien
+----------------
+
+Les techniciens n'ont pas besoin d'un accès Grafana global pour intervenir sur
+le terrain. L'accès recommandé passe par le tableau de bord technicien de
+l'application web :
+
+* l'administrateur associe un technicien à une ou plusieurs stations ;
+* l'endpoint ``/api/technician/supervision/`` retourne uniquement les stations
+  affectées ;
+* le WebSocket ``/ws/technician/supervision/`` diffuse les mêmes snapshots en
+  temps réel avec le même périmètre restreint ;
+* si le WebSocket est indisponible, l'interface repasse en polling HTTP.
+
+Grafana reste réservé aux profils d'exploitation ayant besoin d'une vue globale
+ou d'une analyse détaillée des séries temporelles. Ce découpage applique le
+principe du moindre privilège : un technicien terrain voit ses stations, pas
+tout le réseau.
+
 Grafana
 -------
 

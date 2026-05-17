@@ -147,12 +147,29 @@ function renderSupervision(supervision) {
     );
 }
 
+function setRealtimeStatus(element, label, state = "") {
+    if (!element) return;
+    element.textContent = label;
+    element.classList.toggle("connected", state === "connected");
+    element.classList.toggle("fallback", state === "fallback");
+}
+
+function buildTechnicianSupervisionWebSocketUrl(token) {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${window.location.host}/ws/technician/supervision/?token=${encodeURIComponent(token)}`;
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
     const AUTO_REFRESH_MS = 30000;
     const status = document.getElementById("tech-status");
+    const realtimeStatus = document.getElementById("tech-realtime-status");
     const logoutBtn = document.getElementById("logout-tech");
     const list = document.getElementById("maintenances-list");
     let isLoading = false;
+    let supervisionSocket = null;
+    let supervisionReconnectTimer = null;
+    let supervisionRealtimeStarted = false;
+    let supervisionReconnectAttempts = 0;
 
     logoutBtn.addEventListener("click", () => window.AuthAPI.logout());
 
@@ -207,4 +224,81 @@ document.addEventListener("DOMContentLoaded", async () => {
         status.classList.add("error");
         status.textContent = error.message || "Impossible de charger le tableau de bord technicien.";
     }
+
+    function scheduleSupervisionReconnect() {
+        if (!supervisionRealtimeStarted) return;
+        window.clearTimeout(supervisionReconnectTimer);
+        const delay = Math.min(30000, 3000 * 2 ** Math.min(supervisionReconnectAttempts, 3));
+        supervisionReconnectAttempts += 1;
+        supervisionReconnectTimer = window.setTimeout(() => {
+            connectSupervisionSocket();
+        }, delay);
+    }
+
+    async function connectSupervisionSocket() {
+        if (!("WebSocket" in window)) {
+            setRealtimeStatus(realtimeStatus, "Polling de secours", "fallback");
+            return;
+        }
+        if (
+            supervisionSocket &&
+            [WebSocket.CONNECTING, WebSocket.OPEN].includes(supervisionSocket.readyState)
+        ) {
+            return;
+        }
+
+        const token = window.AuthAPI.getAccessToken();
+        if (!token) {
+            setRealtimeStatus(realtimeStatus, "Polling de secours", "fallback");
+            return;
+        }
+
+        setRealtimeStatus(realtimeStatus, "Connexion temps réel", "fallback");
+        const socket = new WebSocket(buildTechnicianSupervisionWebSocketUrl(token));
+        supervisionSocket = socket;
+
+        socket.addEventListener("open", () => {
+            supervisionReconnectAttempts = 0;
+            setRealtimeStatus(realtimeStatus, "Temps réel actif", "connected");
+        });
+
+        socket.addEventListener("message", (event) => {
+            let message = null;
+            try {
+                message = JSON.parse(event.data);
+            } catch (_error) {
+                return;
+            }
+            if (message?.type !== "supervision.snapshot" || !message.payload) return;
+            renderSupervision(message.payload);
+        });
+
+        socket.addEventListener("close", async (event) => {
+            if (supervisionSocket !== socket) return;
+            supervisionSocket = null;
+            setRealtimeStatus(realtimeStatus, "Polling de secours", "fallback");
+            if (event.code === 4401) {
+                try {
+                    await window.AuthAPI.refreshAccessToken();
+                } catch (_error) {
+                    return;
+                }
+            }
+            scheduleSupervisionReconnect();
+        });
+
+        socket.addEventListener("error", () => {
+            setRealtimeStatus(realtimeStatus, "Polling de secours", "fallback");
+        });
+    }
+
+    supervisionRealtimeStarted = true;
+    connectSupervisionSocket();
+    window.addEventListener("beforeunload", () => {
+        supervisionRealtimeStarted = false;
+        window.clearTimeout(supervisionReconnectTimer);
+        if (supervisionSocket) {
+            supervisionSocket.close();
+        }
+    });
 });
