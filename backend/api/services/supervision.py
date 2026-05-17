@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from django.conf import settings
+from django.db.models import Count, Q
 from django.utils import timezone
 
 from api.models import Alerte, CapteurData, Device, DeviceCommandLog
@@ -210,14 +211,18 @@ def build_admin_supervision_payload():
         .order_by("-timestamp")[:30]
     )
     sensor_since = now - timedelta(hours=24)
+    alert_counts = active_alerts.aggregate(
+        active_alerts=Count("id_alerte"),
+        critical_alerts=Count("id_alerte", filter=Q(niveau_severite__in=["critical", "critique"])),
+    )
 
     return {
         "stats": {
             "devices_total": len(devices),
             "devices_online": sum(1 for device in devices if device_is_online(device, now=now)),
             "devices_offline": sum(1 for device in devices if not device_is_online(device, now=now)),
-            "active_alerts": active_alerts.count(),
-            "critical_alerts": active_alerts.filter(niveau_severite__in=["critical", "critique"]).count(),
+            "active_alerts": alert_counts["active_alerts"],
+            "critical_alerts": alert_counts["critical_alerts"],
             "telemetry_samples_24h": CapteurData.objects.filter(timestamp__gte=sensor_since).count(),
         },
         "devices": [serialize_device_supervision(device, now=now) for device in devices],
