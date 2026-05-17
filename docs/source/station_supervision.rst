@@ -569,6 +569,8 @@ Les conditions de résolution automatique sont :
 * ``overheat`` : la température repasse sous ``60 C`` ;
 * ``overcurrent`` : le courant repasse sous ``3.0 A`` ;
 * ``state_error`` : l'état n'est plus ``error``, ``emergency`` ou ``fault``.
+* ``charge_without_session`` : l'ESP32 ne remonte plus un état de charge ou la
+  télémétrie porte de nouveau un ``session_id`` ouvert côté backend.
 
 Le firmware est traité séparément. Si ``EXPECTED_ESP32_FIRMWARE_VERSION`` est
 défini et que l'ESP32 remonte une version différente, le backend crée une alerte

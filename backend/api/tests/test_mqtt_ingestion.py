@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from uuid import uuid4
 
 import pytest
 from django.core import mail
@@ -258,6 +259,33 @@ def test_process_mqtt_status_maps_charging_started(emplacements):
 
 
 @pytest.mark.django_db
+def test_process_mqtt_status_flags_charge_started_without_backend_session(emplacements):
+    """Raise a consistency alert when a START reaches charging without backend session."""
+    Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="demo",
+        mac_address="slot1",
+        status="offline",
+    )
+
+    result = process_mqtt_message(
+        "station/slot1/status",
+        json.dumps(
+            {
+                "event": "charging_started",
+                "session_id": str(uuid4()),
+            }
+        ),
+    )
+
+    assert result["device_status"] == "charging"
+    alert = Alerte.objects.get(type="charge_without_session")
+    assert alert.niveau_severite == "critique"
+    assert alert.status == "nouvelle"
+
+
+@pytest.mark.django_db
 def test_process_mqtt_ack_tracks_last_command(user, emplacements):
     """Store ESP32 command acknowledgements for supervision traceability."""
     reservation = Reservation.objects.create(
@@ -436,6 +464,69 @@ def test_process_mqtt_message_stores_session_telemetry_for_active_session(user, 
     assert telemetry.courant == 1.35
     assert telemetry.tension == 41.7
     assert telemetry.energie_kwh == 0.12
+
+
+@pytest.mark.django_db
+def test_process_mqtt_message_rejects_unknown_session_id_for_active_slot(user, emplacements):
+    """Do not attach ESP32 telemetry to another active session when session_id is unknown."""
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="TELMISS1",
+        auth_choice="qr",
+        date_debut=timezone.now() - timedelta(minutes=10),
+        date_fin=timezone.now() + timedelta(minutes=20),
+        statut="active",
+    )
+    session = Session.objects.create(
+        reservation=reservation,
+        emplacement=emplacements[0],
+        start_time=timezone.now() - timedelta(minutes=5),
+    )
+    Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="demo",
+        mac_address="slot1",
+        status="offline",
+    )
+
+    result = process_mqtt_message(
+        "station/slot1/telemetry",
+        json.dumps(
+            {
+                "session_id": str(uuid4()),
+                "state": "charging",
+                "current": 1.35,
+                "voltage": 41.7,
+                "temperature": 31.5,
+                "humidity": 44,
+            }
+        ),
+    )
+
+    assert result["session_telemetry_created"] is False
+    assert SessionTelemetry.objects.filter(session=session).count() == 0
+    alert = Alerte.objects.get(type="charge_without_session")
+    assert alert.status == "nouvelle"
+    assert alert.niveau_severite == "critique"
+    assert alert.session is None
+
+    resolved_result = process_mqtt_message(
+        "station/slot1/telemetry",
+        json.dumps(
+            {
+                "session_id": str(session.id_session),
+                "state": "charging",
+                "current": 1.2,
+                "voltage": 41.5,
+            }
+        ),
+    )
+
+    assert resolved_result["session_telemetry_created"] is True
+    alert.refresh_from_db()
+    assert alert.status == "resolue"
 
 
 @pytest.mark.django_db

@@ -38,6 +38,12 @@ SENSOR_FIELDS = {
 }
 
 RESOLVED_ALERT_STATUSES = ["resolved", "resolue", "closed", "fermee"]
+CHARGING_STATES = {"charging", "charging_started", "running"}
+DEVICE_SCOPED_ALERT_TYPES = {
+    "state_error",
+    "firmware_outdated",
+    "charge_without_session",
+}
 DEVICE_STATUS_ALIASES = {
     "accepted": DeviceStatus.ONLINE,
     "available": DeviceStatus.ONLINE,
@@ -301,14 +307,12 @@ def _get_device(slot_id: str, topic_prefix: str | None = None) -> Device:
 def _get_active_session(emplacement: Emplacement, session_id: str | None):
     """Find the current charging session for an emplacement."""
     queryset = Session.objects.filter(emplacement=emplacement, end_time__isnull=True)
-    if session_id:
+    if session_id is not None and str(session_id).strip():
         try:
             session_uuid = UUID(str(session_id))
         except ValueError:
-            session_uuid = None
-        session = queryset.filter(id_session=session_uuid).first() if session_uuid else None
-        if session:
-            return session
+            return None
+        return queryset.filter(id_session=session_uuid).first()
     return queryset.order_by("-start_time").first()
 
 
@@ -331,12 +335,7 @@ def _store_sensor(device: Device, sensor_type: str, unit: str, value: Any, times
 def _open_alerts_for_device(device: Device, alert_type: str):
     """Return unresolved alerts for the current device and alert type."""
     queryset = Alerte.objects.filter(type=alert_type).exclude(status__in=RESOLVED_ALERT_STATUSES)
-    if alert_type == "state_error":
-        return queryset.filter(
-            Q(session__emplacement=device.emplacement)
-            | Q(message__contains=_device_slot_id(device))
-        )
-    if alert_type == "firmware_outdated":
+    if alert_type in DEVICE_SCOPED_ALERT_TYPES:
         return queryset.filter(
             Q(session__emplacement=device.emplacement)
             | Q(message__contains=_device_slot_id(device))
@@ -422,7 +421,9 @@ def _alert_resolution_candidates(payload: dict[str, Any]):
 def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp, sensor_records: dict[str, CapteurData]):
     """Create, update or resolve security alerts from critical telemetry states."""
     triggered_alerts = []
-    state = str(payload.get("state") or "").lower()
+    has_reported_state = any(key in payload for key in ("state", "status", "event"))
+    state = str(payload.get("state") or payload.get("status") or payload.get("event") or "").lower()
+    session = _get_active_session(device.emplacement, payload.get("session_id"))
     if state in {"error", "emergency", "fault"}:
         triggered_alerts.append(
             (
@@ -432,6 +433,19 @@ def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp, 
                 None,
             )
         )
+    if has_reported_state:
+        reported_session = str(payload.get("session_id") or "").strip()
+        if state in CHARGING_STATES and reported_session and session is None:
+            triggered_alerts.append(
+                (
+                    "charge_without_session",
+                    f"Charge active sans session backend sur {_device_slot_id(device)}.",
+                    "critique",
+                    "current" if "current" in sensor_records else None,
+                )
+            )
+        elif state not in CHARGING_STATES or session is not None:
+            _resolve_alerts_for_device(device, "charge_without_session", timestamp)
     if payload.get("door") is False and state == "charging":
         triggered_alerts.append(("intrusion", "Boitier ouvert pendant une charge active.", "critique", "door"))
     if payload.get("cable") is False and state == "charging":
@@ -446,7 +460,6 @@ def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp, 
         triggered_alerts.append(("overcurrent", f"Surconsommation detectee: {current:.2f} A.", "haute", "current"))
 
     created = []
-    session = _get_active_session(device.emplacement, payload.get("session_id"))
     triggered_types = {alert_type for alert_type, _message, _severity, _sensor_type in triggered_alerts}
     for alert_type in _alert_resolution_candidates(payload):
         if alert_type not in triggered_types:
@@ -508,6 +521,7 @@ def ingest_slot_status(slot_id: str, payload: dict[str, Any], topic_prefix: str 
     device = _get_device(slot_id, topic_prefix=topic_prefix)
     _save_device_report(device, timestamp, status_value, payload)
     _check_firmware_alert(device, timestamp)
+    _create_alert_if_needed(device, payload, timestamp, {})
     return DeviceStatusResult(device=device)
 
 
