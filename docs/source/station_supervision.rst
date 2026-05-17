@@ -220,6 +220,11 @@ Le même principe de préfixe s'applique aux commandes terrain :
 
    station/<station_id>/<borne_id>/<slot_id>/cmd
 
+Le backend renvoie le ``mqtt_prefix`` de la borne dans les réponses de session
+terminal. L'interface kiosk le transmet ensuite au Raspberry, qui publie la
+commande et écoute l'ACK sur le même préfixe. La lecture télémétrie et l'écriture
+commande utilisent donc le même routage par borne.
+
 Le message de commande est un JSON simple :
 
 .. code-block:: json

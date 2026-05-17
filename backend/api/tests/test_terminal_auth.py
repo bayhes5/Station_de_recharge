@@ -213,6 +213,7 @@ def test_mobile_session_authorizes_and_consumes_reservation(authenticated_client
     assert consume_response.status_code == status.HTTP_200_OK
     assert consume_response.data["session_created"] is True
     assert consume_response.data["mobile_session"]["status"] == "consumed"
+    assert "mqtt_prefix" in consume_response.data["session"]
     reservation.refresh_from_db()
     assert reservation.statut == "active"
     assert Session.objects.filter(reservation=reservation).exists()
@@ -220,6 +221,8 @@ def test_mobile_session_authorizes_and_consumes_reservation(authenticated_client
 
 @pytest.mark.django_db
 def test_mobile_session_is_bound_to_physical_borne(authenticated_client, api_client, user, station, borne, emplacements):
+    borne.mqtt_prefix = "station-centre/borne-1"
+    borne.save(update_fields=["mqtt_prefix"])
     other_borne = Borne.objects.create(
         station=station,
         numero=2,
@@ -300,6 +303,7 @@ def test_mobile_session_is_bound_to_physical_borne(authenticated_client, api_cli
 
     assert consume_response.status_code == status.HTTP_200_OK
     assert consume_response.data["session"]["borne"] == borne.nom
+    assert consume_response.data["session"]["mqtt_prefix"] == "station-centre/borne-1"
     assert Session.objects.filter(reservation=matching_reservation, emplacement=emplacements[0]).exists()
 
 
@@ -345,7 +349,9 @@ def test_mobile_session_authorize_rejects_wrong_station(authenticated_client, ap
 
 
 @pytest.mark.django_db
-def test_terminal_offline_cache_exports_hashes_without_clear_secret(api_client, user, station, emplacements):
+def test_terminal_offline_cache_exports_hashes_without_clear_secret(api_client, user, station, borne, emplacements):
+    borne.mqtt_prefix = "station-centre/borne-1"
+    borne.save(update_fields=["mqtt_prefix"])
     type_auth = TypeAuth.objects.create(libelle="CODE", factor_level=2)
     auth_method = Authentification.objects.create(
         utilisateur=user,
@@ -377,6 +383,7 @@ def test_terminal_offline_cache_exports_hashes_without_clear_secret(api_client, 
     assert cached["reference_code"] == "OFFLINE1"
     assert cached["auth_hash"] == hash_secret("OFFLINE-CODE")
     assert cached["slot_id"] == "slot1"
+    assert cached["mqtt_prefix"] == "station-centre/borne-1"
     assert response.data["start_grace_minutes"] == 5
     assert response.data["end_grace_minutes"] == 10
     assert "OFFLINE-CODE" not in str(cached)

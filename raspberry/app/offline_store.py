@@ -83,6 +83,7 @@ class OfflineAuthResult:
                 "station": reservation["station_nom"],
                 "borne": reservation.get("borne_nom") or "-",
                 "borne_numero": reservation.get("borne_numero"),
+                "mqtt_prefix": reservation.get("mqtt_prefix") or "",
                 "emplacement": reservation["emplacement_numero"],
                 "slot_id": reservation.get("slot_id") or f"slot{reservation['emplacement_numero']}",
                 "start_time": utc_now().isoformat(),

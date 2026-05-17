@@ -64,6 +64,8 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
     borne,
     emplacements,
 ):
+    borne.mqtt_prefix = "station-centre/borne-1"
+    borne.save(update_fields=["mqtt_prefix"])
     create_slot_devices(emplacements)
     reservation = Reservation.objects.create(
         utilisateur=user,
@@ -134,6 +136,7 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
     assert consume_response.data["session_created"] is True
     assert consume_response.data["mobile_session"]["status"] == "consumed"
     assert consume_response.data["session"]["slot_id"] == "slot1"
+    assert consume_response.data["session"]["mqtt_prefix"] == "station-centre/borne-1"
     assert consume_response.data["session"]["emplacement"] == 1
 
     session = Session.objects.get(reservation=reservation)

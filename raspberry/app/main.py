@@ -359,6 +359,7 @@ class KioskHandler(SimpleHTTPRequestHandler):
             command_result = publish_slot_command(
                 slot_id,
                 action,
+                topic_prefix=payload.get("topic_prefix") or payload.get("mqtt_prefix") or "",
                 command_id=payload.get("command_id") or "",
                 session_id=session_id,
                 station=payload.get("station") or "",

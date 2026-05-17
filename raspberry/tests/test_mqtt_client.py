@@ -80,11 +80,11 @@ def install_fake_paho(monkeypatch):
     monkeypatch.setitem(sys.modules, "paho.mqtt.client", client_module)
 
 
-def load_mqtt_client(monkeypatch, ack_required="false"):
+def load_mqtt_client(monkeypatch, ack_required="false", base_topic="station"):
     monkeypatch.syspath_prepend(str(APP_DIR))
     monkeypatch.setenv("MQTT_HOST", "mqtt.local")
     monkeypatch.setenv("MQTT_PORT", "1883")
-    monkeypatch.setenv("MQTT_BASE_TOPIC", "station")
+    monkeypatch.setenv("MQTT_BASE_TOPIC", base_topic)
     monkeypatch.setenv("MQTT_RASPBERRY_CLIENT_ID", "test-kiosk")
     monkeypatch.setenv("MQTT_QOS", "1")
     monkeypatch.setenv("MQTT_ACK_TIMEOUT_SECONDS", "0.01")
@@ -105,6 +105,39 @@ def test_publish_slot_command_allows_missing_ack_when_not_required(monkeypatch):
     assert result["ack_received"] is False
     assert result["command_confirmed"] is False
     assert result["command"]["session_id"] == "session-1"
+
+
+def test_publish_slot_command_uses_structured_borne_prefix(monkeypatch):
+    install_fake_paho(monkeypatch)
+    mqtt_client = load_mqtt_client(monkeypatch, ack_required="false")
+
+    result = mqtt_client.publish_slot_command(
+        "slot1",
+        "START",
+        topic_prefix="station-centre/borne-1",
+        session_id="session-1",
+    )
+
+    assert result["topic"] == "station/station-centre/borne-1/slot1/cmd"
+    assert result["ack_topic"] == "station/station-centre/borne-1/slot1/ack"
+
+
+def test_publish_slot_command_does_not_duplicate_prefix_already_in_base(monkeypatch):
+    install_fake_paho(monkeypatch)
+    mqtt_client = load_mqtt_client(
+        monkeypatch,
+        ack_required="false",
+        base_topic="station/station-centre/borne-1",
+    )
+
+    result = mqtt_client.publish_slot_command(
+        "slot1",
+        "START",
+        topic_prefix="station-centre/borne-1",
+    )
+
+    assert result["topic"] == "station/station-centre/borne-1/slot1/cmd"
+    assert result["ack_topic"] == "station/station-centre/borne-1/slot1/ack"
 
 
 def test_publish_slot_command_rejects_negative_ack_even_when_not_required(monkeypatch):

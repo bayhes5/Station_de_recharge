@@ -47,11 +47,30 @@ class MqttSettings:
     }
 
 
-def slot_topic(slot_id: str, suffix: str = "cmd", settings: MqttSettings | None = None) -> str:
+def _effective_base_topic(settings: MqttSettings, topic_prefix: str | None = None) -> str:
+    """Return the MQTT prefix for the command, preserving local defaults."""
+
+    base_topic = settings.base_topic.strip("/")
+    prefix = str(topic_prefix or "").strip("/")
+    if not prefix:
+        return base_topic
+    if prefix == base_topic or prefix.startswith(f"{base_topic}/"):
+        return prefix
+    if base_topic.endswith(f"/{prefix}"):
+        return base_topic
+    return f"{base_topic}/{prefix}"
+
+
+def slot_topic(
+    slot_id: str,
+    suffix: str = "cmd",
+    settings: MqttSettings | None = None,
+    topic_prefix: str | None = None,
+) -> str:
     """Build the MQTT topic for one slot command."""
 
     mqtt_settings = settings or MqttSettings()
-    return f"{mqtt_settings.base_topic}/{slot_id}/{suffix}"
+    return f"{_effective_base_topic(mqtt_settings, topic_prefix=topic_prefix)}/{slot_id}/{suffix}"
 
 
 def _decode_ack(raw_payload: bytes) -> dict[str, Any]:
@@ -95,7 +114,7 @@ def _ack_confirms_command(ack_payload: dict[str, Any] | None, action: str) -> bo
     return status in CONFIRMED_ACK_STATUSES.get(action.upper(), {"accepted"})
 
 
-def publish_slot_command(slot_id: str, action: str, **metadata: Any) -> dict[str, Any]:
+def publish_slot_command(slot_id: str, action: str, topic_prefix: str | None = None, **metadata: Any) -> dict[str, Any]:
     """Publish a command to one ESP32 slot through the local MQTT broker."""
 
     try:
@@ -112,8 +131,8 @@ def publish_slot_command(slot_id: str, action: str, **metadata: Any) -> dict[str
         "issued_at": datetime.now(timezone.utc).isoformat(),
         **metadata,
     }
-    command_topic = slot_topic(slot_id, settings=settings)
-    ack_topic = slot_topic(slot_id, suffix="ack", settings=settings)
+    command_topic = slot_topic(slot_id, settings=settings, topic_prefix=topic_prefix)
+    ack_topic = slot_topic(slot_id, suffix="ack", settings=settings, topic_prefix=topic_prefix)
     ack_event = threading.Event()
     subscribed_event = threading.Event()
     ack_payload: dict[str, Any] | None = None

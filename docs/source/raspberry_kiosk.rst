@@ -223,6 +223,23 @@ Topic :
 
    station/<slot_id>/cmd
 
+Si la session backend contient un ``mqtt_prefix`` de borne, le kiosk publie sur
+le topic structuré correspondant :
+
+.. code-block:: text
+
+   station/<mqtt_prefix>/<slot_id>/cmd
+
+Le même préfixe est utilisé pour attendre l'ACK :
+
+.. code-block:: text
+
+   station/<mqtt_prefix>/<slot_id>/ack
+
+Cela permet à deux bornes différentes d'utiliser chacune ``slot1`` sans risque
+de commander le mauvais ESP32. Si ``MQTT_BASE_TOPIC`` est déjà configuré avec le
+préfixe complet de la borne, le Raspberry ne le duplique pas.
+
 ACK attendu :
 
 .. code-block:: json
