@@ -153,6 +153,10 @@ Chaque commande doit produire un acquittement :
      "message": "Emplacement reserve.",
      "state": "reserved",
      "slot_id": "slot1",
+     "client_id": "esp32-slot1",
+     "firmware_version": "1.0.0",
+     "hardware_mac": "AA:BB:CC:DD:EE:FF",
+     "ip_address": "192.168.1.42",
      "session_id": "<uuid-session>"
    }
 
@@ -230,6 +234,10 @@ Payload publié sur ``station/<slot_id>/telemetry`` :
      "slot_id": "slot1",
      "session_id": "<uuid-session>",
      "state": "charging",
+     "client_id": "esp32-slot1",
+     "firmware_version": "1.0.0",
+     "hardware_mac": "AA:BB:CC:DD:EE:FF",
+     "ip_address": "192.168.1.42",
      "current": 1.42,
      "voltage": 42.1,
      "power": 59.78,
@@ -244,6 +252,14 @@ Le firmware lit le DHT22 et l'INA219 lorsque les capteurs répondent. Si un
 capteur est absent pendant le développement, le firmware publie des valeurs
 simulées afin de tester immédiatement la chaîne MQTT, l'ingestion backend et
 Grafana.
+
+Les champs d'inventaire sont publiés automatiquement par le firmware :
+
+* ``slot_id`` identifie l'emplacement logique et le topic MQTT ;
+* ``hardware_mac`` identifie la carte ESP32 physique ;
+* ``ip_address`` décrit l'adresse Wi-Fi courante ;
+* ``firmware_version`` permet au backend de détecter une version non conforme
+  avec ``EXPECTED_ESP32_FIRMWARE_VERSION``.
 
 Chaîne de supervision
 ---------------------

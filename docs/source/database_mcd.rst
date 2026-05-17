@@ -291,6 +291,8 @@ faire évoluer la base.
        type_device VARCHAR(50) NOT NULL,
        firmware_version VARCHAR(50) NOT NULL,
        ip_address INET,
+       slot_id VARCHAR(50) NOT NULL DEFAULT '',
+       hardware_mac VARCHAR(50) NOT NULL DEFAULT '',
        mac_address VARCHAR(50) NOT NULL DEFAULT '',
        last_seen TIMESTAMP,
        status VARCHAR(50) NOT NULL
@@ -620,8 +622,11 @@ Point de charge numéroté dans une borne.
 * ``type_device`` : type matériel. Exemple : ``ESP32``.
 * ``firmware_version`` : version embarquée. Exemple : ``1.2.0``.
 * ``ip_address`` : adresse IP locale si disponible. Exemple : ``192.168.1.42``.
-* ``mac_address`` : adresse MAC ou identifiant matériel. Exemple :
+* ``slot_id`` : identifiant logique MQTT de l'emplacement. Exemple : ``slot1``.
+* ``hardware_mac`` : adresse MAC physique Wi-Fi de l'ESP32. Exemple :
   ``AA:BB:CC:DD:EE:FF``.
+* ``mac_address`` : ancien champ conservé en compatibilité pendant la migration ;
+  il contient encore souvent l'ancien ``slot_id`` logique.
 * ``last_seen`` : dernière télémétrie reçue. Ce champ sert à calculer la
   connexion opérationnelle de l'ESP32 dans l'interface de supervision.
 * ``status`` : dernier état métier remonté par l'équipement. Valeurs observées :

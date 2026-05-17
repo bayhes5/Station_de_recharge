@@ -164,6 +164,10 @@ La télémétrie est publiée régulièrement sur ``.../<slot_id>/telemetry``.
      "slot_id": "slot1",
      "session_id": "d4b8b4d1-8b67-45e7-aef6-0123456789ab",
      "state": "charging",
+     "client_id": "esp32-slot1",
+     "firmware_version": "1.0.0",
+     "hardware_mac": "AA:BB:CC:DD:EE:FF",
+     "ip_address": "192.168.1.42",
      "current": 1.35,
      "voltage": 41.7,
      "power": 56.3,
@@ -178,6 +182,12 @@ La télémétrie est publiée régulièrement sur ``.../<slot_id>/telemetry``.
 Le backend crée une télémétrie de session uniquement si ``session_id`` correspond
 à une session active de l'emplacement. Les données capteurs restent stockées
 pour la supervision même si la session est absente ou invalide.
+
+Les champs ``firmware_version``, ``hardware_mac`` et ``ip_address`` peuvent être
+présents dans les messages ``status``, ``ack`` et ``telemetry``. Le backend les
+utilise pour mettre à jour l'inventaire du ``Device`` associé au ``slot_id``.
+``slot_id`` reste l'identifiant logique de l'emplacement ; ``hardware_mac`` est
+l'identité physique de la carte ESP32.
 
 Incidents attendus
 ------------------

@@ -119,6 +119,8 @@ Table device {
   type_device varchar(50) [not null]
   firmware_version varchar(50) [not null]
   ip_address inet
+  slot_id varchar(50) [not null, default: ""]
+  hardware_mac varchar(50) [not null, default: ""]
   mac_address varchar(50) [not null, default: ""]
   last_seen timestamp
   status varchar(50) [not null]

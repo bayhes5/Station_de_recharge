@@ -38,6 +38,11 @@ class Command(BaseCommand):
             .first()
         )
         device = getattr(reservation.emplacement, "device", None)
+        slot_id = (
+            device.slot_id or device.mac_address
+            if device and (device.slot_id or device.mac_address)
+            else f"slot{reservation.emplacement.numero}"
+        )
         result = {
             "reservation": {
                 "id": str(reservation.id_reservation),
@@ -52,7 +57,7 @@ class Command(BaseCommand):
                 "borne": reservation.emplacement.borne.nom,
                 "mqtt_prefix": reservation.emplacement.borne.mqtt_prefix,
                 "emplacement": reservation.emplacement.numero,
-                "slot_id": device.mac_address if device and device.mac_address else f"slot{reservation.emplacement.numero}",
+                "slot_id": slot_id,
             },
             "session": None,
             "device": None,
@@ -72,6 +77,8 @@ class Command(BaseCommand):
                 if session.end_time:
                     sensor_queryset = sensor_queryset.filter(timestamp__lte=session.end_time)
             result["device"] = {
+                "slot_id": device.slot_id,
+                "hardware_mac": device.hardware_mac,
                 "mac_address": device.mac_address,
                 "status": device.status,
                 "last_seen": device.last_seen.isoformat() if device.last_seen else None,

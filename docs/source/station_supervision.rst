@@ -511,6 +511,11 @@ L'ingestion des télémétries alimente actuellement :
 * ``Alerte`` : anomalies telles qu'intrusion, câble retiré, surchauffe ou
   surconsommation.
 
+L'identité du device est séparée en deux niveaux : ``slot_id`` pour le routage
+MQTT de l'emplacement, et ``hardware_mac`` pour la carte ESP32 physique.
+``ip_address`` et ``firmware_version`` sont mis à jour automatiquement lorsqu'ils
+sont présents dans les messages ``status``, ``ack`` ou ``telemetry``.
+
 Les capteurs booléens ``door`` et ``cable`` sont stockés numériquement dans
 ``CapteurData`` : ``1`` signifie vrai et ``0`` signifie faux. L'API de
 supervision expose en plus un libellé lisible pour l'interface :

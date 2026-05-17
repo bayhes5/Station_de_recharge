@@ -118,7 +118,11 @@ class Command(BaseCommand):
                 "borne_numero": emplacement.borne.numero,
                 "mqtt_prefix": emplacement.borne.mqtt_prefix,
                 "emplacement": emplacement.numero,
-                "slot_id": device.mac_address if device and device.mac_address else f"slot{emplacement.numero}",
+                "slot_id": (
+                    device.slot_id or device.mac_address
+                    if device and (device.slot_id or device.mac_address)
+                    else f"slot{emplacement.numero}"
+                ),
             },
         }
         self.stdout.write(json.dumps(result, ensure_ascii=False))

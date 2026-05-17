@@ -209,8 +209,18 @@ Devices ESP32
 emplacement. La relation avec ``Emplacement`` est un ``OneToOneField`` : un
 emplacement ne doit avoir qu’un device principal dans la version actuelle.
 
-Le modèle garde le type de device, la version de firmware, l’adresse IP,
-l’adresse MAC, la dernière présence et le statut courant.
+Le modèle distingue l'identité logique et l'identité physique :
+
+* ``slot_id`` : identifiant MQTT de l'emplacement, par exemple ``slot1`` ;
+* ``hardware_mac`` : adresse MAC Wi-Fi réelle de la carte ESP32 ;
+* ``ip_address`` : adresse IP courante, informative car elle peut changer ;
+* ``firmware_version`` : version publiée par le firmware ;
+* ``mac_address`` : ancien champ conservé temporairement pour compatibilité avec
+  les données et tests déjà existants.
+
+Le backend utilise ``slot_id`` pour router et afficher l'emplacement. Les
+payloads ``status``, ``ack`` et ``telemetry`` peuvent mettre à jour
+automatiquement ``firmware_version``, ``hardware_mac`` et ``ip_address``.
 
 Capteurs et données capteurs
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~

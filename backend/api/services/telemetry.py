@@ -135,15 +135,50 @@ def _reported_firmware(payload: dict[str, Any]) -> str:
     return str(payload.get("firmware_version") or payload.get("firmware") or "").strip()
 
 
+def _reported_hardware_mac(payload: dict[str, Any]) -> str:
+    """Return the physical ESP32 MAC address reported by a device payload."""
+    return str(
+        payload.get("hardware_mac")
+        or payload.get("wifi_mac")
+        or payload.get("device_mac")
+        or ""
+    ).strip()
+
+
+def _reported_ip_address(payload: dict[str, Any]) -> str:
+    """Return the current Wi-Fi IP address reported by a device payload."""
+    return str(payload.get("ip_address") or payload.get("ip") or "").strip()
+
+
+def _device_slot_id(device: Device) -> str:
+    """Return the logical MQTT slot id for a device, with legacy fallback."""
+    return device.slot_id or device.mac_address or str(device.id_device)
+
+
+def _remember_device_identity(device: Device, payload: dict[str, Any], update_fields: list[str]):
+    """Update optional inventory fields reported by an ESP32 payload."""
+    firmware_version = _reported_firmware(payload)
+    if firmware_version and firmware_version != device.firmware_version:
+        device.firmware_version = firmware_version
+        update_fields.append("firmware_version")
+
+    hardware_mac = _reported_hardware_mac(payload)
+    if hardware_mac and hardware_mac != device.hardware_mac:
+        device.hardware_mac = hardware_mac
+        update_fields.append("hardware_mac")
+
+    ip_address = _reported_ip_address(payload)
+    if ip_address and ip_address != device.ip_address:
+        device.ip_address = ip_address
+        update_fields.append("ip_address")
+
+
 def _save_device_report(device: Device, timestamp, status_value: Any, payload: dict[str, Any]):
     """Persist the latest runtime state reported by an ESP32."""
     update_fields = ["last_seen", "status"]
     device.last_seen = timestamp
     device.status = _device_status(status_value)
-    firmware_version = _reported_firmware(payload)
-    if firmware_version and firmware_version != device.firmware_version:
-        device.firmware_version = firmware_version
-        update_fields.append("firmware_version")
+    _remember_device_identity(device, payload, update_fields)
     device.save(update_fields=update_fields)
 
 
@@ -200,15 +235,23 @@ def _device_for_emplacement(emplacement: Emplacement, slot_id: str) -> Device:
     """Return or create the device attached to a known charging bay."""
     device = getattr(emplacement, "device", None)
     if device is not None:
-        if device.mac_address != slot_id:
+        update_fields = []
+        if device.slot_id != slot_id:
+            device.slot_id = slot_id
+            update_fields.append("slot_id")
+        if not device.mac_address:
             device.mac_address = slot_id
+            update_fields.append("mac_address")
+        if update_fields:
             device.last_seen = timezone.now()
-            device.save(update_fields=["mac_address", "last_seen"])
+            update_fields.append("last_seen")
+            device.save(update_fields=update_fields)
         return device
     return Device.objects.create(
         emplacement=emplacement,
         type_device="ESP32",
         firmware_version="unknown",
+        slot_id=slot_id,
         mac_address=slot_id,
         status="online",
         last_seen=timezone.now(),
@@ -231,11 +274,14 @@ def _get_device(slot_id: str, topic_prefix: str | None = None) -> Device:
 
     device = (
         Device.objects.select_related("emplacement", "emplacement__borne")
-        .filter(mac_address=slot_id)
+        .filter(Q(slot_id=slot_id) | Q(mac_address=slot_id))
         .order_by("emplacement__station__nom", "emplacement__borne__numero", "emplacement__numero")
         .first()
     )
     if device is not None:
+        if not device.slot_id:
+            device.slot_id = slot_id
+            device.save(update_fields=["slot_id"])
         return device
 
     emplacement_query = Emplacement.objects.select_related("station", "borne").order_by(
@@ -286,11 +332,14 @@ def _open_alerts_for_device(device: Device, alert_type: str):
     """Return unresolved alerts for the current device and alert type."""
     queryset = Alerte.objects.filter(type=alert_type).exclude(status__in=RESOLVED_ALERT_STATUSES)
     if alert_type == "state_error":
-        return queryset.filter(Q(session__emplacement=device.emplacement) | Q(message__contains=device.mac_address))
+        return queryset.filter(
+            Q(session__emplacement=device.emplacement)
+            | Q(message__contains=_device_slot_id(device))
+        )
     if alert_type == "firmware_outdated":
         return queryset.filter(
             Q(session__emplacement=device.emplacement)
-            | Q(message__contains=device.mac_address)
+            | Q(message__contains=_device_slot_id(device))
         )
     return queryset.filter(Q(data__capteur__device=device) | Q(session__emplacement=device.emplacement))
 
@@ -378,7 +427,7 @@ def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp, 
         triggered_alerts.append(
             (
                 "state_error",
-                f"Etat critique remonte par {device.mac_address}: {state}",
+                f"Etat critique remonte par {_device_slot_id(device)}: {state}",
                 "critique",
                 None,
             )
@@ -434,7 +483,7 @@ def _check_firmware_alert(device: Device, timestamp):
         _resolve_alerts_for_device(device, "firmware_outdated", timestamp)
         return None
 
-    message = f"Firmware ESP32 non conforme sur {device.mac_address}: {current}, attendu {expected}."
+    message = f"Firmware ESP32 non conforme sur {_device_slot_id(device)}: {current}, attendu {expected}."
     alert, _was_created = _upsert_active_alert(
         device,
         "firmware_outdated",
@@ -484,17 +533,19 @@ def ingest_slot_ack(slot_id: str, payload: dict[str, Any], topic_prefix: str | N
     device.last_command_at = timestamp
     if ack_status:
         device.status = _device_status(ack_status)
-    device.save(
-        update_fields=[
-            "last_seen",
-            "last_command_id",
-            "last_command_action",
-            "last_command_status",
-            "last_command_message",
-            "last_command_at",
-            "status",
-        ]
-    )
+    identity_update_fields = []
+    _remember_device_identity(device, payload, identity_update_fields)
+    command_update_fields = [
+        "last_seen",
+        "last_command_id",
+        "last_command_action",
+        "last_command_status",
+        "last_command_message",
+        "last_command_at",
+        "status",
+        *identity_update_fields,
+    ]
+    device.save(update_fields=command_update_fields)
     DeviceCommandLog.objects.create(
         device=device,
         session=session,

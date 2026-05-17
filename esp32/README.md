@@ -48,6 +48,8 @@ l'ESP32 lui-même, pas le Raspberry ni le PC de développement.
 
 Le firmware `emplacement1/main.py` publie un payload compatible Grafana avec :
 
+- inventaire : `slot_id`, `client_id`, `firmware_version`, `hardware_mac`,
+  `ip_address`
 - DHT22: `temperature`, `humidity`
 - INA219: `current`, `voltage`, `power`
 - contacts: `door`, `cable`
@@ -125,6 +127,10 @@ Chaque commande doit produire un ACK sur `station/<slot_id>/ack` :
   "message": "Emplacement réservé.",
   "state": "reserved",
   "slot_id": "slot1",
+  "client_id": "esp32-slot1",
+  "firmware_version": "1.0.0",
+  "hardware_mac": "AA:BB:CC:DD:EE:FF",
+  "ip_address": "192.168.1.42",
   "session_id": "<uuid-session>"
 }
 ```

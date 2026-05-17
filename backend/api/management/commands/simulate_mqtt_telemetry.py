@@ -145,8 +145,8 @@ class Command(BaseCommand):
     def _slot_id_for_session(self, session):
         """Return the MQTT slot identifier assigned to a charging session."""
         device = getattr(session.emplacement, "device", None)
-        if device and device.mac_address:
-            return device.mac_address
+        if device and (device.slot_id or device.mac_address):
+            return device.slot_id or device.mac_address
         return f"slot{session.emplacement.numero}"
 
     def _publish_batch(self, client, options, started_at: datetime, elapsed_seconds: float):

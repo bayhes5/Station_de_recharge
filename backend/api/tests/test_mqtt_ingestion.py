@@ -187,6 +187,36 @@ def test_process_mqtt_status_updates_device_presence(emplacements):
 
 
 @pytest.mark.django_db
+def test_process_mqtt_status_updates_device_inventory(emplacements):
+    """Store ESP32 slot, firmware, hardware MAC and Wi-Fi IP from status payloads."""
+    Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="demo",
+        mac_address="slot1",
+        status="offline",
+    )
+
+    process_mqtt_message(
+        "station/slot1/status",
+        json.dumps(
+            {
+                "event": "boot",
+                "state": "idle",
+                "firmware_version": "1.0.1",
+                "hardware_mac": "AA:BB:CC:DD:EE:FF",
+                "ip_address": "192.168.1.42",
+            }
+        ),
+    )
+
+    device = Device.objects.get(slot_id="slot1")
+    assert device.firmware_version == "1.0.1"
+    assert device.hardware_mac == "AA:BB:CC:DD:EE:FF"
+    assert device.ip_address == "192.168.1.42"
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("state", ["access_validated", "waiting_plug"])
 def test_process_mqtt_status_accepts_canonical_charge_states(emplacements, state):
     """Map canonical Raspberry charge states to an online device presence."""
@@ -329,6 +359,7 @@ def test_process_mqtt_message_reuses_existing_blank_demo_device(emplacements):
     assert result["slot_id"] == "slot1"
     assert Device.objects.count() == 1
     assert Device.objects.get(emplacement=emplacements[0]).mac_address == "slot1"
+    assert Device.objects.get(emplacement=emplacements[0]).slot_id == "slot1"
     assert CapteurData.objects.count() == 3
 
 

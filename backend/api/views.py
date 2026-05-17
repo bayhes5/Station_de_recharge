@@ -475,6 +475,13 @@ def _serialize_reservation(reservation):
     }
 
 
+def _device_slot_id(device, emplacement):
+    """Return the logical MQTT slot identifier for a charging bay."""
+    if device and (device.slot_id or device.mac_address):
+        return device.slot_id or device.mac_address
+    return f"slot{emplacement.numero}"
+
+
 def _serialize_session(session):
     """Return a compact representation of a charging session."""
     device = getattr(session.emplacement, "device", None)
@@ -485,7 +492,7 @@ def _serialize_session(session):
         "borne_numero": session.emplacement.borne.numero,
         "mqtt_prefix": session.emplacement.borne.mqtt_prefix,
         "emplacement": session.emplacement.numero,
-        "slot_id": device.mac_address if device and device.mac_address else f"slot{session.emplacement.numero}",
+        "slot_id": _device_slot_id(device, session.emplacement),
         "start_time": session.start_time.isoformat(),
         "end_time": session.end_time.isoformat() if session.end_time else None,
         "status": "active" if session.end_time is None else "closed",
@@ -603,11 +610,12 @@ def _serialize_device_supervision(device, now=None):
     borne = emplacement.borne
     return {
         "id_device": str(device.id_device),
-        "slot_id": device.mac_address or str(device.id_device),
+        "slot_id": device.slot_id or device.mac_address or str(device.id_device),
         "slot_label": f"{station.nom} - {borne.nom} - emplacement {emplacement.numero}",
         "type_device": device.type_device,
         "firmware_version": device.firmware_version,
         "ip_address": device.ip_address,
+        "hardware_mac": device.hardware_mac,
         "status": device.status,
         "status_display": _device_status_display(device),
         "last_seen": device.last_seen.isoformat() if device.last_seen else None,
@@ -664,7 +672,7 @@ def _serialize_sensor_data_supervision(sensor_data):
         "valeur": sensor_data.valeur,
         "display_value": display_value,
         "timestamp": sensor_data.timestamp.isoformat() if sensor_data.timestamp else None,
-        "slot_id": device.mac_address if device else "-",
+        "slot_id": (device.slot_id or device.mac_address) if device else "-",
         "slot_label": f"{station.nom} - {borne.nom} - emplacement {emplacement.numero}" if emplacement and station and borne else "-",
         "station_nom": station.nom if station else "-",
         "borne_nom": borne.nom if borne else "-",
@@ -1340,7 +1348,7 @@ def _serialize_offline_cached_reservation(reservation):
         "mqtt_prefix": reservation.emplacement.borne.mqtt_prefix,
         "emplacement_id": str(reservation.emplacement_id),
         "emplacement_numero": reservation.emplacement.numero,
-        "slot_id": device.mac_address if device and device.mac_address else f"slot{reservation.emplacement.numero}",
+        "slot_id": _device_slot_id(device, reservation.emplacement),
         "auth_mode": reservation.auth_choice,
         "auth_hash": auth_method.hash_valeur if auth_method else "",
         "auth_expires_at": auth_method.expiration.isoformat() if auth_method and auth_method.expiration else None,

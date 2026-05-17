@@ -676,6 +676,8 @@ class Device(models.Model):
     type_device = models.CharField(max_length=50, choices=DeviceType.choices)
     firmware_version = models.CharField(max_length=50)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
+    slot_id = models.CharField(max_length=50, blank=True, default="")
+    hardware_mac = models.CharField(max_length=50, blank=True, default="")
     mac_address = models.CharField(max_length=50, blank=True)
     last_seen = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=50, choices=DeviceStatus.choices)
@@ -698,6 +700,8 @@ class Device(models.Model):
             ),
         ]
         indexes = [
+            models.Index(fields=["slot_id"], name="idx_device_slot_id"),
+            models.Index(fields=["hardware_mac"], name="idx_device_hw_mac"),
             models.Index(fields=["last_seen"], name="idx_device_last_seen"),
             models.Index(fields=["status", "last_seen"], name="idx_device_status_seen"),
             models.Index(fields=["last_command_at"], name="idx_device_last_cmd_at"),

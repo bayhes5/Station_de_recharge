@@ -1126,6 +1126,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Serrure", render: (device) => device.lock_state || "-" },
                 { label: "Firmware", render: (device) => device.firmware_version || "-" },
                 { label: "IP", render: (device) => device.ip_address || "-" },
+                { label: "MAC ESP32", render: (device) => device.hardware_mac || "-" },
                 { label: "Dernier signal", render: (device) => formatDateTime(device.last_seen) },
             ],
             paginateRows(supervision.devices || [], supervisionPaginationState.devices),

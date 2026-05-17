@@ -21,6 +21,7 @@ MQTT_PORT = 1883
 MQTT_BASE_TOPIC = "station"
 SLOT_ID = "slot1"
 CLIENT_ID = "wokwi-slot1"
+FIRMWARE_VERSION = "1.0.0-wokwi"
 
 HALL_PIN = 19
 DOOR_PIN = 18
@@ -71,6 +72,33 @@ def connect_wifi():
     print("WiFi OK", wlan.ifconfig())
 
 
+def format_mac(mac_bytes):
+    """Return a colon-separated MAC address from MicroPython bytes."""
+    return ":".join("{:02X}".format(value) for value in mac_bytes)
+
+
+def device_identity():
+    """Return simulated ESP32 inventory fields for MQTT payloads."""
+    wlan = network.WLAN(network.STA_IF)
+    ip_address = ""
+    hardware_mac = ""
+    try:
+        if wlan.isconnected():
+            ip_address = wlan.ifconfig()[0]
+    except Exception:
+        ip_address = ""
+    try:
+        hardware_mac = format_mac(wlan.config("mac"))
+    except Exception:
+        hardware_mac = ""
+    return {
+        "client_id": CLIENT_ID,
+        "firmware_version": FIRMWARE_VERSION,
+        "hardware_mac": hardware_mac,
+        "ip_address": ip_address,
+    }
+
+
 def adc_ratio(adc):
     """Convert ADC reading to a 0..1 ratio."""
     return adc.read() / 4095
@@ -112,33 +140,37 @@ def publish_json(client, mqtt_topic, payload):
 
 def publish_status(client, event, reason=""):
     """Publish one status event."""
+    payload = {
+        "slot_id": SLOT_ID,
+        "event": event,
+        "reason": reason,
+        "state": state,
+        "session_id": session_id,
+    }
+    payload.update(device_identity())
     publish_json(
         client,
         TOPIC_STATUS,
-        {
-            "slot_id": SLOT_ID,
-            "event": event,
-            "reason": reason,
-            "state": state,
-            "session_id": session_id,
-        },
+        payload,
     )
 
 
 def publish_ack(client, payload, status, message=""):
     """Confirm command execution to the Raspberry kiosk."""
+    ack_payload = {
+        "command_id": payload.get("command_id") or "",
+        "action": str(payload.get("action") or "").upper(),
+        "status": status,
+        "message": message,
+        "state": state,
+        "slot_id": SLOT_ID,
+        "session_id": session_id,
+    }
+    ack_payload.update(device_identity())
     publish_json(
         client,
         TOPIC_ACK,
-        {
-            "command_id": payload.get("command_id") or "",
-            "action": str(payload.get("action") or "").upper(),
-            "status": status,
-            "message": message,
-            "state": state,
-            "slot_id": SLOT_ID,
-            "session_id": session_id,
-        },
+        ack_payload,
     )
 
 
@@ -234,21 +266,23 @@ def update_state(client):
 
 def publish_telemetry(client):
     """Publish one telemetry sample."""
+    payload = {
+        "slot_id": SLOT_ID,
+        "session_id": session_id,
+        "state": state,
+        "current": read_current_a(),
+        "voltage": read_voltage_v(),
+        "energy_kwh": 0.0,
+        "temperature": read_temperature_c(),
+        "humidity": 45.0,
+        "door": read_door_closed(),
+        "cable": read_cable_present(),
+    }
+    payload.update(device_identity())
     publish_json(
         client,
         TOPIC_TELEMETRY,
-        {
-            "slot_id": SLOT_ID,
-            "session_id": session_id,
-            "state": state,
-            "current": read_current_a(),
-            "voltage": read_voltage_v(),
-            "energy_kwh": 0.0,
-            "temperature": read_temperature_c(),
-            "humidity": 45.0,
-            "door": read_door_closed(),
-            "cable": read_cable_present(),
-        },
+        payload,
     )
 
 

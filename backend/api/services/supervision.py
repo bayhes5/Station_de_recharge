@@ -20,6 +20,11 @@ DEVICE_STATUS_DISPLAY = {
 OPEN_ALERT_STATUSES = ["resolved", "resolue", "closed", "fermee"]
 
 
+def device_slot_id(device):
+    """Return the logical MQTT slot identifier for one device."""
+    return device.slot_id or device.mac_address or str(device.id_device)
+
+
 def device_is_online(device, now=None):
     """Return whether a device has sent telemetry recently enough."""
     if not device.last_seen:
@@ -56,11 +61,12 @@ def serialize_device_supervision(device, now=None):
     borne = emplacement.borne
     return {
         "id_device": str(device.id_device),
-        "slot_id": device.mac_address or str(device.id_device),
+        "slot_id": device_slot_id(device),
         "slot_label": f"{station.nom} - {borne.nom} - emplacement {emplacement.numero}",
         "type_device": device.type_device,
         "firmware_version": device.firmware_version,
         "ip_address": device.ip_address,
+        "hardware_mac": device.hardware_mac,
         "status": device.status,
         "status_display": device_status_display(device),
         "last_seen": device.last_seen.isoformat() if device.last_seen else None,
@@ -123,7 +129,7 @@ def serialize_sensor_data_supervision(sensor_data):
         "valeur": sensor_data.valeur,
         "display_value": display_value,
         "timestamp": sensor_data.timestamp.isoformat() if sensor_data.timestamp else None,
-        "slot_id": device.mac_address if device else "-",
+        "slot_id": device_slot_id(device) if device else "-",
         "slot_label": (
             f"{station.nom} - {borne.nom} - emplacement {emplacement.numero}"
             if emplacement and station and borne
@@ -151,7 +157,7 @@ def serialize_command_log_supervision(command):
         "source": command.source,
         "timestamp": command.timestamp.isoformat() if command.timestamp else None,
         "session_id": str(command.session_id) if command.session_id else None,
-        "slot_id": device.mac_address if device else "-",
+        "slot_id": device_slot_id(device) if device else "-",
         "slot_label": (
             f"{station.nom} - {borne.nom} - emplacement {emplacement.numero}"
             if emplacement and station and borne
