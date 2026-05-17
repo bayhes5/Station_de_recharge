@@ -276,8 +276,9 @@ lancer les services.
 
 Le workflow GitHub Actions ``CI`` relance aussi les tests backend, Ruff, la
 qualité des docstrings backend, la validation du schéma OpenAPI, les contrôles
-de déploiement Django, la validation frontend avec ``npm run verify`` et la
-génération de la documentation HTML sur chaque push et pull request.
+de déploiement Django, les tests du kiosque Raspberry, la validation frontend
+avec ``npm run verify`` et la génération de la documentation HTML sur chaque
+push et pull request.
 
 Automatisations DevSecOps
 -------------------------
@@ -308,6 +309,7 @@ vert :
 
 * ``Backend tests`` ;
 * ``Backend quality`` ;
+* ``Raspberry edge tests`` ;
 * ``Frontend verify`` ;
 * ``Documentation build`` ;
 * ``Analyze (python)`` ;

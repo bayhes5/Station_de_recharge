@@ -172,6 +172,8 @@ Test unitaire du comportement ACK côté Raspberry :
 Ce test vérifie trois cas sans ESP32 physique : commande acceptée sans ACK en
 développement, refus en mode ``MQTT_ACK_REQUIRED=true`` et acceptation lorsqu'un
 ACK correspondant au ``command_id`` est reçu.
+Le workflow CI exécute aussi ``Raspberry edge tests`` : compilation des modules
+Python du kiosque et exécution de ``raspberry/tests``.
 
 Test local de télémétrie temps réel sans ESP32 :
 

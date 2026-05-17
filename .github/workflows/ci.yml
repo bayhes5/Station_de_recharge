@@ -88,6 +88,38 @@ jobs:
         working-directory: backend
         run: python -m interrogate api
 
+  raspberry-tests:
+    name: Raspberry edge tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: raspberry/app/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install pytest
+          python -m pip install -r raspberry/app/requirements.txt
+
+      - name: Compile Raspberry modules
+        run: |
+          python -m py_compile \
+            raspberry/app/charge_state.py \
+            raspberry/app/main.py \
+            raspberry/app/mqtt_client.py \
+            raspberry/app/offline_store.py \
+            raspberry/app/rfid_reader.py
+
+      - name: Run Raspberry tests
+        run: python -m pytest raspberry/tests -q
+
   frontend-verify:
     name: Frontend verify
     runs-on: ubuntu-latest
