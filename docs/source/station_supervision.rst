@@ -87,6 +87,11 @@ La stack locale contient les services de supervision suivants :
 * ``grafana`` : supervision technique exposée sur ``http://localhost:3000`` ;
 * ``db`` : TimescaleDB/PostgreSQL, compatible avec les modèles Django existants.
 
+Le worker ``celery`` et le ``mqtt-bridge`` disposent de healthchecks Docker. Le
+worker doit répondre à ``celery inspect ping``. Le bridge écrit un heartbeat
+local tant que la connexion MQTT est active ; si le heartbeat devient trop
+ancien, Docker marque le service comme non sain.
+
 Supervision web temps réel
 --------------------------
 

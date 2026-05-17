@@ -173,6 +173,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config inspect ping --timeout=3 >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 8s
+      retries: 5
+      start_period: 20s
     command: celery -A config worker -l info
 
   mqtt-bridge:
@@ -191,6 +197,12 @@ services:
         condition: service_healthy
       mqtt:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "manage.py", "check_mqtt_bridge_health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     command: python manage.py run_mqtt_bridge
 
   mqtt-simulator:

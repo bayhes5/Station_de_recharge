@@ -11,6 +11,7 @@ htmlcov/
 !.vscode/settings.json
 db.sqlite3
 backend/test*.sqlite3
+backend/api/tests/.health_tmp/
 backend/schema.yml
 raspberry/app/*.sqlite3
 raspberry/tests/.state_tmp/

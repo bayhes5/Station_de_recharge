@@ -36,6 +36,17 @@ Vérifier la santé applicative Django :
 peut utiliser la base de données, le cache et la configuration critique. Le
 healthcheck Docker du service ``backend`` utilise ``ready``.
 
+Vérifier la chaîne asynchrone :
+
+.. code-block:: bash
+
+   docker compose exec celery celery -A config inspect ping --timeout=3
+   docker compose exec mqtt-bridge python manage.py check_mqtt_bridge_health
+
+Le worker ``celery`` est considéré sain s'il répond au ping Celery. Le service
+``mqtt-bridge`` écrit un heartbeat local tant qu'il est connecté au broker MQTT ;
+le healthcheck échoue si ce heartbeat est absent ou trop ancien.
+
 Services attendus pour une démonstration complète :
 
 * ``backend`` ;
