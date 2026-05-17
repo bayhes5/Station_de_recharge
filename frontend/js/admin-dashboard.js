@@ -102,9 +102,9 @@ function createStatusBadge(label, variant = "") {
 
 document.addEventListener("DOMContentLoaded", async () => {
     const AUTO_REFRESH_MS = 30000;
-    const GRAFANA_DASHBOARD_UID = "station-supervision";
-    const GRAFANA_DASHBOARD_SLUG = "station-supervision-technique";
-    const GRAFANA_DASHBOARD_QUERY = "orgId=1&from=now-6h&to=now&refresh=5s";
+    const GRAFANA_DASHBOARD_UID = "station-overview";
+    const GRAFANA_DASHBOARD_SLUG = "station-vue-globale-supervision";
+    const GRAFANA_DASHBOARD_QUERY = "orgId=1&from=now-6h&to=now&refresh=10s";
     const GRAFANA_DASHBOARD_PATH = `/d/${GRAFANA_DASHBOARD_UID}/${GRAFANA_DASHBOARD_SLUG}?${GRAFANA_DASHBOARD_QUERY}`;
     const GRAFANA_DASHBOARD_SUBPATH = `/grafana${GRAFANA_DASHBOARD_PATH}`;
     const status = document.getElementById("admin-status");

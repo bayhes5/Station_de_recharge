@@ -55,7 +55,7 @@ Nginx :
    https://localhost/          -> frontend
    https://localhost/api/      -> API Django
    https://localhost/admin/    -> admin Django
-   https://localhost/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s
+   https://localhost/grafana/d/station-overview/station-vue-globale-supervision?orgId=1&from=now-6h&to=now&refresh=10s
                          -> dashboard Grafana de supervision
    https://localhost/kiosk/    -> kiosque Raspberry
 

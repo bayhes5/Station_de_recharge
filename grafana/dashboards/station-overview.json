@@ -1,0 +1,536 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Ouvrir le detail technique",
+      "tooltip": "Courbes capteurs et etat ESP32",
+      "type": "link",
+      "url": "/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=$__from&to=$__to&var-station=$station&var-borne=$borne&var-emplacement=$emplacement"
+    }
+  ],
+  "panels": [
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*)::double precision AS value\nFROM station s\nWHERE s.statut = 'active'\n  AND ('$station' = 'all' OR s.id_station::text = '$station');",
+          "refId": "A"
+        }
+      ],
+      "title": "Stations actives",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*)::double precision AS value\nFROM charging_session cs\nJOIN emplacement e ON e.id_emplacement = cs.id_emplacement\nJOIN borne b ON b.id_borne = e.id_borne\nJOIN station s ON s.id_station = e.id_station\nWHERE cs.end_time IS NULL\n  AND ('$station' = 'all' OR s.id_station::text = '$station')\n  AND ('$borne' = 'all' OR b.id_borne::text = '$borne')\n  AND ('$emplacement' = 'all' OR e.id_emplacement::text = '$emplacement');",
+          "refId": "A"
+        }
+      ],
+      "title": "Sessions en cours",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*)::double precision AS value\nFROM device d\nJOIN emplacement e ON e.id_emplacement = d.id_emplacement\nJOIN borne b ON b.id_borne = e.id_borne\nJOIN station s ON s.id_station = e.id_station\nWHERE (d.last_seen IS NULL OR d.last_seen < now() - interval '5 minutes')\n  AND ('$station' = 'all' OR s.id_station::text = '$station')\n  AND ('$borne' = 'all' OR b.id_borne::text = '$borne')\n  AND ('$emplacement' = 'all' OR e.id_emplacement::text = '$emplacement');",
+          "refId": "A"
+        }
+      ],
+      "title": "ESP32 hors ligne",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 0
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*)::double precision AS value\nFROM alerte a\nLEFT JOIN charging_session cs ON cs.id_session = a.id_session\nLEFT JOIN emplacement session_emplacement ON session_emplacement.id_emplacement = cs.id_emplacement\nLEFT JOIN capteur_data cd ON cd.id_data = a.id_data\nLEFT JOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement sensor_emplacement ON sensor_emplacement.id_emplacement = d.id_emplacement\nLEFT JOIN emplacement e ON e.id_emplacement = COALESCE(session_emplacement.id_emplacement, sensor_emplacement.id_emplacement)\nLEFT JOIN borne b ON b.id_borne = e.id_borne\nLEFT JOIN station s ON s.id_station = e.id_station\nWHERE a.status NOT IN ('resolved', 'resolue', 'closed', 'fermee')\n  AND ('$station' = 'all' OR s.id_station::text = '$station')\n  AND ('$borne' = 'all' OR b.id_borne::text = '$borne')\n  AND ('$emplacement' = 'all' OR e.id_emplacement::text = '$emplacement');",
+          "refId": "A"
+        }
+      ],
+      "title": "Alertes actives",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 0
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH latest_power AS (\n  SELECT DISTINCT ON (d.id_device) d.id_device, cd.valeur\n  FROM capteur_data cd\n  JOIN capteur c ON c.id_capteur = cd.id_capteur\n  JOIN device d ON d.id_device = c.id_device\n  JOIN emplacement e ON e.id_emplacement = d.id_emplacement\n  JOIN borne b ON b.id_borne = e.id_borne\n  JOIN station s ON s.id_station = e.id_station\n  WHERE c.type = 'power' AND $__timeFilter(cd.timestamp)\n    AND ('$station' = 'all' OR s.id_station::text = '$station')\n    AND ('$borne' = 'all' OR b.id_borne::text = '$borne')\n    AND ('$emplacement' = 'all' OR e.id_emplacement::text = '$emplacement')\n  ORDER BY d.id_device, cd.timestamp DESC\n)\nSELECT COALESCE(SUM(valeur), 0)::double precision AS value FROM latest_power;",
+          "refId": "A"
+        }
+      ],
+      "title": "Puissance instantanee",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "kwatth"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH latest_session_energy AS (\n  SELECT DISTINCT ON (st.id_session) st.id_session, st.energie_kwh\n  FROM session_telemetry st\n  JOIN charging_session cs ON cs.id_session = st.id_session\n  JOIN emplacement e ON e.id_emplacement = cs.id_emplacement\n  JOIN borne b ON b.id_borne = e.id_borne\n  JOIN station s ON s.id_station = e.id_station\n  WHERE st.timestamp >= date_trunc('day', now())\n    AND ('$station' = 'all' OR s.id_station::text = '$station')\n    AND ('$borne' = 'all' OR b.id_borne::text = '$borne')\n    AND ('$emplacement' = 'all' OR e.id_emplacement::text = '$emplacement')\n  ORDER BY st.id_session, st.timestamp DESC\n)\nSELECT COALESCE(SUM(energie_kwh), 0)::double precision AS value FROM latest_session_energy;",
+          "refId": "A"
+        }
+      ],
+      "title": "Energie aujourd'hui",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "id": 7,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT cs.start_time AS debut, COALESCE(u.pseudo, '-') AS utilisateur, COALESCE(r.reference_code, '-') AS code_reservation, s.nom AS station, b.nom AS borne, e.numero AS emplacement, ROUND(EXTRACT(EPOCH FROM (now() - cs.start_time)) / 60)::integer AS duree_min, latest_tel.courant, latest_tel.tension, latest_tel.energie_kwh\nFROM charging_session cs\nJOIN reservation r ON r.id_reservation = cs.id_reservation\nLEFT JOIN utilisateur u ON u.id_user = r.id_user\nJOIN emplacement e ON e.id_emplacement = cs.id_emplacement\nJOIN borne b ON b.id_borne = e.id_borne\nJOIN station s ON s.id_station = e.id_station\nLEFT JOIN LATERAL (\n  SELECT st.courant, st.tension, st.energie_kwh\n  FROM session_telemetry st\n  WHERE st.id_session = cs.id_session\n  ORDER BY st.timestamp DESC\n  LIMIT 1\n) latest_tel ON true\nWHERE cs.end_time IS NULL\n  AND ('$station' = 'all' OR s.id_station::text = '$station')\n  AND ('$borne' = 'all' OR b.id_borne::text = '$borne')\n  AND ('$emplacement' = 'all' OR e.id_emplacement::text = '$emplacement')\nORDER BY cs.start_time;",
+          "refId": "A"
+        }
+      ],
+      "title": "Sessions en cours",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "id": 8,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT s.nom AS station, s.localisation AS localisation, s.statut, COUNT(DISTINCT d.id_device) AS devices, COUNT(DISTINCT d.id_device) FILTER (WHERE d.last_seen IS NULL OR d.last_seen < now() - interval '5 minutes') AS esp32_hors_ligne, COUNT(DISTINCT cs.id_session) AS sessions_en_cours, MAX(d.last_seen) AS dernier_signal\nFROM station s\nLEFT JOIN borne b ON b.id_station = s.id_station\nLEFT JOIN emplacement e ON e.id_borne = b.id_borne\nLEFT JOIN device d ON d.id_emplacement = e.id_emplacement\nLEFT JOIN charging_session cs ON cs.id_emplacement = e.id_emplacement AND cs.end_time IS NULL\nWHERE ('$station' = 'all' OR s.id_station::text = '$station')\n  AND ('$borne' = 'all' OR b.id_borne::text = '$borne')\n  AND ('$emplacement' = 'all' OR e.id_emplacement::text = '$emplacement')\nGROUP BY s.id_station, s.nom, s.localisation, s.statut\nORDER BY esp32_hors_ligne DESC, sessions_en_cours DESC, station;",
+          "refId": "A"
+        }
+      ],
+      "title": "Stations a surveiller",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 22
+      },
+      "id": 9,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT a.date AS time, a.type, a.niveau_severite, a.status, COALESCE(s.nom, '-') AS station, COALESCE(b.nom, '-') AS borne, COALESCE(e.numero::text, '-') AS emplacement, a.message\nFROM alerte a\nLEFT JOIN charging_session cs ON cs.id_session = a.id_session\nLEFT JOIN emplacement session_emplacement ON session_emplacement.id_emplacement = cs.id_emplacement\nLEFT JOIN capteur_data cd ON cd.id_data = a.id_data\nLEFT JOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement sensor_emplacement ON sensor_emplacement.id_emplacement = d.id_emplacement\nLEFT JOIN emplacement e ON e.id_emplacement = COALESCE(session_emplacement.id_emplacement, sensor_emplacement.id_emplacement)\nLEFT JOIN borne b ON b.id_borne = e.id_borne\nLEFT JOIN station s ON s.id_station = e.id_station\nWHERE $__timeFilter(a.date)\n  AND ('$station' = 'all' OR s.id_station::text = '$station')\n  AND ('$borne' = 'all' OR b.id_borne::text = '$borne')\n  AND ('$emplacement' = 'all' OR e.id_emplacement::text = '$emplacement')\nORDER BY a.date DESC\nLIMIT 50;",
+          "refId": "A"
+        }
+      ],
+      "title": "Dernieres alertes",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 22
+      },
+      "id": 10,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT dcl.timestamp AS time, s.nom AS station, b.nom AS borne, e.numero AS emplacement, COALESCE(NULLIF(d.mac_address, ''), e.numero::text) AS slot, dcl.action, dcl.status, dcl.message, dcl.id_session AS session_id\nFROM device_command_log dcl\nJOIN device d ON d.id_device = dcl.id_device\nJOIN emplacement e ON e.id_emplacement = d.id_emplacement\nJOIN borne b ON b.id_borne = e.id_borne\nJOIN station s ON s.id_station = e.id_station\nWHERE $__timeFilter(dcl.timestamp)\n  AND ('$station' = 'all' OR s.id_station::text = '$station')\n  AND ('$borne' = 'all' OR b.id_borne::text = '$borne')\n  AND ('$emplacement' = 'all' OR e.id_emplacement::text = '$emplacement')\nORDER BY dcl.timestamp DESC\nLIMIT 50;",
+          "refId": "A"
+        }
+      ],
+      "title": "Derniers ACK ESP32",
+      "type": "table"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 42,
+  "tags": ["station", "iot", "supervision", "overview"],
+  "templating": {
+    "list": [
+      {
+        "allValue": "all",
+        "current": {
+          "selected": true,
+          "text": "Toutes les stations",
+          "value": "all"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "station-timescaledb"
+        },
+        "definition": "SELECT id_station::text AS __value, nom AS __text FROM station ORDER BY nom;",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Station",
+        "multi": false,
+        "name": "station",
+        "options": [],
+        "query": "SELECT id_station::text AS __value, nom AS __text FROM station ORDER BY nom;",
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "all",
+        "current": {
+          "selected": true,
+          "text": "Toutes les bornes",
+          "value": "all"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "station-timescaledb"
+        },
+        "definition": "SELECT b.id_borne::text AS __value, s.nom || ' / ' || b.nom AS __text FROM borne b JOIN station s ON s.id_station = b.id_station WHERE ('$station' = 'all' OR b.id_station::text = '$station') ORDER BY s.nom, b.numero;",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Borne",
+        "multi": false,
+        "name": "borne",
+        "options": [],
+        "query": "SELECT b.id_borne::text AS __value, s.nom || ' / ' || b.nom AS __text FROM borne b JOIN station s ON s.id_station = b.id_station WHERE ('$station' = 'all' OR b.id_station::text = '$station') ORDER BY s.nom, b.numero;",
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "all",
+        "current": {
+          "selected": true,
+          "text": "Tous les emplacements",
+          "value": "all"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "station-timescaledb"
+        },
+        "definition": "SELECT e.id_emplacement::text AS __value, s.nom || ' / ' || b.nom || ' / emplacement ' || e.numero::text AS __text FROM emplacement e JOIN borne b ON b.id_borne = e.id_borne JOIN station s ON s.id_station = e.id_station WHERE ('$station' = 'all' OR e.id_station::text = '$station') AND ('$borne' = 'all' OR e.id_borne::text = '$borne') ORDER BY s.nom, b.numero, e.numero;",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Emplacement",
+        "multi": false,
+        "name": "emplacement",
+        "options": [],
+        "query": "SELECT e.id_emplacement::text AS __value, s.nom || ' / ' || b.nom || ' / emplacement ' || e.numero::text AS __text FROM emplacement e JOIN borne b ON b.id_borne = e.id_borne JOIN station s ON s.id_station = e.id_station WHERE ('$station' = 'all' OR e.id_station::text = '$station') AND ('$borne' = 'all' OR e.id_borne::text = '$borne') ORDER BY s.nom, b.numero, e.numero;",
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Station - Vue globale supervision",
+  "uid": "station-overview",
+  "version": 1,
+  "weekStart": ""
+}

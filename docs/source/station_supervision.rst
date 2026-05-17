@@ -510,14 +510,28 @@ Grafana
 -------
 
 Grafana est provisionné automatiquement avec une datasource PostgreSQL nommée
-``Station TimescaleDB`` et un dashboard ``Station - Supervision technique``.
-Le dashboard est accessible directement via :
+``Station TimescaleDB`` et deux dashboards complémentaires.
+
+Le point d'entrée recommandé est ``Station - Vue globale supervision`` :
+
+.. code-block:: text
+
+   https://localhost/grafana/d/station-overview/station-vue-globale-supervision?orgId=1&from=now-6h&to=now&refresh=10s
+
+Ce dashboard affiche les indicateurs globaux, les sessions en cours, les
+stations à surveiller, les dernières alertes et les derniers acquittements ESP32.
+Il expose aussi des variables de recherche ``station``, ``borne`` et
+``emplacement``. Ces variables permettent de partir d'une vue globale puis de
+zoomer progressivement sur un point de charge.
+
+Le dashboard ``Station - Supervision technique`` reste dédié aux séries
+temporelles détaillées :
 
 .. code-block:: text
 
    https://localhost/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s
 
-Le dashboard initial affiche :
+Il affiche :
 
 * la température par emplacement ;
 * l'humidité ;
@@ -526,6 +540,9 @@ Le dashboard initial affiche :
 * la puissance ;
 * les alertes récentes ;
 * l'état des ESP32.
+
+Il reprend les mêmes variables ``station``, ``borne`` et ``emplacement`` que le
+dashboard d'accueil afin de conserver le même périmètre d'analyse.
 
 Cette supervision technique complète l'interface web métier. L'application web
 reste destinée aux utilisateurs, administrateurs et techniciens ; Grafana sert à

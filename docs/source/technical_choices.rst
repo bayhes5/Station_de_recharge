@@ -564,7 +564,11 @@ Grafana complète cette vue avec des séries temporelles : température, courant
 Ce choix évite de recréer un outil de graphes temps réel de zéro et s'appuie sur
 une solution open source connue. Dans la version actuelle, Grafana est accessible sur
 ``/grafana/`` via le reverse proxy local, avec un lien direct vers le dashboard
-``/grafana/d/station-supervision/station-supervision-technique``.
+``/grafana/d/station-overview/station-vue-globale-supervision``. Ce dashboard
+d'accueil porte les statistiques globales, les sessions en cours et les filtres
+station/borne/emplacement ; il renvoie ensuite vers le dashboard technique
+``/grafana/d/station-supervision/station-supervision-technique`` pour les séries
+capteurs détaillées.
 
 Reverse proxy Nginx
 -------------------

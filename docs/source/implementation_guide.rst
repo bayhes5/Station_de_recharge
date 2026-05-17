@@ -400,7 +400,7 @@ le dashboard Grafana :
 
 .. code-block:: text
 
-   /grafana/d/station-supervision/station-supervision-technique
+   /grafana/d/station-overview/station-vue-globale-supervision
 
 L'interface admin reste orientée exploitation métier : elle présente les alertes
 et les états récents sous forme de tableaux lisibles. Grafana est réservé aux
@@ -411,11 +411,15 @@ Grafana
 
 Grafana est provisionné depuis ``grafana/provisioning/``. La datasource
 PostgreSQL est dans ``grafana/provisioning/datasources/datasource.yml`` et le
-dashboard dans ``grafana/dashboards/station-supervision.json``.
+dashboard d'accueil dans ``grafana/dashboards/station-overview.json``. Le
+dashboard détaillé des séries capteurs reste dans
+``grafana/dashboards/station-supervision.json``.
 
-Le dashboard lit directement les tables Django : ``capteur_data``, ``capteur``,
-``device``, ``emplacement``, ``station`` et ``alerte``. Ce choix évite de créer
-une API dédiée pour Grafana et exploite les capacités SQL de PostgreSQL.
+Les dashboards lisent directement les tables Django : ``charging_session``,
+``session_telemetry``, ``capteur_data``, ``capteur``, ``device``,
+``device_command_log``, ``emplacement``, ``borne``, ``station`` et ``alerte``.
+Ce choix évite de créer une API dédiée pour Grafana et exploite les capacités SQL
+de PostgreSQL.
 
 Administration métier
 ---------------------

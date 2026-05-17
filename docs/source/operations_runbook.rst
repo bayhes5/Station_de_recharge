@@ -136,7 +136,8 @@ Les types attendus sont :
 * ``door`` ;
 * ``cable``.
 
-Le dashboard Grafana à ouvrir est ``Station - Supervision technique``.
+Le dashboard Grafana à ouvrir en premier est ``Station - Vue globale supervision``.
+Il permet ensuite d'accéder au détail ``Station - Supervision technique``.
 
 Diagnostic du bridge MQTT
 -------------------------

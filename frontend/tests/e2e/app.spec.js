@@ -304,7 +304,7 @@ test("admin supervision links directly to the Grafana dashboard", async ({ page 
   const grafanaLink = page.getByRole("link", { name: "Ouvrir Grafana" });
   await expect(grafanaLink).toHaveAttribute(
     "href",
-    "http://127.0.0.1:3000/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s",
+    "http://127.0.0.1:3000/grafana/d/station-overview/station-vue-globale-supervision?orgId=1&from=now-6h&to=now&refresh=10s",
   );
   await expect(page.getByRole("button", { name: "Précédent" }).first()).toBeVisible();
 });
