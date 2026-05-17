@@ -1,5 +1,6 @@
 from django.urls import path
 
+from .health_views import health_live, health_ready
 from .views import (
     admin_borne_detail,
     admin_bornes,
@@ -21,6 +22,9 @@ from .views import (
     admin_user_auth_methods,
     admin_users,
     admin_cancel_reservation,
+    admin_device_detail,
+    admin_device_schedule_ota,
+    admin_devices,
     admin_revoke_reservation_access,
     admin_revoke_user_auth_method,
     admin_reservations,
@@ -33,8 +37,6 @@ from .views import (
     dashboard,
     delete_auth_method,
     export_account,
-    health_live,
-    health_ready,
     login,
     logout,
     me,
@@ -163,5 +165,12 @@ urlpatterns = [
         "admin/emplacements/<uuid:emplacement_id>/",
         admin_emplacement_detail,
         name="api-admin-emplacement-detail",
+    ),
+    path("admin/devices/", admin_devices, name="api-admin-devices"),
+    path("admin/devices/<uuid:device_id>/", admin_device_detail, name="api-admin-device-detail"),
+    path(
+        "admin/devices/<uuid:device_id>/schedule-ota/",
+        admin_device_schedule_ota,
+        name="api-admin-device-schedule-ota",
     ),
 ]

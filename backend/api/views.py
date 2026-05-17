@@ -15,9 +15,8 @@ from django.contrib.auth.password_validation import validate_password as validat
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
-from django.db import connection, transaction
+from django.db import transaction
 from django.db.models import Exists, OuterRef, Prefetch, Q
-from django.shortcuts import render
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
@@ -35,6 +34,7 @@ from .models import (
     Authentification,
     Borne,
     Consentement,
+    Device,
     DeviceStatus,
     Emplacement,
     JournalSecurite,
@@ -62,6 +62,7 @@ from .serializers import (
     AdminUserSerializer,
     BorneSerializer,
     ConsentPreferenceSerializer,
+    DeviceAdminSerializer,
     EmplacementSerializer,
     MaintenanceAdminSerializer,
     PasswordChangeSerializer,
@@ -74,6 +75,7 @@ from .serializers import (
     TechnicianStationAssignmentSerializer,
     TechnicianMaintenanceSerializer,
 )
+from .services.firmware import schedule_ota_update, update_firmware_compliance_status
 from .reservation_rules import (
     RESERVATION_DURATION_MINUTES,
     RESERVATION_STEP_MINUTES,
@@ -108,15 +110,6 @@ RFID_LINK_CODE_TTL_SECONDS = 10 * 60
 MOBILE_SESSION_TTL_SECONDS = getattr(settings, "MOBILE_SESSION_TTL_SECONDS", 10 * 60)
 MOBILE_SESSION_TOKEN_BYTES = 18
 OFFLINE_CACHE_HORIZON_HOURS = getattr(settings, "TERMINAL_OFFLINE_CACHE_HOURS", 24)
-DEVICE_ONLINE_GRACE_MINUTES = getattr(settings, "DEVICE_ONLINE_GRACE_MINUTES", 5)
-DEVICE_STATUS_DISPLAY = {
-    "online": "Disponible",
-    "offline": "Hors ligne",
-    "charging": "Charge en cours",
-    "idle": "Disponible",
-    "error": "Erreur",
-    "provisioned": "Provisionné",
-}
 PRIVILEGED_USER_FIELDS = {"is_staff", "is_superuser"}
 CONSENT_DEFINITIONS = {
     "cgu": {
@@ -135,55 +128,6 @@ CONSENT_DEFINITIONS = {
         "modifiable": True,
     },
 }
-
-def _health_result(ok, detail="ok", **extra):
-    """Return one normalized health check result."""
-    return {
-        "ok": bool(ok),
-        "detail": detail,
-        **extra,
-    }
-
-
-def _check_database_health():
-    """Verify that the configured Django database accepts a trivial query."""
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1")
-            cursor.fetchone()
-    except Exception as error:  # noqa: BLE001 - health endpoint must report diagnostics.
-        return _health_result(False, str(error), engine=connection.vendor)
-    return _health_result(True, engine=connection.vendor)
-
-
-def _check_cache_health():
-    """Verify that the default cache can round-trip a short value."""
-    key = "health:ready"
-    value = secrets.token_urlsafe(8)
-    try:
-        cache.set(key, value, timeout=15)
-        cached = cache.get(key)
-        cache.delete(key)
-    except Exception as error:  # noqa: BLE001 - health endpoint must report diagnostics.
-        return _health_result(False, str(error))
-    if cached != value:
-        return _health_result(False, "cache round-trip mismatch")
-    return _health_result(True)
-
-
-def _check_runtime_config_health():
-    """Report critical runtime configuration without exposing secrets."""
-    terminal_secret_configured = bool(getattr(settings, "TERMINAL_API_SECRET", ""))
-    detail = "ok"
-    if not terminal_secret_configured:
-        detail = "TERMINAL_API_SECRET missing in debug mode" if settings.DEBUG else "TERMINAL_API_SECRET missing"
-    return _health_result(
-        settings.DEBUG or terminal_secret_configured,
-        detail,
-        debug=settings.DEBUG,
-        terminal_secret_configured=terminal_secret_configured,
-    )
-
 
 def _refresh_cookie_kwargs():
     """Return the shared security attributes for the refresh-token cookie."""
@@ -320,42 +264,6 @@ def _schema(
         tags=tags or ["API"],
         operation_id=operation_id,
         methods=methods,
-    )
-
-
-@_schema("Vérifier que l'API répond", tags=["Santé"])
-@api_view(["GET"])
-@permission_classes([AllowAny])
-def health_live(_request):
-    """Return a lightweight liveness probe for load balancers."""
-    return Response(
-        {
-            "status": "ok",
-            "service": "station-backend",
-            "timestamp": timezone.now().isoformat(),
-        }
-    )
-
-
-@_schema("Vérifier que l'API est prête", tags=["Santé"])
-@api_view(["GET"])
-@permission_classes([AllowAny])
-def health_ready(_request):
-    """Return readiness checks for critical runtime dependencies."""
-    checks = {
-        "database": _check_database_health(),
-        "cache": _check_cache_health(),
-        "config": _check_runtime_config_health(),
-    }
-    ok = all(check["ok"] for check in checks.values())
-    return Response(
-        {
-            "status": "ok" if ok else "degraded",
-            "service": "station-backend",
-            "timestamp": timezone.now().isoformat(),
-            "checks": checks,
-        },
-        status=status.HTTP_200_OK if ok else status.HTTP_503_SERVICE_UNAVAILABLE,
     )
 
 
@@ -620,101 +528,6 @@ def _serialize_emplacement(emplacement):
         "numero": emplacement.numero,
         "statut": emplacement.statut,
         "lock_state": emplacement.lock_state,
-    }
-
-
-def _device_is_online(device, now=None):
-    """Return whether a device has sent telemetry recently enough."""
-    if not device.last_seen:
-        return False
-    now = now or timezone.now()
-    return device.last_seen >= now - timedelta(minutes=DEVICE_ONLINE_GRACE_MINUTES)
-
-
-def _device_status_display(device):
-    """Return a supervision-friendly label for the last ESP32 state."""
-    if not device.last_seen:
-        return "Aucune télémétrie reçue"
-    raw_status = (device.status or "").strip()
-    return DEVICE_STATUS_DISPLAY.get(raw_status.lower(), raw_status or "-")
-
-
-def _serialize_device_supervision(device, now=None):
-    """Return one ESP32 state row for the admin supervision screen."""
-    online = _device_is_online(device, now=now)
-    emplacement = device.emplacement
-    station = emplacement.station
-    borne = emplacement.borne
-    return {
-        "id_device": str(device.id_device),
-        "slot_id": device.slot_id or device.mac_address or str(device.id_device),
-        "slot_label": f"{station.nom} - {borne.nom} - emplacement {emplacement.numero}",
-        "type_device": device.type_device,
-        "firmware_version": device.firmware_version,
-        "ip_address": device.ip_address,
-        "hardware_mac": device.hardware_mac,
-        "status": device.status,
-        "status_display": _device_status_display(device),
-        "last_seen": device.last_seen.isoformat() if device.last_seen else None,
-        "online": online,
-        "health": "online" if online else "offline",
-        "station_nom": station.nom,
-        "borne_nom": borne.nom,
-        "borne_numero": borne.numero,
-        "emplacement_numero": emplacement.numero,
-        "emplacement_statut": emplacement.statut,
-        "lock_state": emplacement.lock_state,
-    }
-
-
-def _serialize_alert_supervision(alert):
-    """Return one operational alert for the admin supervision screen."""
-    session = alert.session
-    data = alert.data
-    device = data.capteur.device if data and data.capteur else None
-    emplacement = session.emplacement if session else device.emplacement if device else None
-    station = emplacement.station if emplacement else None
-    borne = emplacement.borne if emplacement else None
-    return {
-        "id_alerte": str(alert.id_alerte),
-        "type": alert.type,
-        "message": alert.message,
-        "niveau_severite": alert.niveau_severite,
-        "status": alert.status,
-        "timestamp": alert.timestamp.isoformat() if alert.timestamp else None,
-        "station_nom": station.nom if station else "-",
-        "borne_nom": borne.nom if borne else "-",
-        "borne_numero": borne.numero if borne else "-",
-        "emplacement_numero": emplacement.numero if emplacement else "-",
-        "session_id": str(session.id_session) if session else None,
-    }
-
-
-def _serialize_sensor_data_supervision(sensor_data):
-    """Return one recent sensor measurement for the admin supervision screen."""
-    capteur = sensor_data.capteur
-    device = capteur.device
-    emplacement = device.emplacement if device else None
-    station = emplacement.station if emplacement else None
-    borne = emplacement.borne if emplacement else None
-    display_value = None
-    if capteur.type == "door":
-        display_value = "Boitier ferme" if sensor_data.valeur == 1 else "Boitier ouvert"
-    elif capteur.type == "cable":
-        display_value = "Cable present" if sensor_data.valeur == 1 else "Cable retire"
-    return {
-        "id_data": str(sensor_data.id_data),
-        "type": capteur.type,
-        "unite": capteur.unite,
-        "valeur": sensor_data.valeur,
-        "display_value": display_value,
-        "timestamp": sensor_data.timestamp.isoformat() if sensor_data.timestamp else None,
-        "slot_id": (device.slot_id or device.mac_address) if device else "-",
-        "slot_label": f"{station.nom} - {borne.nom} - emplacement {emplacement.numero}" if emplacement and station and borne else "-",
-        "station_nom": station.nom if station else "-",
-        "borne_nom": borne.nom if borne else "-",
-        "borne_numero": borne.numero if borne else "-",
-        "emplacement_numero": emplacement.numero if emplacement else "-",
     }
 
 
@@ -1524,36 +1337,6 @@ def _duration_is_valid(date_debut, date_fin):
     return reservation_duration_is_allowed(date_debut, date_fin)
 
 
-def home(request):
-    """Render the backend landing page with links to the frontend."""
-    return render(
-        request,
-        "api/home.html",
-        {
-            "frontend_base_url": settings.FRONTEND_BASE_URL,
-        },
-    )
-
-
-def signup(request):
-    """Render the signup bridge page that redirects users to the frontend."""
-    return render(
-        request,
-        "api/auth_page.html",
-        {
-            "title": "Inscription",
-            "description": (
-                "Le formulaire d'inscription est maintenant gere par le frontend "
-                "JavaScript, pour garder une seule logique de saisie et d'appel API."
-            ),
-            "primary_cta_label": "Ouvrir l'inscription",
-            "primary_cta_url": f"{settings.FRONTEND_BASE_URL}/register.html",
-            "secondary_cta_label": "Ouvrir la connexion",
-            "secondary_cta_url": f"{settings.FRONTEND_BASE_URL}/login.html",
-        },
-    )
-
-
 @_schema(
     "Verifier la disponibilite d'un pseudo ou d'un email",
     parameters=[
@@ -1620,25 +1403,6 @@ def register(request):
         return _set_refresh_cookie(response, refresh)
 
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-def login_view(request):
-    """Render the login bridge page that redirects users to the frontend."""
-    return render(
-        request,
-        "api/auth_page.html",
-        {
-            "title": "Connexion",
-            "description": (
-                "La connexion est prise en charge par le frontend JavaScript, avec "
-                "un flux d'authentification centralise cote API."
-            ),
-            "primary_cta_label": "Ouvrir la connexion",
-            "primary_cta_url": f"{settings.FRONTEND_BASE_URL}/login.html",
-            "secondary_cta_label": "Ouvrir l'inscription",
-            "secondary_cta_url": f"{settings.FRONTEND_BASE_URL}/register.html",
-        },
-    )
 
 
 @_schema("Connecter un utilisateur", request=OpenApiTypes.OBJECT, tags=["Authentification"])
@@ -2383,19 +2147,76 @@ def admin_emplacement_detail(request, emplacement_id):
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-def contact(request):
-    """Render the informational contact page."""
-    return render(
-        request,
-        "api/privacy.html",
-        {
-            "title": "Contact",
-            "description": (
-                "Besoin d'aide, d'une information technique ou d'un renseignement sur la "
-                "station de recharge ? Cette page est le point d'entree pour nous joindre."
-            ),
-        },
+def _device_queryset():
+    """Return ESP32 devices with their physical location loaded."""
+    return Device.objects.select_related(
+        "emplacement",
+        "emplacement__station",
+        "emplacement__borne",
+    ).order_by(
+        "emplacement__station__nom",
+        "emplacement__borne__numero",
+        "emplacement__numero",
     )
+
+
+@_schema("Lister les ESP32", tags=["Administration"], operation_id="admin_devices_list")
+@api_view(["GET"])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_devices(request):
+    """List embedded devices with inventory and firmware policy fields."""
+    return _list_response(
+        request,
+        _device_queryset(),
+        serializer_class=DeviceAdminSerializer,
+    )
+
+
+@_schema("Lire un ESP32", tags=["Administration"], operation_id="admin_device_retrieve", methods=["GET"])
+@_schema("Modifier la politique firmware d'un ESP32", request=DeviceAdminSerializer, tags=["Administration"], operation_id="admin_device_update", methods=["PATCH"])
+@api_view(["GET", "PATCH"])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_device_detail(request, device_id):
+    """Retrieve or update one ESP32 inventory record."""
+    try:
+        device = _device_queryset().get(id_device=device_id)
+    except Device.DoesNotExist:
+        return Response({"detail": "ESP32 introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == "GET":
+        return Response(DeviceAdminSerializer(device).data)
+
+    serializer = DeviceAdminSerializer(instance=device, data=request.data, partial=True)
+    serializer.is_valid(raise_exception=True)
+    device = serializer.save()
+    update_fields = []
+    update_firmware_compliance_status(device, update_fields=update_fields)
+    if update_fields:
+        device.save(update_fields=list(dict.fromkeys(update_fields)))
+    return Response(DeviceAdminSerializer(device).data)
+
+
+@_schema("Planifier une mise a jour OTA ESP32", request=OpenApiTypes.OBJECT, tags=["Administration"])
+@api_view(["POST"])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_device_schedule_ota(request, device_id):
+    """Record an admin-approved firmware update target for one ESP32."""
+    try:
+        device = _device_queryset().get(id_device=device_id)
+    except Device.DoesNotExist:
+        return Response({"detail": "ESP32 introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        schedule_ota_update(
+            device,
+            target_version=request.data.get("target_version"),
+            update_url=request.data.get("update_url", ""),
+        )
+    except ValueError as error:
+        return Response({"target_version": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+
+    device = _device_queryset().get(id_device=device_id)
+    return Response(DeviceAdminSerializer(device).data)
 
 
 @_schema("Lister les moyens d'authentification", tags=["Compte"])
@@ -3942,24 +3763,4 @@ def terminal_stop_session(request):
             "session_closed": closed,
             "session": _serialize_session(session),
         }
-    )
-
-
-def cgu(request):
-    """Render the terms of use page."""
-    return render(request, "api/cgu.html")
-
-
-def privacy(request):
-    """Render the privacy policy page."""
-    return render(
-        request,
-        "api/privacy.html",
-        {
-            "title": "Politique de confidentialite",
-            "description": (
-                "Consultez les informations essentielles sur la collecte, l'utilisation "
-                "et la protection des données liées à l’application."
-            ),
-        },
     )

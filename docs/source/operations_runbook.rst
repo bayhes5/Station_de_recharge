@@ -440,11 +440,35 @@ En fonctionnement normal, ces deux commandes sont exécutées automatiquement pa
 ``CELERY_BEAT_ALERT_NOTIFICATIONS_SECONDS`` et
 ``CELERY_BEAT_SESSION_TELEMETRY_HEALTH_SECONDS``.
 
-L'alerte ``firmware_outdated`` est levée si ``EXPECTED_ESP32_FIRMWARE_VERSION``
-est défini et si un ESP32 remonte une version différente. Elle se résout lorsque
-la version remontée redevient conforme. Elle ne doit pas déclencher d'email
-technicien par défaut : seul l'administrateur ou le responsable technique décide
-de planifier et appliquer une mise à jour firmware.
+L'alerte ``firmware_outdated`` est levée si une version attendue est définie
+pour le ``Device`` ou via ``EXPECTED_ESP32_FIRMWARE_VERSION`` et si un ESP32
+remonte une version différente. Elle se résout lorsque la version remontée
+redevient conforme. Elle ne doit pas déclencher d'email technicien par défaut :
+seul l'administrateur ou le responsable technique décide de planifier et
+appliquer une mise à jour firmware.
+
+Politique firmware et OTA
+-------------------------
+
+La politique firmware est volontairement séparée de la maintenance terrain :
+
+* l'ESP32 remonte automatiquement ``firmware_version``, ``hardware_mac`` et
+  ``ip_address`` dans les messages ``status``, ``ack`` et ``telemetry`` ;
+* le backend compare la version remontée avec la version attendue de
+  l'équipement ou avec ``EXPECTED_ESP32_FIRMWARE_VERSION`` ;
+* l'API admin ``/api/admin/devices/`` expose l'inventaire, le statut firmware et
+  les champs OTA ;
+* l'API admin ``/api/admin/devices/<id>/schedule-ota/`` enregistre la version
+  cible et l'URL du binaire validé par l'administrateur ;
+* le statut ``update_scheduled`` signifie qu'une mise à jour est approuvée, mais
+  l'application réelle du firmware dépend encore du canal opérationnel retenu
+  sur le matériel final.
+
+En projet académique, la mise à jour peut rester manuelle via Thonny tant que le
+matériel n'est pas disponible. Le point important pour la production est que la
+décision soit tracée côté admin, que la non-conformité soit visible en
+supervision, et que l'alerte se ferme automatiquement lorsque l'ESP32 remonte la
+version attendue.
 
 SMS de production
 -----------------

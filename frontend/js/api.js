@@ -504,6 +504,26 @@ async function getAdminSupervision() {
     });
 }
 
+async function getAdminDevices(params) {
+    return doRequest(withQuery("/admin/devices/", params), {
+        method: "GET",
+    });
+}
+
+async function updateAdminDevice(id, data) {
+    return doRequest(`/admin/devices/${id}/`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+    });
+}
+
+async function scheduleAdminDeviceOta(id, data) {
+    return doRequest(`/admin/devices/${id}/schedule-ota/`, {
+        method: "POST",
+        body: JSON.stringify(data),
+    });
+}
+
 async function getAdminReservations() {
     return doRequest("/admin/reservations/", {
         method: "GET",
@@ -857,6 +877,9 @@ window.AuthAPI = {
     deleteAccount,
     getAdminOverview,
     getAdminSupervision,
+    getAdminDevices,
+    updateAdminDevice,
+    scheduleAdminDeviceOta,
     getAdminReservations,
     cancelAdminReservation,
     getAdminSessions,

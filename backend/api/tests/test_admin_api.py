@@ -15,6 +15,7 @@ from api.models import (
     Device,
     DeviceCommandLog,
     Emplacement,
+    FirmwareUpdateStatus,
     JournalSecurite,
     Maintenance,
     ProfilUtilisateur,
@@ -209,6 +210,81 @@ def test_admin_supervision_marks_never_seen_devices_waiting_for_telemetry(admin_
     assert response.data["stats"]["devices_offline"] == 1
     assert response.data["devices"][0]["health"] == "offline"
     assert response.data["devices"][0]["status_display"] == "Aucune télémétrie reçue"
+
+
+@pytest.mark.django_db
+def test_admin_devices_requires_staff(authenticated_client):
+    response = authenticated_client.get(reverse("api-admin-devices"))
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.django_db
+def test_admin_devices_exposes_firmware_policy(admin_client, emplacements):
+    device = Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="1.0.0",
+        expected_firmware_version="1.1.0",
+        firmware_update_status=FirmwareUpdateStatus.UPDATE_REQUIRED,
+        mac_address="slot1",
+        status="offline",
+    )
+
+    response = admin_client.get(reverse("api-admin-devices"))
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["results"][0]["id_device"] == str(device.id_device)
+    assert response.data["results"][0]["firmware_version"] == "1.0.0"
+    assert response.data["results"][0]["effective_expected_firmware_version"] == "1.1.0"
+    assert response.data["results"][0]["firmware_update_required"] is True
+
+
+@pytest.mark.django_db
+def test_admin_can_schedule_ota_update(admin_client, emplacements):
+    device = Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="1.0.0",
+        mac_address="slot1",
+        status="offline",
+    )
+
+    response = admin_client.post(
+        reverse("api-admin-device-schedule-ota", kwargs={"device_id": device.id_device}),
+        {
+            "target_version": "1.2.0",
+            "update_url": "https://updates.example.local/esp32-1.2.0.bin",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["expected_firmware_version"] == "1.2.0"
+    assert response.data["ota_target_version"] == "1.2.0"
+    assert response.data["firmware_update_status"] == FirmwareUpdateStatus.UPDATE_SCHEDULED
+    device.refresh_from_db()
+    assert device.ota_requested_at is not None
+
+
+@pytest.mark.django_db
+def test_admin_device_patch_updates_firmware_compliance_status(admin_client, emplacements):
+    device = Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="1.0.0",
+        mac_address="slot1",
+        status="offline",
+    )
+
+    response = admin_client.patch(
+        reverse("api-admin-device-detail", kwargs={"device_id": device.id_device}),
+        {"expected_firmware_version": "1.0.0"},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["firmware_update_status"] == FirmwareUpdateStatus.UP_TO_DATE
 
 
 @pytest.mark.django_db

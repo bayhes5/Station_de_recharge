@@ -105,6 +105,17 @@ class DeviceStatus(models.TextChoices):
     ERROR = "error", "Erreur"
 
 
+class FirmwareUpdateStatus(models.TextChoices):
+    """Lifecycle values for firmware compliance and OTA preparation."""
+
+    UNKNOWN = "unknown", "Non renseigne"
+    UP_TO_DATE = "up_to_date", "A jour"
+    UPDATE_REQUIRED = "update_required", "Mise a jour requise"
+    UPDATE_SCHEDULED = "update_scheduled", "Mise a jour planifiee"
+    UPDATING = "updating", "Mise a jour en cours"
+    FAILED = "failed", "Echec de mise a jour"
+
+
 class AlertSeverity(models.TextChoices):
     """Severity scale used by operational alerts."""
 
@@ -682,6 +693,17 @@ class Device(models.Model):
     )
     type_device = models.CharField(max_length=50, choices=DeviceType.choices)
     firmware_version = models.CharField(max_length=50)
+    expected_firmware_version = models.CharField(max_length=50, blank=True, default="")
+    firmware_update_status = models.CharField(
+        max_length=50,
+        choices=FirmwareUpdateStatus.choices,
+        default=FirmwareUpdateStatus.UNKNOWN,
+    )
+    ota_update_url = models.URLField(blank=True, default="")
+    ota_target_version = models.CharField(max_length=50, blank=True, default="")
+    ota_requested_at = models.DateTimeField(null=True, blank=True)
+    ota_completed_at = models.DateTimeField(null=True, blank=True)
+    ota_last_error = models.CharField(max_length=255, blank=True, default="")
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     slot_id = models.CharField(max_length=50, blank=True, default="")
     hardware_mac = models.CharField(max_length=50, blank=True, default="")
@@ -705,10 +727,22 @@ class Device(models.Model):
                 condition=Q(status__in=DeviceStatus.values),
                 name="chk_device_status",
             ),
+            models.CheckConstraint(
+                condition=Q(firmware_update_status__in=FirmwareUpdateStatus.values),
+                name="chk_device_fw_status",
+            ),
         ]
         indexes = [
             models.Index(fields=["slot_id"], name="idx_device_slot_id"),
             models.Index(fields=["hardware_mac"], name="idx_device_hw_mac"),
+            models.Index(
+                fields=["firmware_update_status"],
+                name="idx_device_fw_status",
+            ),
+            models.Index(
+                fields=["expected_firmware_version"],
+                name="idx_device_fw_expected",
+            ),
             models.Index(fields=["last_seen"], name="idx_device_last_seen"),
             models.Index(fields=["status", "last_seen"], name="idx_device_status_seen"),
             models.Index(fields=["last_command_at"], name="idx_device_last_cmd_at"),

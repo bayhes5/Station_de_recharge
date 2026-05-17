@@ -14,6 +14,7 @@ from api.models import (
     CapteurData,
     Device,
     DeviceCommandLog,
+    FirmwareUpdateStatus,
     Emplacement,
     Reservation,
     Session,
@@ -734,6 +735,9 @@ def test_process_mqtt_status_creates_and_resolves_firmware_alert(emplacements):
     assert alert.niveau_severite == "moyenne"
     assert "attendu 2.0.0" in alert.message
     assert mail.outbox == []
+    assert Device.objects.get(mac_address="slot1").firmware_update_status == (
+        FirmwareUpdateStatus.UPDATE_REQUIRED
+    )
 
     process_mqtt_message(
         "station/slot1/status",
@@ -742,7 +746,9 @@ def test_process_mqtt_status_creates_and_resolves_firmware_alert(emplacements):
 
     alert.refresh_from_db()
     assert alert.status == "resolue"
-    assert Device.objects.get(mac_address="slot1").firmware_version == "2.0.0"
+    device = Device.objects.get(mac_address="slot1")
+    assert device.firmware_version == "2.0.0"
+    assert device.firmware_update_status == FirmwareUpdateStatus.UP_TO_DATE
 
 
 @pytest.mark.django_db

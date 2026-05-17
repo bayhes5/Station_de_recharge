@@ -42,6 +42,7 @@ def test_station_deployment_checks_report_unsafe_settings(monkeypatch):
         "api.W005",
         "api.W006",
         "api.W007",
+        "api.W008",
     }.issubset(ids)
 
 
@@ -60,6 +61,7 @@ def test_station_deployment_checks_report_unsafe_settings(monkeypatch):
     SMS_BREVO_API_KEY="brevo-production-api-key",
     SMS_REQUIRE_VERIFIED_PHONE=True,
     TERMINAL_API_SECRET="terminal-production-secret-with-enough-length",
+    EXPECTED_ESP32_FIRMWARE_VERSION="1.0.0",
 )
 def test_station_deployment_checks_accept_hardened_settings(monkeypatch):
     """Accept a hardened production-like configuration."""

@@ -340,11 +340,12 @@ services:
       - backend
 
   raspberry:
-    image: python:3.11-slim
+    build:
+      context: ./raspberry
     container_name: raspberry_kiosk
     working_dir: /app
     volumes:
-      - ./raspberry/app:/app
+      - ./raspberry/app:/app:ro
     ports:
       - "9000:9000"
     environment:
@@ -358,7 +359,8 @@ services:
       TERMINAL_API_SECRET: ${TERMINAL_API_SECRET:-dev-terminal-secret}
       TERMINAL_STATION_ID: ${TERMINAL_STATION_ID:-}
       TERMINAL_BORNE_ID: ${TERMINAL_BORNE_ID:-}
-    command: sh -c "pip install --no-cache-dir -r requirements.txt && python main.py"
+      OFFLINE_DB_PATH: /tmp/offline_cache.sqlite3
+      CHARGE_STATE_DB_PATH: /tmp/charge_state.sqlite3
     depends_on:
       - backend
       - mqtt

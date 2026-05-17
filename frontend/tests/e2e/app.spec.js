@@ -131,6 +131,7 @@ async function mockApi(page, { admin = false } = {}) {
           devices_total: 1,
           devices_online: 1,
           devices_offline: 0,
+          devices_firmware_update_required: 0,
           active_alerts: 0,
           critical_alerts: 0,
           telemetry_samples_24h: 4,

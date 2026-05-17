@@ -166,4 +166,12 @@ def station_deployment_checks(app_configs, **kwargs):
             )
         )
 
+    if not _setting_text("EXPECTED_ESP32_FIRMWARE_VERSION"):
+        messages.append(
+            Warning(
+                "EXPECTED_ESP32_FIRMWARE_VERSION should define the default approved ESP32 firmware.",
+                id="api.W008",
+            )
+        )
+
     return messages

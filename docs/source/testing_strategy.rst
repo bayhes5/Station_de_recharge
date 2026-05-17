@@ -197,6 +197,21 @@ par la réservation et que la session est clôturée proprement après ``STOP``.
 la borne possède un ``mqtt_prefix``, le simulateur publie sur
 ``station/<mqtt_prefix>/<slot_id>/telemetry`` pour tester le routage production.
 
+Contrôles frontend de préparation production :
+
+.. code-block:: powershell
+
+   cd frontend
+   npm run check:js
+   npm run check:a11y
+
+``check:js`` bloque les constructions dangereuses côté DOM, notamment les
+insertions HTML non contrôlées. ``check:a11y`` parcourt les pages HTML frontend
+et le kiosque Raspberry pour vérifier les bases : langue de page, titre, meta
+viewport, ``main``, ``h1``, libellés accessibles des boutons, liens, champs et
+images. Ces contrôles ne remplacent pas une revue visuelle, mais empêchent les
+régressions les plus fréquentes avant démonstration ou déploiement.
+
 Contrôle rapide des mesures en base :
 
 .. code-block:: bash

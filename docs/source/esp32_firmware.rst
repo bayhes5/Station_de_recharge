@@ -261,6 +261,15 @@ Les champs d'inventaire sont publiés automatiquement par le firmware :
 * ``firmware_version`` permet au backend de détecter une version non conforme
   avec ``EXPECTED_ESP32_FIRMWARE_VERSION``.
 
+Le backend ne demande pas une saisie manuelle de ces informations : elles sont
+remontées automatiquement par le firmware dans les messages ``status``, ``ack``
+et ``telemetry``. L'administrateur peut ensuite définir une version attendue
+par équipement ou planifier une cible OTA depuis l'API admin. Les champs
+``firmware_update_status``, ``ota_target_version``, ``ota_update_url``,
+``ota_requested_at``, ``ota_completed_at`` et ``ota_last_error`` servent à
+tracer la décision et l'état de conformité sans donner d'accès global à Grafana
+aux techniciens terrain.
+
 Chaîne de supervision
 ---------------------
 

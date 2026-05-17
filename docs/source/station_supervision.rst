@@ -577,12 +577,20 @@ Les conditions de résolution automatique sont :
 * ``session_without_telemetry`` : une nouvelle mesure ``SessionTelemetry`` est
   reçue pour la session active ou la session est clôturée.
 
-Le firmware est traité séparément. Si ``EXPECTED_ESP32_FIRMWARE_VERSION`` est
-défini et que l'ESP32 remonte une version différente, le backend crée une alerte
-``firmware_outdated`` de sévérité moyenne. Elle est levée automatiquement lorsque
-l'équipement remonte la version attendue. Par défaut, cette alerte n'est pas
-envoyée aux techniciens terrain : elle relève plutôt de l'administrateur ou du
-responsable qui prépare les mises à jour firmware.
+Le firmware est traité séparément. Chaque ``Device`` conserve maintenant la
+version remontée par l'ESP32, la version attendue, le statut de conformité et
+les champs de préparation OTA : version cible, URL du binaire, date de demande,
+date de fin et dernière erreur. La version attendue peut être définie au niveau
+de l'équipement ; sinon le backend utilise ``EXPECTED_ESP32_FIRMWARE_VERSION``.
+
+Si une version attendue existe et que l'ESP32 remonte une version différente,
+le backend crée une alerte ``firmware_outdated`` de sévérité moyenne et marque
+le statut firmware comme ``update_required`` ou conserve ``update_scheduled`` si
+l'administrateur a déjà planifié une mise à jour. L'alerte est levée
+automatiquement lorsque l'équipement remonte la version attendue, et le statut
+devient ``up_to_date``. Par défaut, cette alerte n'est pas envoyée aux
+techniciens terrain : elle relève de l'administrateur ou du responsable
+technique qui valide et planifie les mises à jour firmware.
 
 Contrôle applicatif des sessions sans télémétrie
 ------------------------------------------------

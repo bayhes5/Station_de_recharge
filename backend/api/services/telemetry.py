@@ -6,7 +6,6 @@ import re
 from typing import Any
 from uuid import UUID
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -22,6 +21,11 @@ from api.models import (
     Emplacement,
     Session,
     SessionTelemetry,
+)
+from api.services.firmware import (
+    expected_firmware_version,
+    firmware_update_required,
+    update_firmware_compliance_status,
 )
 from api.services.email_notifications import notify_technicians_for_alert
 
@@ -185,7 +189,12 @@ def _save_device_report(device: Device, timestamp, status_value: Any, payload: d
     device.last_seen = timestamp
     device.status = _device_status(status_value)
     _remember_device_identity(device, payload, update_fields)
-    device.save(update_fields=update_fields)
+    update_firmware_compliance_status(
+        device,
+        timestamp=timestamp,
+        update_fields=update_fields,
+    )
+    device.save(update_fields=list(dict.fromkeys(update_fields)))
 
 
 def _sensor_value(sensor_type: str, value: Any):
@@ -486,13 +495,12 @@ def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp, 
 
 def _check_firmware_alert(device: Device, timestamp):
     """Create or resolve firmware compliance alerts for one device."""
-    expected = getattr(settings, "EXPECTED_ESP32_FIRMWARE_VERSION", "")
-    expected = str(expected or "").strip()
+    expected = expected_firmware_version(device)
     current = str(device.firmware_version or "").strip()
     if not expected or not current:
         return None
 
-    if current == expected:
+    if not firmware_update_required(device):
         _resolve_alerts_for_device(device, "firmware_outdated", timestamp)
         return None
 
@@ -549,6 +557,11 @@ def ingest_slot_ack(slot_id: str, payload: dict[str, Any], topic_prefix: str | N
         device.status = _device_status(ack_status)
     identity_update_fields = []
     _remember_device_identity(device, payload, identity_update_fields)
+    update_firmware_compliance_status(
+        device,
+        timestamp=timestamp,
+        update_fields=identity_update_fields,
+    )
     command_update_fields = [
         "last_seen",
         "last_command_id",
@@ -559,7 +572,7 @@ def ingest_slot_ack(slot_id: str, payload: dict[str, Any], topic_prefix: str | N
         "status",
         *identity_update_fields,
     ]
-    device.save(update_fields=command_update_fields)
+    device.save(update_fields=list(dict.fromkeys(command_update_fields)))
     DeviceCommandLog.objects.create(
         device=device,
         session=session,

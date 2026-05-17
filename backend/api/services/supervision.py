@@ -6,7 +6,14 @@ from django.conf import settings
 from django.db.models import Count, Q
 from django.utils import timezone
 
-from api.models import Alerte, CapteurData, Device, DeviceCommandLog
+from api.models import (
+    Alerte,
+    CapteurData,
+    Device,
+    DeviceCommandLog,
+    FirmwareUpdateStatus,
+)
+from api.services.firmware import expected_firmware_version, firmware_update_required
 
 DEVICE_ONLINE_GRACE_MINUTES = getattr(settings, "DEVICE_ONLINE_GRACE_MINUTES", 5)
 DEVICE_STATUS_DISPLAY = {
@@ -65,6 +72,14 @@ def serialize_device_supervision(device, now=None):
         "slot_label": f"{station.nom} - {borne.nom} - emplacement {emplacement.numero}",
         "type_device": device.type_device,
         "firmware_version": device.firmware_version,
+        "expected_firmware_version": device.expected_firmware_version,
+        "effective_expected_firmware_version": expected_firmware_version(device),
+        "firmware_update_status": device.firmware_update_status,
+        "firmware_update_required": firmware_update_required(device),
+        "ota_target_version": device.ota_target_version,
+        "ota_requested_at": device.ota_requested_at.isoformat() if device.ota_requested_at else None,
+        "ota_completed_at": device.ota_completed_at.isoformat() if device.ota_completed_at else None,
+        "ota_last_error": device.ota_last_error,
         "ip_address": device.ip_address,
         "hardware_mac": device.hardware_mac,
         "status": device.status,
@@ -287,6 +302,17 @@ def build_admin_supervision_payload(station_ids=None):
             "devices_total": len(devices),
             "devices_online": sum(1 for device in devices if device_is_online(device, now=now)),
             "devices_offline": sum(1 for device in devices if not device_is_online(device, now=now)),
+            "devices_firmware_update_required": sum(
+                1
+                for device in devices
+                if device.firmware_update_status
+                in {
+                    FirmwareUpdateStatus.UPDATE_REQUIRED,
+                    FirmwareUpdateStatus.UPDATE_SCHEDULED,
+                    FirmwareUpdateStatus.UPDATING,
+                    FirmwareUpdateStatus.FAILED,
+                }
+            ),
             "active_alerts": alert_counts["active_alerts"],
             "critical_alerts": alert_counts["critical_alerts"],
             "telemetry_samples_24h": telemetry_queryset.count(),

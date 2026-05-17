@@ -12,7 +12,9 @@ from .models import (
     Authentification,
     Borne,
     Consentement,
+    Device,
     Emplacement,
+    FirmwareUpdateStatus,
     Maintenance,
     ProfilUtilisateur,
     Reservation,
@@ -28,6 +30,7 @@ from .reservation_rules import (
     reservation_duration_is_allowed,
     reservation_duration_minutes,
 )
+from .services.firmware import expected_firmware_version, firmware_update_required
 
 
 User = get_user_model()
@@ -393,6 +396,78 @@ class EmplacementSerializer(serializers.ModelSerializer):
 
         attrs["borne"] = Borne.default_for_station(station)
         return attrs
+
+
+class DeviceAdminSerializer(serializers.ModelSerializer):
+    """Serialize ESP32 inventory and firmware policy fields for admins."""
+
+    station_nom = serializers.CharField(source="emplacement.station.nom", read_only=True)
+    borne_nom = serializers.CharField(source="emplacement.borne.nom", read_only=True)
+    borne_numero = serializers.IntegerField(source="emplacement.borne.numero", read_only=True)
+    emplacement_numero = serializers.IntegerField(source="emplacement.numero", read_only=True)
+    firmware_update_required = serializers.SerializerMethodField()
+    effective_expected_firmware_version = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Device
+        fields = (
+            "id_device",
+            "emplacement",
+            "station_nom",
+            "borne_nom",
+            "borne_numero",
+            "emplacement_numero",
+            "type_device",
+            "slot_id",
+            "mac_address",
+            "hardware_mac",
+            "ip_address",
+            "status",
+            "last_seen",
+            "firmware_version",
+            "expected_firmware_version",
+            "effective_expected_firmware_version",
+            "firmware_update_status",
+            "firmware_update_required",
+            "ota_target_version",
+            "ota_update_url",
+            "ota_requested_at",
+            "ota_completed_at",
+            "ota_last_error",
+        )
+        read_only_fields = (
+            "id_device",
+            "station_nom",
+            "borne_nom",
+            "borne_numero",
+            "emplacement_numero",
+            "last_seen",
+            "firmware_version",
+            "firmware_update_required",
+            "ota_requested_at",
+            "ota_completed_at",
+        )
+        extra_kwargs = {
+            "firmware_update_status": {"required": False},
+            "expected_firmware_version": {"required": False, "allow_blank": True},
+            "ota_target_version": {"required": False, "allow_blank": True},
+            "ota_update_url": {"required": False, "allow_blank": True},
+            "ota_last_error": {"required": False, "allow_blank": True},
+        }
+
+    def validate_firmware_update_status(self, value):
+        """Allow admins to edit only operational OTA status values."""
+        if value not in FirmwareUpdateStatus.values:
+            raise serializers.ValidationError("Statut firmware inconnu.")
+        return value
+
+    def get_firmware_update_required(self, obj):
+        """Return whether the device firmware differs from the expected version."""
+        return firmware_update_required(obj)
+
+    def get_effective_expected_firmware_version(self, obj):
+        """Return the device override or global firmware target."""
+        return expected_firmware_version(obj)
 
 
 class AuthMethodSerializer(serializers.ModelSerializer):

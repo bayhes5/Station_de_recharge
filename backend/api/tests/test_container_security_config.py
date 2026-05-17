@@ -24,3 +24,18 @@ def test_compose_runs_celery_beat_for_periodic_supervision_tasks():
     assert celery_beat["command"] == "celery -A config beat -l info --schedule /tmp/celerybeat-schedule"
     assert celery_beat["depends_on"]["redis"]["condition"] == "service_healthy"
     assert celery_beat["depends_on"]["db"]["condition"] == "service_healthy"
+
+
+def test_raspberry_image_is_built_non_root_and_keeps_state_outside_code():
+    """Ensure the kiosk container is production-shaped, not pip-installed as root."""
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    raspberry = compose["services"]["raspberry"]
+    dockerfile = (REPO_ROOT / "raspberry" / "Dockerfile").read_text(encoding="utf-8")
+
+    assert raspberry["build"]["context"] == "./raspberry"
+    assert raspberry["volumes"] == ["./raspberry/app:/app:ro"]
+    assert raspberry["environment"]["OFFLINE_DB_PATH"] == "/tmp/offline_cache.sqlite3"
+    assert raspberry["environment"]["CHARGE_STATE_DB_PATH"] == "/tmp/charge_state.sqlite3"
+    assert "ENV PYTHONDONTWRITEBYTECODE=1" in dockerfile
+    assert "USER station" in dockerfile
+    assert 'CMD ["python", "main.py"]' in dockerfile

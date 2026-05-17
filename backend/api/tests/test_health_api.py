@@ -31,7 +31,7 @@ def test_health_ready_returns_503_when_a_dependency_fails(monkeypatch):
     def failed_database_check():
         return {"ok": False, "detail": "database unavailable"}
 
-    monkeypatch.setattr("api.views._check_database_health", failed_database_check)
+    monkeypatch.setattr("api.health_views._check_database_health", failed_database_check)
 
     response = APIClient().get(reverse("api-health-ready"))
 
