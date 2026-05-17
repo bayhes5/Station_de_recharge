@@ -292,6 +292,14 @@ Maintenance
 possibilité de lier un technicien à un compte ``Utilisateur``. Cela permet à un
 technicien de se connecter et de consulter ses interventions.
 
+``TechnicienStation`` applique le principe du moindre privilège côté métier :
+un administrateur affecte explicitement un technicien à une ou plusieurs
+stations. La supervision technicien ne lit ensuite que les devices, alertes,
+mesures et commandes des stations actives dans ce périmètre. Grafana reste un
+outil de supervision technique global ou administrateur ; l'accès terrain
+quotidien des techniciens passe par l'application, où le filtrage est porté par
+l'API Django.
+
 Performance et TimescaleDB
 --------------------------
 
@@ -317,6 +325,7 @@ Les index déjà présents couvrent les requêtes les plus importantes :
 * télémétrie par session et timestamp ;
 * données capteurs par capteur et timestamp ;
 * alertes par statut, session et timestamp ;
+* affectations technicien-station par technicien, station et statut actif ;
 * maintenances par technicien, station, statut et date planifiée.
 
 Une migration complémentaire ajoute aussi des index orientés exploitation :

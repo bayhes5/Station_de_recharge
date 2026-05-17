@@ -164,6 +164,32 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { name: "telephone", label: "T\u00e9l\u00e9phone", type: "tel" },
             ],
         },
+        "technician-station": {
+            singular: "affectation technicien-station",
+            plural: "affectations technicien-station",
+            tab: "operations",
+            idKey: "id_assignment",
+            list: () => window.AuthAPI.getAdminTechnicianStationAssignments(),
+            create: (payload) => window.AuthAPI.createAdminTechnicianStationAssignment(payload),
+            update: (id, payload) => window.AuthAPI.updateAdminTechnicianStationAssignment(id, payload),
+            fields: [
+                { name: "technicien", label: "Technicien", type: "select", required: true, options: "technicians" },
+                { name: "station", label: "Station", type: "select", required: true, options: "stations" },
+                {
+                    name: "role",
+                    label: "R\u00f4le",
+                    type: "select",
+                    defaultValue: "intervenant",
+                    required: true,
+                    options: [
+                        { value: "intervenant", label: "Intervenant" },
+                        { value: "referent", label: "R\u00e9f\u00e9rent" },
+                        { value: "observateur", label: "Observateur" },
+                    ],
+                },
+                { name: "is_active", label: "Affectation active", type: "checkbox", defaultValue: true },
+            ],
+        },
         maintenance: {
             singular: "maintenance",
             plural: "maintenances",

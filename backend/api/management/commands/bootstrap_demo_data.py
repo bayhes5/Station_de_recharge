@@ -4,7 +4,17 @@ from datetime import timedelta
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from api.models import Borne, Device, Emplacement, Maintenance, ProfilUtilisateur, Station, Technicien, Utilisateur
+from api.models import (
+    Borne,
+    Device,
+    Emplacement,
+    Maintenance,
+    ProfilUtilisateur,
+    Station,
+    Technicien,
+    TechnicienStation,
+    Utilisateur,
+)
 
 
 class Command(BaseCommand):
@@ -112,6 +122,15 @@ class Command(BaseCommand):
         technician.telephone = tech_phone
         technician.utilisateur = user
         technician.save()
+
+        TechnicienStation.objects.update_or_create(
+            technicien=technician,
+            station=station,
+            defaults={
+                "role": "referent",
+                "is_active": True,
+            },
+        )
 
         first_emplacement = station.emplacements.order_by("numero").first()
         if first_emplacement:

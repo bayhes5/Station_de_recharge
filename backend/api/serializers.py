@@ -17,6 +17,7 @@ from .models import (
     Reservation,
     Station,
     Technicien,
+    TechnicienStation,
 )
 from .reservation_rules import (
     DEFAULT_RESERVATION_DURATION_MINUTES,
@@ -505,10 +506,61 @@ class TechnicianMaintenanceSerializer(serializers.ModelSerializer):
         return obj.station.emplacements.count()
 
 
+class TechnicianStationAssignmentSerializer(serializers.ModelSerializer):
+    """Serialize station assignments used to scope technician access."""
+
+    technicien_nom = serializers.CharField(source="technicien.nom", read_only=True)
+    station_nom = serializers.CharField(source="station.nom", read_only=True)
+    station_localisation = serializers.CharField(source="station.localisation_text", read_only=True)
+    role_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TechnicienStation
+        fields = (
+            "id_assignment",
+            "technicien",
+            "technicien_nom",
+            "station",
+            "station_nom",
+            "station_localisation",
+            "role",
+            "role_display",
+            "is_active",
+            "assigned_at",
+        )
+        extra_kwargs = {
+            "role": {"required": False},
+            "is_active": {"required": False},
+            "assigned_at": {"read_only": True},
+        }
+
+    def get_role_display(self, obj):
+        """Return the localized role label."""
+        return obj.get_role_display()
+
+    def validate(self, attrs):
+        """Reject duplicate station assignments with a clear API error."""
+        technicien = attrs.get("technicien") or getattr(self.instance, "technicien", None)
+        station = attrs.get("station") or getattr(self.instance, "station", None)
+        if technicien and station:
+            duplicate = TechnicienStation.objects.filter(
+                technicien=technicien,
+                station=station,
+            )
+            if self.instance is not None:
+                duplicate = duplicate.exclude(pk=self.instance.pk)
+            if duplicate.exists():
+                raise serializers.ValidationError(
+                    {"station": "Cette station est deja affectee a ce technicien."}
+                )
+        return attrs
+
+
 class TechnicianSerializer(serializers.ModelSerializer):
     """Serialize technician profiles for administrative management."""
 
     utilisateur_pseudo = serializers.CharField(source="utilisateur.pseudo", read_only=True)
+    assigned_stations = serializers.SerializerMethodField()
 
     class Meta:
         model = Technicien
@@ -519,10 +571,22 @@ class TechnicianSerializer(serializers.ModelSerializer):
             "nom",
             "email",
             "telephone",
+            "assigned_stations",
         )
         extra_kwargs = {
             "utilisateur": {"required": False, "allow_null": True},
         }
+
+    def get_assigned_stations(self, obj):
+        """Return active station assignments without broadening technician scope."""
+        assignments = getattr(obj, "prefetched_active_station_assignments", None)
+        if assignments is None:
+            assignments = (
+                obj.station_assignments.filter(is_active=True)
+                .select_related("station")
+                .order_by("station__nom")
+            )
+        return TechnicianStationAssignmentSerializer(assignments, many=True).data
 
 
 class MaintenanceAdminSerializer(serializers.ModelSerializer):

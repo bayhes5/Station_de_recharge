@@ -13,6 +13,7 @@ from api.models import (
     Capteur,
     CapteurData,
     Device,
+    DeviceCommandLog,
     Emplacement,
     JournalSecurite,
     Maintenance,
@@ -21,6 +22,7 @@ from api.models import (
     Session,
     Station,
     Technicien,
+    TechnicienStation,
     TypeAuth,
 )
 
@@ -207,6 +209,143 @@ def test_admin_supervision_marks_never_seen_devices_waiting_for_telemetry(admin_
     assert response.data["stats"]["devices_offline"] == 1
     assert response.data["devices"][0]["health"] == "offline"
     assert response.data["devices"][0]["status_display"] == "Aucune télémétrie reçue"
+
+
+@pytest.mark.django_db
+def test_admin_can_assign_station_to_technician(admin_client, admin_user, station):
+    technicien = Technicien.objects.create(
+        utilisateur=admin_user,
+        nom="Tech Centre",
+        email="tech-centre@example.com",
+        telephone="0600000000",
+    )
+
+    response = admin_client.post(
+        reverse("api-admin-technician-station-assignments"),
+        {
+            "technicien": str(technicien.id_technicien),
+            "station": str(station.id_station),
+            "role": "referent",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.data["station_nom"] == "Station Centre"
+    assert response.data["technicien_nom"] == "Tech Centre"
+    assert response.data["role"] == "referent"
+    assert TechnicienStation.objects.filter(technicien=technicien, station=station, is_active=True).exists()
+
+
+@pytest.mark.django_db
+def test_admin_rejects_duplicate_technician_station_assignment(admin_client, admin_user, station):
+    technicien = Technicien.objects.create(
+        utilisateur=admin_user,
+        nom="Tech Duplicate",
+        email="tech-duplicate@example.com",
+        telephone="",
+    )
+    TechnicienStation.objects.create(technicien=technicien, station=station)
+
+    response = admin_client.post(
+        reverse("api-admin-technician-station-assignments"),
+        {
+            "technicien": str(technicien.id_technicien),
+            "station": str(station.id_station),
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "non_field_errors" in response.data
+
+
+@pytest.mark.django_db
+def test_technician_supervision_is_limited_to_assigned_stations(api_client, user, station, borne, emplacements):
+    technicien = Technicien.objects.create(
+        utilisateur=user,
+        nom="Tech Scope",
+        email="tech-scope@example.com",
+        telephone="",
+    )
+    TechnicienStation.objects.create(technicien=technicien, station=station)
+    other_station = Station.objects.create(
+        nom="Station Nord",
+        localisation_text="Quartier Nord",
+        statut="active",
+    )
+    other_borne = Borne.objects.create(
+        station=other_station,
+        numero=1,
+        nom="Borne Nord",
+        statut="active",
+    )
+    other_emplacement = Emplacement.objects.create(
+        station=other_station,
+        borne=other_borne,
+        numero=1,
+        statut="disponible",
+        lock_state="verrouille",
+    )
+    assigned_device = Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="1.0.0",
+        mac_address="slot-assigned",
+        last_seen=timezone.now(),
+        status="charging",
+    )
+    other_device = Device.objects.create(
+        emplacement=other_emplacement,
+        type_device="ESP32",
+        firmware_version="1.0.0",
+        mac_address="slot-other",
+        last_seen=timezone.now(),
+        status="charging",
+    )
+    assigned_capteur = Capteur.objects.create(device=assigned_device, type="temperature", unite="C")
+    other_capteur = Capteur.objects.create(device=other_device, type="temperature", unite="C")
+    assigned_data = CapteurData.objects.create(capteur=assigned_capteur, valeur=31)
+    CapteurData.objects.create(capteur=other_capteur, valeur=38)
+    Alerte.objects.create(
+        data=assigned_data,
+        type="overheat",
+        message="Temperature elevee",
+        niveau_severite="haute",
+        status="active",
+    )
+    DeviceCommandLog.objects.create(
+        device=assigned_device,
+        command_id="cmd-assigned",
+        action="START",
+        status="accepted",
+        source="esp32",
+    )
+    DeviceCommandLog.objects.create(
+        device=other_device,
+        command_id="cmd-other",
+        action="START",
+        status="accepted",
+        source="esp32",
+    )
+    api_client.force_authenticate(user=user)
+
+    response = api_client.get(reverse("api-technician-supervision"))
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["scope"]["restricted"] is True
+    assert response.data["stats"]["devices_total"] == 1
+    assert response.data["devices"][0]["slot_id"] == "slot-assigned"
+    assert response.data["measurements"][0]["slot_id"] == "slot-assigned"
+    assert response.data["commands"][0]["command_id"] == "cmd-assigned"
+    assert {row["station_nom"] for row in response.data["devices"]} == {"Station Centre"}
+
+
+@pytest.mark.django_db
+def test_technician_supervision_requires_technician_profile(authenticated_client):
+    response = authenticated_client.get(reverse("api-technician-supervision"))
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 @pytest.mark.django_db

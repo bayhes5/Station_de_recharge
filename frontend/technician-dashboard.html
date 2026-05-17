@@ -35,6 +35,48 @@
                 <p class="panel-title">Mes maintenances</p>
                 <div id="maintenances-list" class="stacked-list"></div>
             </section>
+
+            <section class="dashboard-panel section-block">
+                <div class="panel-heading">
+                    <div>
+                        <p class="panel-title">Supervision de mes stations</p>
+                        <p class="table-caption">Vue filtr&eacute;e selon les stations affect&eacute;es par un administrateur.</p>
+                    </div>
+                </div>
+                <div class="dashboard-kpis admin-kpis">
+                    <div class="summary-stat">
+                        <span id="tech-stat-online" class="summary-value">-</span>
+                        <span class="summary-label">ESP32 en ligne</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span id="tech-stat-offline" class="summary-value">-</span>
+                        <span class="summary-label">ESP32 hors ligne</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span id="tech-stat-alerts" class="summary-value">-</span>
+                        <span class="summary-label">Alertes actives</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span id="tech-stat-telemetry" class="summary-value">-</span>
+                        <span class="summary-label">Mesures sur 24 h</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="dashboard-panel table-panel admin-table-panel">
+                <p class="panel-title">ESP32 et emplacements</p>
+                <div id="tech-devices-list" class="table-host"></div>
+            </section>
+
+            <section class="dashboard-panel table-panel admin-table-panel">
+                <p class="panel-title">Alertes r&eacute;centes</p>
+                <div id="tech-alerts-list" class="table-host"></div>
+            </section>
+
+            <section class="dashboard-panel table-panel admin-table-panel">
+                <p class="panel-title">Commandes ESP32 r&eacute;centes</p>
+                <div id="tech-commands-list" class="table-host"></div>
+            </section>
         </section>
     </main>
 </body>

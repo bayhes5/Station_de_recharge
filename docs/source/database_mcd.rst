@@ -110,6 +110,12 @@ puis d'exporter l'image en SVG ou PNG si une version graphique doit être intég
    * - ``utilisateur``
      - ``technicien``
      - Un technicien peut être lié à un compte utilisateur.
+   * - ``technicien``
+     - ``technicien_station``
+     - Un technicien peut être autorisé sur plusieurs stations.
+   * - ``station``
+     - ``technicien_station``
+     - Une station peut être suivie par plusieurs techniciens.
    * - ``station``
      - ``maintenance``
      - Une intervention concerne une station.
@@ -354,6 +360,17 @@ faire évoluer la base.
        telephone VARCHAR(20) NOT NULL DEFAULT ''
    );
 
+   CREATE TABLE technicien_station (
+       id_assignment UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+       id_technicien UUID NOT NULL REFERENCES technicien(id_tech) ON DELETE CASCADE,
+       id_station UUID NOT NULL REFERENCES station(id_station) ON DELETE CASCADE,
+       role VARCHAR(50) NOT NULL DEFAULT 'intervenant',
+       is_active BOOLEAN NOT NULL DEFAULT TRUE,
+       assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       CONSTRAINT uq_technicien_station UNIQUE (id_technicien, id_station),
+       CONSTRAINT chk_tech_station_role CHECK (role IN ('referent', 'intervenant', 'observateur'))
+   );
+
    CREATE TABLE maintenance (
        id_maintenance UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
        id_station UUID NOT NULL REFERENCES station(id_station) ON DELETE CASCADE,
@@ -397,6 +414,8 @@ faire évoluer la base.
    CREATE INDEX idx_alert_ts ON alerte(date DESC);
    CREATE INDEX idx_alert_sev_time ON alerte(niveau_severite, date);
    CREATE INDEX idx_alert_type_time ON alerte(type, date);
+   CREATE INDEX idx_tech_station_tech ON technicien_station(id_technicien, is_active);
+   CREATE INDEX idx_tech_station_station ON technicien_station(id_station, is_active);
    CREATE INDEX idx_maint_tech_date ON maintenance(id_technicien, date_planifiee);
    CREATE INDEX idx_maint_station_date ON maintenance(id_station, date_planifiee);
    CREATE INDEX idx_maint_status_date ON maintenance(status, date_planifiee);

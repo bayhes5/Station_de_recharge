@@ -20,6 +20,7 @@ from .models import (
     SessionTelemetry,
     Station,
     Technicien,
+    TechnicienStation,
     TypeAuth,
     Utilisateur,
     UtilisateurRole,
@@ -92,4 +93,5 @@ admin.site.register(Capteur)
 admin.site.register(CapteurData)
 admin.site.register(Alerte)
 admin.site.register(Technicien)
+admin.site.register(TechnicienStation)
 admin.site.register(Maintenance)

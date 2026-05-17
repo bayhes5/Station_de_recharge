@@ -43,6 +43,7 @@ from .models import (
     Session as ChargingSession,
     Station,
     Technicien,
+    TechnicienStation,
     TypeAuth,
     UserStatus,
 )
@@ -63,6 +64,7 @@ from .serializers import (
     RegisterSerializer,
     StationSerializer,
     TechnicianSerializer,
+    TechnicianStationAssignmentSerializer,
     TechnicianMaintenanceSerializer,
 )
 from .reservation_rules import (
@@ -630,6 +632,17 @@ def _serialize_technician(technician):
     }
 
 
+def _active_station_assignments_prefetch():
+    """Return the prefetch used to expose active technician station scopes."""
+    return Prefetch(
+        "station_assignments",
+        queryset=TechnicienStation.objects.filter(is_active=True)
+        .select_related("station")
+        .order_by("station__nom"),
+        to_attr="prefetched_active_station_assignments",
+    )
+
+
 def _user_is_technician(user):
     """Return whether the user has an associated technician profile."""
     if user is None or not getattr(user, "is_authenticated", False):
@@ -639,6 +652,23 @@ def _user_is_technician(user):
     exists = Technicien.objects.filter(utilisateur_id=user.id_user).exists()
     user._technician_profile_cache = exists
     return exists
+
+
+def _technician_for_user(user):
+    """Return the technician profile linked to an authenticated account."""
+    try:
+        return user.technicien_profile
+    except Technicien.DoesNotExist:
+        return None
+
+
+def _station_ids_for_technician(technicien):
+    """Return active station identifiers assigned to a technician."""
+    return list(
+        TechnicienStation.objects.filter(technicien=technicien, is_active=True)
+        .order_by("station__nom")
+        .values_list("station_id", flat=True)
+    )
 
 
 def _generate_reservation_code():
@@ -1815,6 +1845,24 @@ def admin_supervision(request):
     return Response(build_admin_supervision_payload())
 
 
+@_schema("Lire la supervision technique du technicien connecte", tags=["Technicien"])
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def technician_supervision(request):
+    """Return supervision data limited to the current technician station scope."""
+    if request.user.is_staff:
+        return Response(build_admin_supervision_payload())
+
+    technicien = _technician_for_user(request.user)
+    if technicien is None:
+        return Response(
+            {"detail": "Aucun profil technicien associe a ce compte."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    return Response(build_admin_supervision_payload(station_ids=_station_ids_for_technician(technicien)))
+
+
 @_schema("Lister les reservations administrateur", tags=["Administration"])
 @api_view(["GET"])
 @permission_classes([IsAuthenticated, IsStaffUser])
@@ -2835,19 +2883,17 @@ def admin_revoke_reservation_access(request, reservation_id):
 @permission_classes([IsAuthenticated])
 def technician_maintenances(request):
     """List maintenance interventions assigned to the current technician."""
-    technicien = getattr(request.user, "technicien_profile", None)
-    if technicien is None:
+    technicien = _technician_for_user(request.user)
+    if technicien is None and not request.user.is_staff:
         return Response(
             {"detail": "Aucun profil technicien associe a ce compte."},
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    maintenances = (
-        Maintenance.objects.filter(technicien=technicien)
-        .select_related("station", "technicien")
-        .prefetch_related("station__emplacements")
-        .order_by("date_planifiee")
-    )
+    maintenances = Maintenance.objects.select_related("station", "technicien").prefetch_related("station__emplacements")
+    if technicien is not None:
+        maintenances = maintenances.filter(technicien=technicien)
+    maintenances = maintenances.order_by("date_planifiee")
     return _list_response(request, maintenances, serializer_class=TechnicianMaintenanceSerializer)
 
 
@@ -2858,7 +2904,11 @@ def technician_maintenances(request):
 def admin_technicians(request):
     """List technicians or create a technician from the administration API."""
     if request.method == "GET":
-        technicians = Technicien.objects.select_related("utilisateur").order_by("nom")
+        technicians = (
+            Technicien.objects.select_related("utilisateur")
+            .prefetch_related(_active_station_assignments_prefetch())
+            .order_by("nom")
+        )
         return _list_response(request, technicians, serializer_class=TechnicianSerializer)
 
     serializer = TechnicianSerializer(data=request.data)
@@ -2888,7 +2938,11 @@ def admin_technicians(request):
 def admin_technician_detail(request, technician_id):
     """Retrieve, update or delete one technician from the admin API."""
     try:
-        technician = Technicien.objects.select_related("utilisateur").get(id_technicien=technician_id)
+        technician = (
+            Technicien.objects.select_related("utilisateur")
+            .prefetch_related(_active_station_assignments_prefetch())
+            .get(id_technicien=technician_id)
+        )
     except Technicien.DoesNotExist:
         return Response({"detail": "Technicien introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -2917,6 +2971,93 @@ def admin_technician_detail(request, technician_id):
     technician.save()
 
     return Response(TechnicianSerializer(technician).data)
+
+
+@_schema(
+    "Lister les affectations technicien-station",
+    tags=["Administration"],
+    operation_id="admin_technician_station_assignments_list",
+    methods=["GET"],
+)
+@_schema(
+    "Affecter une station a un technicien",
+    request=TechnicianStationAssignmentSerializer,
+    tags=["Administration"],
+    operation_id="admin_technician_station_assignment_create",
+    methods=["POST"],
+)
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_technician_station_assignments(request):
+    """List or create station assignments for technician least privilege."""
+    if request.method == "GET":
+        assignments = TechnicienStation.objects.select_related("technicien", "station").order_by(
+            "technicien__nom",
+            "station__nom",
+        )
+        technician_id = request.query_params.get("technicien")
+        station_id = request.query_params.get("station")
+        if technician_id:
+            assignments = assignments.filter(technicien_id=technician_id)
+        if station_id:
+            assignments = assignments.filter(station_id=station_id)
+        return _list_response(request, assignments, serializer_class=TechnicianStationAssignmentSerializer)
+
+    serializer = TechnicianStationAssignmentSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    assignment = serializer.save()
+    assignment = TechnicienStation.objects.select_related("technicien", "station").get(
+        id_assignment=assignment.id_assignment
+    )
+    return Response(TechnicianStationAssignmentSerializer(assignment).data, status=status.HTTP_201_CREATED)
+
+
+@_schema(
+    "Lire une affectation technicien-station",
+    tags=["Administration"],
+    operation_id="admin_technician_station_assignment_retrieve",
+    methods=["GET"],
+)
+@_schema(
+    "Modifier une affectation technicien-station",
+    request=TechnicianStationAssignmentSerializer,
+    tags=["Administration"],
+    operation_id="admin_technician_station_assignment_update",
+    methods=["PATCH"],
+)
+@_schema(
+    "Supprimer une affectation technicien-station",
+    responses={204: None},
+    tags=["Administration"],
+    operation_id="admin_technician_station_assignment_delete",
+    methods=["DELETE"],
+)
+@api_view(["GET", "PATCH", "DELETE"])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def admin_technician_station_assignment_detail(request, assignment_id):
+    """Retrieve, update or delete one technician station assignment."""
+    try:
+        assignment = TechnicienStation.objects.select_related("technicien", "station").get(
+            id_assignment=assignment_id
+        )
+    except TechnicienStation.DoesNotExist:
+        return Response({"detail": "Affectation introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == "GET":
+        return Response(TechnicianStationAssignmentSerializer(assignment).data)
+
+    if request.method == "DELETE":
+        assignment.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    serializer = TechnicianStationAssignmentSerializer(
+        instance=assignment,
+        data=request.data,
+        partial=True,
+    )
+    serializer.is_valid(raise_exception=True)
+    assignment = serializer.save()
+    return Response(TechnicianStationAssignmentSerializer(assignment).data)
 
 
 @_schema("Lister les maintenances", tags=["Administration"], operation_id="admin_maintenances_list", methods=["GET"])

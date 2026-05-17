@@ -204,6 +204,21 @@ Table technicien {
   telephone varchar(20) [not null, default: ""]
 }
 
+Table technicien_station {
+  id_assignment uuid [pk]
+  id_technicien uuid [not null, ref: > technicien.id_tech]
+  id_station uuid [not null, ref: > station.id_station]
+  role varchar(50) [not null, default: "intervenant"]
+  is_active boolean [not null, default: true]
+  assigned_at timestamp [not null]
+
+  indexes {
+    (id_technicien, id_station) [unique]
+    (id_technicien, is_active)
+    (id_station, is_active)
+  }
+}
+
 Table maintenance {
   id_maintenance uuid [pk]
   id_station uuid [not null, ref: > station.id_station]

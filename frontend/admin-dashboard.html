@@ -274,6 +274,23 @@
                 <section class="dashboard-panel table-panel admin-table-panel">
                     <div class="panel-heading table-toolbar">
                         <div>
+                            <p class="panel-title">Périmètres techniciens</p>
+                            <p class="table-caption">Stations accessibles par chaque technicien selon le moindre privilège.</p>
+                        </div>
+                        <div class="table-toolbar-actions">
+                            <label class="search-field">
+                                <span>Rechercher</span>
+                                <input type="search" data-admin-search="technicianAssignments" placeholder="Technicien, station, rôle..." autocomplete="off">
+                            </label>
+                            <a class="btn btn-primary compact" href="/admin-form.html?resource=technician-station">Affecter une station</a>
+                        </div>
+                    </div>
+                    <div id="technician-assignments-list" class="table-host"></div>
+                </section>
+
+                <section class="dashboard-panel table-panel admin-table-panel">
+                    <div class="panel-heading table-toolbar">
+                        <div>
                             <p class="panel-title">Maintenances</p>
                             <p class="table-caption">Planification, statut et historique des interventions.</p>
                         </div>

@@ -117,6 +117,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     let bornes = [];
     let emplacements = [];
     let technicians = [];
+    let technicianAssignments = [];
     let maintenances = [];
     let upcomingReservations = [];
     let archivedReservations = [];
@@ -138,7 +139,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     let supervisionRealtimeStarted = false;
     let supervisionReconnectAttempts = 0;
     const expandedStations = new Set();
-    const paginatedTables = ["users", "stations", "technicians", "maintenances"];
+    const paginatedTables = ["users", "stations", "technicians", "technicianAssignments", "maintenances"];
     const supervisionPaginationState = {
         devices: { page: 1, pageSize: 10 },
         commands: { page: 1, pageSize: 10 },
@@ -161,6 +162,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         users: "",
         stations: "",
         technicians: "",
+        technicianAssignments: "",
         maintenances: "",
         upcomingReservations: "",
         archivedReservations: "",
@@ -189,6 +191,15 @@ document.addEventListener("DOMContentLoaded", async () => {
             technician.email,
             technician.telephone,
             technician.utilisateur_pseudo,
+            ...(technician.assigned_stations || []).map((assignment) => `${assignment.station_nom} ${assignment.role}`),
+        ]),
+        technicianAssignments: (assignment) => collectSearchText([
+            assignment.technicien_nom,
+            assignment.station_nom,
+            assignment.station_localisation,
+            assignment.role,
+            assignment.role_display,
+            assignment.is_active ? "active" : "inactive",
         ]),
         maintenances: (maintenance) => collectSearchText([
             maintenance.station_nom,
@@ -961,6 +972,12 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Utilisateur li\u00e9", render: (technician) => technician.utilisateur_pseudo || "-" },
                 { label: "T\u00e9l\u00e9phone", render: (technician) => technician.telephone || "-" },
                 {
+                    label: "Stations",
+                    render: (technician) => (technician.assigned_stations || [])
+                        .map((assignment) => assignment.station_nom)
+                        .join(", ") || "-",
+                },
+                {
                     label: "Actions",
                     className: "actions-column",
                     render: (technician) => renderActions({
@@ -978,6 +995,41 @@ document.addEventListener("DOMContentLoaded", async () => {
             emptyMessageFor("technicians", "Aucun technicien.")
         );
         renderPagination("technicians-list", "technicians");
+    }
+
+    function renderTechnicianAssignments() {
+        createDataTable(
+            document.getElementById("technician-assignments-list"),
+            [
+                { label: "Technicien", render: (assignment) => assignment.technicien_nom || "-" },
+                { label: "Station", render: (assignment) => assignment.station_nom || "-" },
+                { label: "Localisation", render: (assignment) => assignment.station_localisation || "-" },
+                { label: "R\u00f4le", render: (assignment) => assignment.role_display || assignment.role || "-" },
+                {
+                    label: "Statut",
+                    render: (assignment) => createStatusBadge(
+                        assignment.is_active ? "Actif" : "Inactif",
+                        assignment.is_active ? "success" : "warning"
+                    ),
+                },
+                {
+                    label: "Actions",
+                    className: "actions-column",
+                    render: (assignment) => renderActions({
+                        resource: "technician-station",
+                        id: assignment.id_assignment,
+                        label: `${assignment.technicien_nom} - ${assignment.station_nom}`,
+                        onDelete: () => deleteAndReload(
+                            `Supprimer l'affectation ${assignment.technicien_nom} / ${assignment.station_nom} ?`,
+                            () => window.AuthAPI.deleteAdminTechnicianStationAssignment(assignment.id_assignment)
+                        ),
+                    }),
+                },
+            ],
+            filterRows("technicianAssignments", technicianAssignments),
+            emptyMessageFor("technicianAssignments", "Aucune affectation technicien-station.")
+        );
+        renderPagination("technician-assignments-list", "technicianAssignments");
     }
 
     function renderMaintenances() {
@@ -1139,6 +1191,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         renderUsers();
         renderStations();
         renderTechnicians();
+        renderTechnicianAssignments();
         renderMaintenances();
         renderReservations("admin-upcoming-reservations", upcomingReservations, "Aucune réservation à venir.", "upcomingReservations");
         renderReservations("admin-archived-reservations", archivedReservations, "Aucune réservation archivée.", "archivedReservations");
@@ -1159,6 +1212,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 adminBornes,
                 adminEmplacements,
                 adminTechnicians,
+                adminTechnicianAssignments,
                 adminMaintenances,
             ] = await Promise.all([
                 window.AuthAPI.getAdminOverview(),
@@ -1168,6 +1222,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 window.AuthAPI.getAdminBornes(),
                 window.AuthAPI.getAdminEmplacements(),
                 window.AuthAPI.getAdminTechnicians(pageParams("technicians")),
+                window.AuthAPI.getAdminTechnicianStationAssignments(pageParams("technicianAssignments")),
                 window.AuthAPI.getAdminMaintenances(pageParams("maintenances")),
             ]);
 
@@ -1191,11 +1246,13 @@ document.addEventListener("DOMContentLoaded", async () => {
             bornes = adminBornes.results || [];
             emplacements = adminEmplacements.results || [];
             technicians = adminTechnicians.results || [];
+            technicianAssignments = adminTechnicianAssignments.results || [];
             maintenances = adminMaintenances.results || [];
             supervision = adminSupervision || supervision;
             updatePageState("users", adminUsers);
             updatePageState("stations", adminStations);
             updatePageState("technicians", adminTechnicians);
+            updatePageState("technicianAssignments", adminTechnicianAssignments);
             updatePageState("maintenances", adminMaintenances);
             upcomingReservations = adminReservations.upcoming || [];
             archivedReservations = adminReservations.archived || [];

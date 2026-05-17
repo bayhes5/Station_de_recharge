@@ -689,6 +689,32 @@ async function deleteAdminTechnician(id) {
     });
 }
 
+async function getAdminTechnicianStationAssignments(params) {
+    return doRequest(withQuery("/admin/technician-stations/", params), {
+        method: "GET",
+    });
+}
+
+async function createAdminTechnicianStationAssignment(data) {
+    return doRequest("/admin/technician-stations/", {
+        method: "POST",
+        body: JSON.stringify(data),
+    });
+}
+
+async function updateAdminTechnicianStationAssignment(id, data) {
+    return doRequest(`/admin/technician-stations/${id}/`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+    });
+}
+
+async function deleteAdminTechnicianStationAssignment(id) {
+    return doRequest(`/admin/technician-stations/${id}/`, {
+        method: "DELETE",
+    });
+}
+
 async function getAdminMaintenances(params) {
     return doRequest(withQuery("/admin/maintenances/", params), {
         method: "GET",
@@ -717,6 +743,12 @@ async function deleteAdminMaintenance(id) {
 
 async function getTechnicianMaintenances() {
     return doRequest("/technician/maintenances/", {
+        method: "GET",
+    });
+}
+
+async function getTechnicianSupervision() {
+    return doRequest("/technician/supervision/", {
         method: "GET",
     });
 }
@@ -854,11 +886,16 @@ window.AuthAPI = {
     createAdminTechnician,
     updateAdminTechnician,
     deleteAdminTechnician,
+    getAdminTechnicianStationAssignments,
+    createAdminTechnicianStationAssignment,
+    updateAdminTechnicianStationAssignment,
+    deleteAdminTechnicianStationAssignment,
     getAdminMaintenances,
     createAdminMaintenance,
     updateAdminMaintenance,
     deleteAdminMaintenance,
     getTechnicianMaintenances,
+    getTechnicianSupervision,
     terminalAuthenticate,
     ensureSession,
     refreshAccessToken,

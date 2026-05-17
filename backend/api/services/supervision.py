@@ -164,66 +164,126 @@ def serialize_command_log_supervision(command):
     }
 
 
-def build_admin_supervision_payload():
-    """Build the complete admin supervision snapshot used by HTTP and WebSocket flows."""
+def _normalize_station_scope(station_ids):
+    """Return a stable station scope list or None for global supervision."""
+    if station_ids is None:
+        return None
+    return [str(station_id) for station_id in station_ids]
+
+
+def _alert_station_filter(station_ids):
+    """Build the alert filter matching either session or sensor station context."""
+    return Q(session__emplacement__station_id__in=station_ids) | Q(
+        data__capteur__device__emplacement__station_id__in=station_ids
+    )
+
+
+def _empty_supervision_payload(station_ids):
+    """Return an empty scoped payload when a technician has no active station."""
+    return {
+        "scope": {
+            "station_ids": station_ids,
+            "restricted": True,
+        },
+        "stats": {
+            "devices_total": 0,
+            "devices_online": 0,
+            "devices_offline": 0,
+            "active_alerts": 0,
+            "critical_alerts": 0,
+            "telemetry_samples_24h": 0,
+        },
+        "devices": [],
+        "alerts": [],
+        "measurements": [],
+        "commands": [],
+    }
+
+
+def build_admin_supervision_payload(station_ids=None):
+    """Build the supervision snapshot used by HTTP and WebSocket flows."""
     now = timezone.now()
-    devices = list(
-        Device.objects.select_related(
-            "emplacement",
-            "emplacement__station",
-            "emplacement__borne",
-        ).order_by("emplacement__station__nom", "emplacement__borne__numero", "emplacement__numero")
+    station_ids = _normalize_station_scope(station_ids)
+    if station_ids is not None and not station_ids:
+        return _empty_supervision_payload(station_ids)
+
+    devices_queryset = Device.objects.select_related(
+        "emplacement",
+        "emplacement__station",
+        "emplacement__borne",
     )
     active_alerts = Alerte.objects.exclude(status__in=OPEN_ALERT_STATUSES)
-    recent_alerts = (
-        Alerte.objects.select_related(
-            "data",
-            "data__capteur",
-            "data__capteur__device",
-            "data__capteur__device__emplacement",
-            "data__capteur__device__emplacement__station",
-            "data__capteur__device__emplacement__borne",
-            "session",
-            "session__emplacement",
-            "session__emplacement__station",
-            "session__emplacement__borne",
-        )
-        .order_by("-timestamp")[:20]
+    recent_alerts_queryset = Alerte.objects.select_related(
+        "data",
+        "data__capteur",
+        "data__capteur__device",
+        "data__capteur__device__emplacement",
+        "data__capteur__device__emplacement__station",
+        "data__capteur__device__emplacement__borne",
+        "session",
+        "session__emplacement",
+        "session__emplacement__station",
+        "session__emplacement__borne",
     )
-    recent_sensor_data = (
-        CapteurData.objects.select_related(
-            "capteur",
-            "capteur__device",
-            "capteur__device__emplacement",
-            "capteur__device__emplacement__station",
-            "capteur__device__emplacement__borne",
-        )
-        .order_by("-timestamp")[:30]
+    recent_sensor_data_queryset = CapteurData.objects.select_related(
+        "capteur",
+        "capteur__device",
+        "capteur__device__emplacement",
+        "capteur__device__emplacement__station",
+        "capteur__device__emplacement__borne",
     )
-    recent_commands = (
-        DeviceCommandLog.objects.select_related(
-            "device",
-            "device__emplacement",
-            "device__emplacement__station",
-            "device__emplacement__borne",
-            "session",
-        )
-        .order_by("-timestamp")[:30]
+    recent_commands_queryset = DeviceCommandLog.objects.select_related(
+        "device",
+        "device__emplacement",
+        "device__emplacement__station",
+        "device__emplacement__borne",
+        "session",
     )
     sensor_since = now - timedelta(hours=24)
+    telemetry_queryset = CapteurData.objects.filter(timestamp__gte=sensor_since)
+
+    if station_ids is not None:
+        devices_queryset = devices_queryset.filter(emplacement__station_id__in=station_ids)
+        alert_scope = _alert_station_filter(station_ids)
+        active_alerts = active_alerts.filter(alert_scope)
+        recent_alerts_queryset = recent_alerts_queryset.filter(alert_scope)
+        recent_sensor_data_queryset = recent_sensor_data_queryset.filter(
+            capteur__device__emplacement__station_id__in=station_ids
+        )
+        recent_commands_queryset = recent_commands_queryset.filter(
+            device__emplacement__station_id__in=station_ids
+        )
+        telemetry_queryset = telemetry_queryset.filter(
+            capteur__device__emplacement__station_id__in=station_ids
+        )
+
+    devices = list(
+        devices_queryset.order_by(
+            "emplacement__station__nom",
+            "emplacement__borne__numero",
+            "emplacement__numero",
+        )
+    )
+    recent_alerts = recent_alerts_queryset.order_by("-timestamp")[:20]
+    recent_sensor_data = recent_sensor_data_queryset.order_by("-timestamp")[:30]
+    recent_commands = recent_commands_queryset.order_by("-timestamp")[:30]
     alert_counts = active_alerts.aggregate(
         active_alerts=Count("id_alerte"),
         critical_alerts=Count("id_alerte", filter=Q(niveau_severite__in=["critical", "critique"])),
     )
 
     return {
+        "scope": {
+            "station_ids": station_ids or [],
+            "restricted": station_ids is not None,
+        },
         "stats": {
             "devices_total": len(devices),
             "devices_online": sum(1 for device in devices if device_is_online(device, now=now)),
             "devices_offline": sum(1 for device in devices if not device_is_online(device, now=now)),
             "active_alerts": alert_counts["active_alerts"],
             "critical_alerts": alert_counts["critical_alerts"],
-            "telemetry_samples_24h": CapteurData.objects.filter(timestamp__gte=sensor_since).count(),
+            "telemetry_samples_24h": telemetry_queryset.count(),
         },
         "devices": [serialize_device_supervision(device, now=now) for device in devices],
         "alerts": [serialize_alert_supervision(alert) for alert in recent_alerts],

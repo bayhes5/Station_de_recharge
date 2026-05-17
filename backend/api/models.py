@@ -134,6 +134,14 @@ class MaintenanceStatus(models.TextChoices):
     CANCELLED = "annulee", "Annulée"
 
 
+class TechnicianStationRole(models.TextChoices):
+    """Operational responsibility levels for a technician on one station."""
+
+    REFERENT = "referent", "Referent"
+    INTERVENANT = "intervenant", "Intervenant"
+    OBSERVATEUR = "observateur", "Observateur"
+
+
 class UtilisateurManager(BaseUserManager):
     """Create and look up users with the pseudo as the login identifier."""
 
@@ -849,6 +857,52 @@ class Technicien(models.Model):
     def __str__(self):
         """Return the technician display name."""
         return self.nom
+
+
+class TechnicienStation(models.Model):
+    """Limit a technician's operational scope to assigned stations."""
+
+    id_assignment = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    technicien = models.ForeignKey(
+        Technicien,
+        on_delete=models.CASCADE,
+        related_name="station_assignments",
+        db_column="id_technicien",
+    )
+    station = models.ForeignKey(
+        Station,
+        on_delete=models.CASCADE,
+        related_name="technician_assignments",
+        db_column="id_station",
+    )
+    role = models.CharField(
+        max_length=50,
+        choices=TechnicianStationRole.choices,
+        default=TechnicianStationRole.INTERVENANT,
+    )
+    is_active = models.BooleanField(default=True)
+    assigned_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "technicien_station"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["technicien", "station"],
+                name="uq_technicien_station",
+            ),
+            models.CheckConstraint(
+                condition=Q(role__in=TechnicianStationRole.values),
+                name="chk_tech_station_role",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["technicien", "is_active"], name="idx_tech_station_tech"),
+            models.Index(fields=["station", "is_active"], name="idx_tech_station_station"),
+        ]
+
+    def __str__(self):
+        """Return a readable technician-station assignment label."""
+        return f"{self.technicien.nom} - {self.station.nom}"
 
 
 class Maintenance(models.Model):

@@ -99,6 +99,24 @@ L'onglet administrateur ``Supervision`` reste disponible en HTTP avec :
 Cet endpoint retourne une photographie complète de l'état terrain : compteurs,
 devices ESP32, alertes récentes et dernières mesures capteurs.
 
+Le dashboard technicien utilise une vue séparée :
+
+.. code-block:: text
+
+   GET /api/technician/supervision/
+
+Cette vue reprend les mêmes données, mais les filtre sur les stations affectées
+au technicien connecté via ``TechnicienStation``. C'est le point d'entrée prévu
+pour les intervenants terrain : ils voient leurs stations, les ESP32 associés,
+les alertes récentes, les dernières mesures et les commandes acquittées, sans
+accès global au parc.
+
+Grafana reste la supervision technique des séries temporelles. En production, un
+technicien ne devrait pas recevoir un accès Grafana large par défaut. Si Grafana
+est ouvert aux techniciens plus tard, l'accès devra être en lecture seule et
+limité par organisation, dossier, datasource ou proxy applicatif ; de simples
+variables de dashboard ne constituent pas une barrière de sécurité suffisante.
+
 Pour éviter d'attendre le rafraîchissement périodique, le backend expose aussi
 un canal WebSocket réservé aux administrateurs :
 

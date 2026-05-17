@@ -138,6 +138,7 @@ async function mockApi(page, { admin = false } = {}) {
         devices: [],
         alerts: [],
         measurements: [],
+        commands: [],
       }));
       return;
     }
@@ -166,6 +167,24 @@ async function mockApi(page, { admin = false } = {}) {
       return;
     }
 
+    if (url.pathname === "/api/admin/bornes/") {
+      await route.fulfill(jsonResponse({
+        results: [
+          {
+            id_borne: "borne-1",
+            station: "station-1",
+            station_nom: "Station Centre",
+            numero: 1,
+            nom: "Borne 1",
+            mqtt_prefix: "station/station-1/borne-1",
+            statut: "active",
+            emplacements_count: 2,
+          },
+        ],
+      }));
+      return;
+    }
+
     if (url.pathname === "/api/admin/emplacements/") {
       await route.fulfill(jsonResponse({
         results: [
@@ -173,6 +192,9 @@ async function mockApi(page, { admin = false } = {}) {
             id_emplacement: "slot-1",
             station: "station-1",
             station_nom: "Station Centre",
+            borne: "borne-1",
+            borne_nom: "Borne 1",
+            borne_numero: 1,
             numero: 1,
             statut: "disponible",
             lock_state: "verrouille",
@@ -181,6 +203,9 @@ async function mockApi(page, { admin = false } = {}) {
             id_emplacement: "slot-2",
             station: "station-1",
             station_nom: "Station Centre",
+            borne: "borne-1",
+            borne_nom: "Borne 1",
+            borne_numero: 1,
             numero: 2,
             statut: "maintenance",
             lock_state: "deverrouille",
@@ -190,7 +215,11 @@ async function mockApi(page, { admin = false } = {}) {
       return;
     }
 
-    if (url.pathname === "/api/admin/technicians/" || url.pathname === "/api/admin/maintenances/") {
+    if (
+      url.pathname === "/api/admin/technicians/" ||
+      url.pathname === "/api/admin/technician-stations/" ||
+      url.pathname === "/api/admin/maintenances/"
+    ) {
       await route.fulfill(jsonResponse({
         count: 0,
         next: null,
@@ -256,7 +285,7 @@ test("admin infrastructure expands station emplacements", async ({ page }) => {
   await page.goto("/admin-dashboard.html#infrastructure");
 
   await expect(page.getByRole("heading", { name: /Administration/i })).toBeVisible();
-  const stationToggle = page.getByRole("button", { name: /Afficher les emplacements de Station Centre/i });
+  const stationToggle = page.getByRole("button", { name: /Afficher les bornes et emplacements de Station Centre/i });
   await expect(stationToggle).toBeVisible();
   await expect(page.getByText("Emplacement 1")).not.toBeVisible();
 

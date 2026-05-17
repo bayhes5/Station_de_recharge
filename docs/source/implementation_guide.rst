@@ -387,6 +387,11 @@ L'endpoint ``GET /api/admin/supervision/`` agrège :
 * les dernières mesures capteurs ;
 * les compteurs de supervision.
 
+L'endpoint ``GET /api/technician/supervision/`` réutilise le même moteur
+d'agrégation, mais avec un périmètre de stations. Pour un technicien non
+administrateur, seules les stations affectées via ``TechnicienStation`` sont
+visibles. Les administrateurs gardent la supervision globale.
+
 Le frontend est dans ``frontend/admin-dashboard.html`` et
 ``frontend/js/admin-dashboard.js``. L'onglet supervision reçoit les mises à jour
 via ``/ws/admin/supervision/`` quand Django Channels est disponible, puis garde un
@@ -441,6 +446,13 @@ Techniciens et maintenance
 ``Technicien`` représente un intervenant de maintenance, éventuellement lié à un
 compte utilisateur. ``Maintenance`` rattache une intervention à une station, un
 technicien, un statut et des dates.
+
+``TechnicienStation`` rattache un technicien à une station avec un rôle
+opérationnel : ``intervenant``, ``referent`` ou ``observateur``. Cette table sert
+à limiter la supervision visible dans le dashboard technicien et évite de donner
+un accès Grafana large à un intervenant terrain. L'admin peut gérer ces
+affectations depuis l'onglet opérations avec la ressource
+``technician-station``.
 
 L'endpoint ``GET /api/technician/maintenances/`` permet à un technicien connecté
 de consulter ses interventions. L'administration peut créer, modifier et

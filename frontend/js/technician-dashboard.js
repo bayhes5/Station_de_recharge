@@ -1,3 +1,62 @@
+function formatDateTime(value) {
+    if (!value) return "-";
+    return new Date(value).toLocaleString("fr-FR");
+}
+
+function createStatusBadge(label, variant = "") {
+    const badge = document.createElement("span");
+    badge.className = `badge status-badge${variant ? ` ${variant}` : ""}`;
+    badge.textContent = label;
+    return badge;
+}
+
+function createDataTable(container, columns, rows, emptyMessage) {
+    container.innerHTML = "";
+
+    if (!rows.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty-state";
+        empty.textContent = emptyMessage;
+        container.appendChild(empty);
+        return;
+    }
+
+    const tableWrap = document.createElement("div");
+    tableWrap.className = "data-table-wrap admin-data-table-wrap";
+    const table = document.createElement("table");
+    table.className = "data-table admin-data-table";
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+
+    columns.forEach((column) => {
+        const th = document.createElement("th");
+        th.textContent = column.label;
+        headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+
+    const tbody = document.createElement("tbody");
+    rows.forEach((row) => {
+        const tr = document.createElement("tr");
+        columns.forEach((column) => {
+            const td = document.createElement("td");
+            const value = column.render ? column.render(row) : row[column.key];
+            if (value instanceof Node) {
+                td.appendChild(value);
+            } else {
+                td.textContent = value ?? "-";
+            }
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+    });
+
+    table.appendChild(thead);
+    table.appendChild(tbody);
+    tableWrap.appendChild(table);
+    container.appendChild(tableWrap);
+}
+
 function renderMaintenances(container, maintenances) {
     container.innerHTML = "";
 
@@ -17,7 +76,7 @@ function renderMaintenances(container, maintenances) {
         title.textContent = `${maintenance.station_nom} - ${maintenance.type}`;
 
         const details = document.createElement("p");
-        details.textContent = `${maintenance.status} | ${new Date(maintenance.date_planifiee).toLocaleString("fr-FR")}`;
+        details.textContent = `${maintenance.status} | ${formatDateTime(maintenance.date_planifiee)}`;
 
         const description = document.createElement("p");
         description.textContent = maintenance.description || "";
@@ -27,6 +86,65 @@ function renderMaintenances(container, maintenances) {
         item.appendChild(description);
         container.appendChild(item);
     });
+}
+
+function renderSupervision(supervision) {
+    const stats = supervision.stats || {};
+    document.getElementById("tech-stat-online").textContent = stats.devices_online ?? "-";
+    document.getElementById("tech-stat-offline").textContent = stats.devices_offline ?? "-";
+    document.getElementById("tech-stat-alerts").textContent = stats.active_alerts ?? "-";
+    document.getElementById("tech-stat-telemetry").textContent = stats.telemetry_samples_24h ?? "-";
+
+    createDataTable(
+        document.getElementById("tech-devices-list"),
+        [
+            { label: "Emplacement", render: (device) => device.slot_label || device.slot_id || "-" },
+            {
+                label: "Connexion",
+                render: (device) => createStatusBadge(
+                    device.online ? "En ligne" : "Hors ligne",
+                    device.online ? "success" : "danger"
+                ),
+            },
+            { label: "Dernier état", render: (device) => device.status_display || device.status || "-" },
+            { label: "Serrure", render: (device) => device.lock_state || "-" },
+            { label: "Dernier signal", render: (device) => formatDateTime(device.last_seen) },
+        ],
+        supervision.devices || [],
+        "Aucun ESP32 visible sur vos stations."
+    );
+
+    createDataTable(
+        document.getElementById("tech-alerts-list"),
+        [
+            { label: "Date", render: (alert) => formatDateTime(alert.timestamp) },
+            { label: "Type", render: (alert) => alert.type || "-" },
+            {
+                label: "Sévérité",
+                render: (alert) => createStatusBadge(
+                    alert.niveau_severite || "-",
+                    ["critical", "critique"].includes(alert.niveau_severite) ? "danger" : "warning"
+                ),
+            },
+            { label: "Emplacement", render: (alert) => `${alert.borne_nom || "-"} / ${alert.emplacement_numero ?? "-"}` },
+            { label: "Message", render: (alert) => alert.message || "-" },
+        ],
+        supervision.alerts || [],
+        "Aucune alerte récente sur vos stations."
+    );
+
+    createDataTable(
+        document.getElementById("tech-commands-list"),
+        [
+            { label: "Date", render: (command) => formatDateTime(command.timestamp) },
+            { label: "Emplacement", render: (command) => command.slot_label || command.slot_id || "-" },
+            { label: "Action", render: (command) => command.action || "-" },
+            { label: "Statut", render: (command) => command.status || "-" },
+            { label: "Message", render: (command) => command.message || "-" },
+        ],
+        supervision.commands || [],
+        "Aucune commande récente sur vos stations."
+    );
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -57,13 +175,17 @@ document.addEventListener("DOMContentLoaded", async () => {
         return;
     }
 
-    async function loadMaintenances() {
+    async function loadDashboard() {
         if (isLoading) return;
         isLoading = true;
 
         try {
-            const result = await window.AuthAPI.getTechnicianMaintenances();
-            renderMaintenances(list, result.results || []);
+            const [maintenances, supervision] = await Promise.all([
+                window.AuthAPI.getTechnicianMaintenances(),
+                window.AuthAPI.getTechnicianSupervision(),
+            ]);
+            renderMaintenances(list, maintenances.results || []);
+            renderSupervision(supervision || {});
             status.classList.remove("error");
             status.textContent = "";
         } finally {
@@ -72,17 +194,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     try {
-        await loadMaintenances();
+        await loadDashboard();
         window.setInterval(async () => {
             try {
-                await loadMaintenances();
+                await loadDashboard();
             } catch (_error) {
                 status.classList.add("error");
-                status.textContent = "Impossible de rafraîchir les maintenances.";
+                status.textContent = "Impossible de rafraîchir le tableau de bord technicien.";
             }
         }, AUTO_REFRESH_MS);
     } catch (error) {
         status.classList.add("error");
-        status.textContent = error.message || "Impossible de charger les maintenances.";
+        status.textContent = error.message || "Impossible de charger le tableau de bord technicien.";
     }
 });
