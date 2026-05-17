@@ -391,6 +391,13 @@ class Authentification(models.Model):
             ),
             models.Index(fields=["expiration"], name="idx_auth_expiration"),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["type_auth", "hash_valeur"],
+                condition=Q(is_active=True) & ~Q(hash_valeur="pending"),
+                name="uniq_active_auth_type_secret",
+            ),
+        ]
 
 
 class Station(models.Model):

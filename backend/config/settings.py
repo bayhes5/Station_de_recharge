@@ -119,6 +119,17 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': env_int("API_DEFAULT_PAGE_SIZE", 50),
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': os.environ.get("API_THROTTLE_ANON", "120/minute"),
+        'user': os.environ.get("API_THROTTLE_USER", "600/minute"),
+        'login': os.environ.get("API_THROTTLE_LOGIN", "10/minute"),
+        'register': os.environ.get("API_THROTTLE_REGISTER", "5/hour"),
+        'token_refresh': os.environ.get("API_THROTTLE_TOKEN_REFRESH", "30/minute"),
+        'auth_factor': os.environ.get("API_THROTTLE_AUTH_FACTOR", "20/minute"),
+        'sms': os.environ.get("API_THROTTLE_SMS", "3/minute"),
+        'terminal': os.environ.get("API_THROTTLE_TERMINAL", "120/minute"),
+        'mobile_session': os.environ.get("API_THROTTLE_MOBILE_SESSION", "60/minute"),
+    },
 }
 
 SPECTACULAR_SETTINGS = {

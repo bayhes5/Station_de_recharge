@@ -24,6 +24,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.decorators import permission_classes
+from rest_framework.decorators import throttle_classes
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -74,6 +75,15 @@ from .reservation_rules import (
     reservation_duration_is_allowed,
     reservation_duration_minutes,
 )
+from .throttles import (
+    AuthFactorRateThrottle,
+    LoginRateThrottle,
+    MobileSessionRateThrottle,
+    RegistrationRateThrottle,
+    SmsRateThrottle,
+    TerminalRateThrottle,
+    TokenRefreshRateThrottle,
+)
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -101,6 +111,7 @@ DEVICE_STATUS_DISPLAY = {
     "error": "Erreur",
     "provisioned": "Provisionné",
 }
+PRIVILEGED_USER_FIELDS = {"is_staff", "is_superuser"}
 CONSENT_DEFINITIONS = {
     "cgu": {
         "label": "Conditions générales d'utilisation",
@@ -118,6 +129,10 @@ CONSENT_DEFINITIONS = {
         "modifiable": True,
     },
 }
+
+
+class RfidCredentialConflict(ValueError):
+    """Raised when an RFID badge is already linked to another account."""
 
 
 def _health_result(ok, detail="ok", **extra):
@@ -267,7 +282,13 @@ def _terminal_secret_response(request):
     """Return an error response when a protected terminal call lacks the shared secret."""
     expected_secret = getattr(settings, "TERMINAL_API_SECRET", "").strip()
     if not expected_secret:
-        return None
+        if settings.DEBUG:
+            return None
+        logger.critical("TERMINAL_API_SECRET is missing; terminal API is unavailable.")
+        return Response(
+            {"detail": "Configuration terminal indisponible."},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
     provided_secret = (request.headers.get("X-Terminal-Secret") or "").strip()
     authorization = (request.headers.get("Authorization") or "").strip()
@@ -412,6 +433,21 @@ def _as_bool(value):
     if value is None:
         return False
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _payload_requests_privileged_role(payload):
+    """Return whether an admin payload modifies staff or superuser privileges."""
+    return any(field in payload for field in PRIVILEGED_USER_FIELDS)
+
+
+def _forbid_privileged_role_change_response(request, payload):
+    """Block non-superusers from changing administrator-level role flags."""
+    if request.user.is_superuser or not _payload_requests_privileged_role(payload):
+        return None
+    return Response(
+        {"detail": "Seul un super-administrateur peut modifier les roles administrateur."},
+        status=status.HTTP_403_FORBIDDEN,
+    )
 
 
 def _shuffle_secret(characters):
@@ -683,11 +719,14 @@ def _serialize_sensor_data_supervision(sensor_data):
 
 def _serialize_auth_method(method):
     """Return a safe authentication method payload without secret material."""
+    display_value = method.display_value
+    if method.type_auth and method.type_auth.libelle == "RFID":
+        display_value = _mask_secret(method.display_value)
     return {
         "id_auth": str(method.id_auth),
         "type_auth": str(method.type_auth_id),
         "type_label": method.type_auth.libelle,
-        "display_value": method.display_value,
+        "display_value": display_value,
         "expiration": method.expiration.isoformat() if method.expiration else None,
         "is_active": method.is_active,
         "created_at": method.created_at.isoformat() if method.created_at else None,
@@ -1133,21 +1172,38 @@ def _ensure_rfid_auth(user, auth_value):
     if not auth_value:
         raise ValueError("auth_value est obligatoire pour RFID.")
 
+    normalized_value = auth_value.strip()
+    if not normalized_value:
+        raise ValueError("auth_value est obligatoire pour RFID.")
     type_auth = _get_type_auth("RFID")
-    secret_hash = _hash_secret(auth_value.strip())
-    auth_method, created = Authentification.objects.get_or_create(
-        utilisateur=user,
-        type_auth=type_auth,
-        hash_valeur=secret_hash,
-        defaults={
-            "display_value": auth_value.strip(),
-            "expiration": timezone.now() + timedelta(days=3650),
-        },
+    secret_hash = _hash_secret(normalized_value)
+    existing = (
+        Authentification.objects.select_related("utilisateur")
+        .filter(type_auth=type_auth, hash_valeur=secret_hash, is_active=True)
+        .first()
     )
-    if created:
-        return auth_method
+    if existing is not None and existing.utilisateur_id != user.id_user:
+        raise RfidCredentialConflict("Ce badge RFID est deja associe a un autre compte.")
 
-    auth_method.display_value = auth_value.strip()
+    auth_method = (
+        Authentification.objects.filter(
+            utilisateur=user,
+            type_auth=type_auth,
+            hash_valeur=secret_hash,
+        )
+        .order_by("-is_active", "-expiration", "-created_at", "-id_auth")
+        .first()
+    )
+    if auth_method is None:
+        return Authentification.objects.create(
+            utilisateur=user,
+            type_auth=type_auth,
+            hash_valeur=secret_hash,
+            display_value=normalized_value,
+            expiration=timezone.now() + timedelta(days=3650),
+        )
+
+    auth_method.display_value = normalized_value
     auth_method.expiration = timezone.now() + timedelta(days=3650)
     auth_method.is_active = True
     auth_method.save(update_fields=["display_value", "expiration", "is_active"])
@@ -1586,6 +1642,7 @@ def signup(request):
 )
 @api_view(["GET"])
 @permission_classes([AllowAny])
+@throttle_classes([RegistrationRateThrottle])
 def register_availability(request):
     """Report whether a pseudo or email can be used for registration."""
     pseudo = (request.query_params.get("pseudo") or "").strip()
@@ -1621,6 +1678,7 @@ def register_availability(request):
 
 @_schema("Creer un compte utilisateur", request=RegisterSerializer, tags=["Authentification"])
 @api_view(["POST"])
+@throttle_classes([RegistrationRateThrottle])
 def register(request):
     """Create a user account and return an authenticated JWT session."""
     serializer = RegisterSerializer(data=request.data)
@@ -1663,6 +1721,7 @@ def login_view(request):
 
 @_schema("Connecter un utilisateur", request=OpenApiTypes.OBJECT, tags=["Authentification"])
 @api_view(["POST"])
+@throttle_classes([LoginRateThrottle])
 def login(request):
     """Authenticate a user and issue access and refresh tokens."""
     identifiant = (
@@ -1694,6 +1753,7 @@ def login(request):
 @_schema("Rafraichir le jeton d'acces", request=OpenApiTypes.OBJECT, tags=["Authentification"])
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@throttle_classes([TokenRefreshRateThrottle])
 def refresh_token(request):
     """Issue a new access token from the HttpOnly refresh cookie."""
     refresh = request.data.get("refresh") or request.COOKIES.get(settings.JWT_REFRESH_COOKIE_NAME)
@@ -2073,6 +2133,12 @@ def admin_users(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    if not request.user.is_superuser and any(_as_bool(payload.get(field, False)) for field in PRIVILEGED_USER_FIELDS):
+        return Response(
+            {"detail": "Seul un super-administrateur peut modifier les roles administrateur."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
     is_superuser = _as_bool(payload.get("is_superuser", False))
     is_staff = _as_bool(payload.get("is_staff", False)) or is_superuser
     user_status = payload.get("statut", UserStatus.ACTIVE)
@@ -2124,7 +2190,15 @@ def admin_user_detail(request, user_id):
         return Response(AdminUserSerializer(user).data)
 
     if request.method == "PATCH":
-        serializer = AdminUserUpdateSerializer(instance=user, data=request.data, partial=True)
+        role_error = _forbid_privileged_role_change_response(request, request.data)
+        if role_error is not None:
+            return role_error
+
+        serializer = AdminUserUpdateSerializer(
+            instance=user,
+            data=request.data,
+            partial=True,
+        )
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
@@ -2182,6 +2256,8 @@ def admin_user_auth_methods(request, user_id):
     auth_value = (request.data.get("auth_value") or request.data.get("value") or "").strip()
     try:
         auth_method = _ensure_rfid_auth(user, auth_value)
+    except RfidCredentialConflict as error:
+        return Response({"auth_value": str(error)}, status=status.HTTP_409_CONFLICT)
     except ValueError as error:
         return Response({"auth_value": str(error)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -2420,6 +2496,7 @@ def auth_methods(request):
 @_schema("Creer un moyen d'authentification", request=OpenApiTypes.OBJECT, tags=["Compte"])
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@throttle_classes([AuthFactorRateThrottle])
 def create_auth_method(request):
     """Create or refresh a saved RFID authentication method for the user."""
     auth_mode = (request.data.get("auth_mode") or request.data.get("type") or "").strip().lower()
@@ -2433,6 +2510,8 @@ def create_auth_method(request):
 
     try:
         auth_method = _ensure_rfid_auth(request.user, auth_value)
+    except RfidCredentialConflict as error:
+        return Response({"auth_value": str(error)}, status=status.HTTP_409_CONFLICT)
     except ValueError as error:
         return Response({"auth_value": str(error)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -2449,6 +2528,7 @@ def create_auth_method(request):
 @_schema("Generer un code d'association RFID", responses=OpenApiTypes.OBJECT, tags=["Compte"])
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@throttle_classes([AuthFactorRateThrottle])
 def create_rfid_link_code(request):
     """Create a short one-use code used to link a physical RFID badge on a kiosk."""
     code = _generate_rfid_link_code()
@@ -2857,6 +2937,7 @@ def reservation_access_payload(request, reservation_id):
 @_schema("Envoyer le code SMS d'une reservation", tags=["Reservations"])
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@throttle_classes([SmsRateThrottle])
 def send_reservation_access_code(request, reservation_id):
     """Send the current temporary reservation code by SMS."""
     try:
@@ -3247,6 +3328,7 @@ def admin_maintenance_detail(request, maintenance_id):
 @_schema("Associer un badge RFID depuis le terminal", request=OpenApiTypes.OBJECT, tags=["Terminal"])
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@throttle_classes([TerminalRateThrottle])
 def terminal_link_rfid(request):
     """Consume a short web-generated code and link the scanned RFID UID to that user."""
     secret_error = _terminal_secret_response(request)
@@ -3287,7 +3369,10 @@ def terminal_link_rfid(request):
             status=status.HTTP_409_CONFLICT,
         )
 
-    auth_method = _ensure_rfid_auth(user, uid)
+    try:
+        auth_method = _ensure_rfid_auth(user, uid)
+    except RfidCredentialConflict as error:
+        return Response({"detail": str(error)}, status=status.HTTP_409_CONFLICT)
     now = timezone.now()
     Authentification.objects.filter(
         utilisateur=user,
@@ -3325,6 +3410,7 @@ def terminal_link_rfid(request):
 @_schema("Creer une session mobile de borne", request=OpenApiTypes.OBJECT, tags=["Terminal"])
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@throttle_classes([TerminalRateThrottle])
 def terminal_create_mobile_session(request):
     """Create a short-lived pairing session opened by a phone from the kiosk QR."""
     secret_error = _terminal_secret_response(request)
@@ -3381,6 +3467,7 @@ def terminal_create_mobile_session(request):
 @_schema("Lire une session mobile de borne", tags=["Mobile"])
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
+@throttle_classes([MobileSessionRateThrottle])
 def mobile_session_detail(request, token):
     """Return a kiosk pairing session and the user's reservations usable from it."""
     payload = _get_mobile_session_payload(token)
@@ -3410,6 +3497,7 @@ def mobile_session_detail(request, token):
 @_schema("Autoriser une reservation depuis le mobile", request=OpenApiTypes.OBJECT, tags=["Mobile"])
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@throttle_classes([MobileSessionRateThrottle])
 def mobile_session_authorize(request, token):
     """Authorize one user reservation for the kiosk paired with this token."""
     payload = _get_mobile_session_payload(token)
@@ -3491,6 +3579,7 @@ def mobile_session_authorize(request, token):
 @_schema("Consulter une session mobile depuis le terminal", tags=["Terminal"])
 @api_view(["GET"])
 @permission_classes([AllowAny])
+@throttle_classes([TerminalRateThrottle])
 def terminal_mobile_session_status(request, token):
     """Return the current authorization state for a kiosk/mobile pairing token."""
     secret_error = _terminal_secret_response(request)
@@ -3503,6 +3592,7 @@ def terminal_mobile_session_status(request, token):
 @_schema("Consulter une session mobile depuis le terminal", request=OpenApiTypes.OBJECT, tags=["Terminal"])
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@throttle_classes([TerminalRateThrottle])
 def terminal_mobile_session_status_from_body(request):
     """Return a mobile session state using a fixed terminal endpoint."""
     secret_error = _terminal_secret_response(request)
@@ -3537,6 +3627,7 @@ def _terminal_mobile_session_status_response(token):
 )
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@throttle_classes([TerminalRateThrottle])
 def terminal_consume_mobile_session(request, token):
     """Open the charging session authorized from the user's phone."""
     secret_error = _terminal_secret_response(request)
@@ -3554,6 +3645,7 @@ def terminal_consume_mobile_session(request, token):
 )
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@throttle_classes([TerminalRateThrottle])
 def terminal_consume_mobile_session_from_body(request):
     """Consume a mobile authorization using a fixed terminal endpoint."""
     secret_error = _terminal_secret_response(request)
@@ -3655,6 +3747,7 @@ def _terminal_consume_mobile_session_response(request, token):
 @_schema("Synchroniser le cache offline d'une borne", tags=["Terminal"])
 @api_view(["GET"])
 @permission_classes([AllowAny])
+@throttle_classes([TerminalRateThrottle])
 def terminal_offline_cache(request):
     """Return near-term reservations a kiosk may validate locally if backend is down."""
     secret_error = _terminal_secret_response(request)
@@ -3698,6 +3791,7 @@ def terminal_offline_cache(request):
 @_schema("Synchroniser les evenements offline d'une borne", request=OpenApiTypes.OBJECT, tags=["Terminal"])
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@throttle_classes([TerminalRateThrottle])
 def terminal_offline_events(request):
     """Reconcile locally accepted kiosk events after a backend outage."""
     secret_error = _terminal_secret_response(request)
@@ -3745,6 +3839,7 @@ def terminal_offline_events(request):
 @_schema("Authentifier un acces depuis le terminal", request=OpenApiTypes.OBJECT, tags=["Terminal"])
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@throttle_classes([TerminalRateThrottle])
 def terminal_authenticate(request):
     """Validate terminal access credentials and open a charging session."""
     secret_error = _terminal_secret_response(request)
@@ -3872,6 +3967,7 @@ def terminal_authenticate(request):
 @_schema("Clôturer une session de charge depuis le terminal", request=OpenApiTypes.OBJECT, tags=["Terminal"])
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@throttle_classes([TerminalRateThrottle])
 def terminal_stop_session(request):
     """Close the active charging session after the ESP32 confirms a stop command."""
     secret_error = _terminal_secret_response(request)

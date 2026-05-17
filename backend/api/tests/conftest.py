@@ -10,7 +10,9 @@ from api.models import Borne, Emplacement, Station
 
 @pytest.fixture
 def api_client():
-    return APIClient()
+    client = APIClient()
+    client.credentials(HTTP_X_TERMINAL_SECRET="test-terminal-secret")
+    return client
 
 
 @pytest.fixture

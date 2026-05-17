@@ -373,7 +373,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         selectedStation = station;
         stationInput.value = station?.id_station || "";
         selectedStationName.textContent = station?.nom || "Aucune station";
-        selectedStationLocation.textContent = station?.localisation_text || "SÃ©lectionnez une station sur la carte.";
+        selectedStationLocation.textContent = station?.localisation_text || "Sélectionnez une station sur la carte.";
         renderStationPicker();
         refreshAvailability();
     }
@@ -419,9 +419,16 @@ document.addEventListener("DOMContentLoaded", async () => {
         clearLeafletMarkers();
         const bounds = [];
         stationsWithCoordinates.forEach(({ station, coordinates }) => {
+            const popup = document.createElement("div");
+            const name = document.createElement("strong");
+            const location = document.createElement("span");
+            name.textContent = station.nom;
+            location.textContent = station.localisation_text || "";
+            popup.append(name, document.createElement("br"), location);
+
             const marker = window.L.marker(coordinates)
                 .addTo(leafletMap)
-                .bindPopup(`<strong>${station.nom}</strong><br>${station.localisation_text || ""}`);
+                .bindPopup(popup);
             marker.on("click", () => selectStation(station));
             leafletMarkers.push(marker);
             bounds.push(coordinates);
@@ -466,7 +473,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         if (!filteredStations.length) {
             stationResults.className = "empty-state";
-            stationResults.textContent = "Aucune station ne correspond Ã  la recherche.";
+            stationResults.textContent = "Aucune station ne correspond à la recherche.";
             return;
         }
 
@@ -480,7 +487,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             pin.className = `station-pin${isSelected ? " active" : ""}`;
             pin.style.left = `${getMapPosition(station, "x", index)}%`;
             pin.style.top = `${getMapPosition(station, "y", index)}%`;
-            pin.setAttribute("aria-label", `SÃ©lectionner ${station.nom}`);
+            pin.setAttribute("aria-label", `Sélectionner ${station.nom}`);
             pin.textContent = String(index + 1);
             pin.addEventListener("click", () => selectStation(station));
             stationMap.appendChild(pin);

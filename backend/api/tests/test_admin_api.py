@@ -399,19 +399,69 @@ def test_admin_user_create_rejects_invalid_status(admin_client):
 
 
 @pytest.mark.django_db
+def test_staff_admin_cannot_create_privileged_user(admin_client):
+    response = admin_client.post(
+        reverse("api-admin-users"),
+        {
+            "pseudo": "privileged",
+            "email": "privileged@example.com",
+            "password": "PrivilegedPass123!",
+            "is_superuser": True,
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert not get_user_model().objects.filter(pseudo="privileged").exists()
+
+
+@pytest.mark.django_db
 def test_admin_can_patch_user(admin_client, user):
     ProfilUtilisateur.objects.create(utilisateur=user, nom="Old", telephone="")
 
     response = admin_client.patch(
         reverse("api-admin-user-detail", kwargs={"user_id": user.id_user}),
-        {"nom": "Updated User", "is_staff": True},
+        {"nom": "Updated User"},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    user.refresh_from_db()
+    assert user.is_staff is False
+    assert user.profil.nom == "Updated User"
+
+
+@pytest.mark.django_db
+def test_staff_admin_cannot_grant_privileged_roles(admin_client, user):
+    response = admin_client.patch(
+        reverse("api-admin-user-detail", kwargs={"user_id": user.id_user}),
+        {"is_staff": True},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    user.refresh_from_db()
+    assert user.is_staff is False
+
+
+@pytest.mark.django_db
+def test_superadmin_can_grant_privileged_roles(api_client, user):
+    superadmin = get_user_model().objects.create_superuser(
+        pseudo="superadmin",
+        email="superadmin@example.com",
+        password="SuperAdminPass123!",
+    )
+    api_client.force_authenticate(user=superadmin)
+
+    response = api_client.patch(
+        reverse("api-admin-user-detail", kwargs={"user_id": user.id_user}),
+        {"is_staff": True},
         format="json",
     )
 
     assert response.status_code == status.HTTP_200_OK
     user.refresh_from_db()
     assert user.is_staff is True
-    assert user.profil.nom == "Updated User"
 
 
 @pytest.mark.django_db

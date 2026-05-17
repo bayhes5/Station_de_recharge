@@ -57,6 +57,32 @@ def test_create_auth_method_rejects_non_rfid(authenticated_client):
 
 
 @pytest.mark.django_db
+def test_create_auth_method_rejects_rfid_already_linked_to_other_user(authenticated_client, user):
+    type_auth = TypeAuth.objects.create(libelle="RFID", factor_level=1)
+    other_user = type(user).objects.create_user(
+        pseudo="rfid-owner",
+        email="rfid-owner@example.com",
+        password="OwnerPass123!",
+    )
+    Authentification.objects.create(
+        utilisateur=other_user,
+        type_auth=type_auth,
+        hash_valeur=hash_secret("RFID-TAKEN"),
+        display_value="RFID-TAKEN",
+        expiration=timezone.now() + timedelta(days=365),
+    )
+
+    response = authenticated_client.post(
+        reverse("api-auth-method-create"),
+        {"auth_mode": "rfid", "auth_value": "RFID-TAKEN"},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert not Authentification.objects.filter(utilisateur=user, hash_valeur=hash_secret("RFID-TAKEN")).exists()
+
+
+@pytest.mark.django_db
 def test_delete_auth_method_only_deletes_owned_badge(api_client, user):
     type_auth = TypeAuth.objects.create(libelle="RFID", factor_level=1)
     badge = Authentification.objects.create(
@@ -392,10 +418,12 @@ def test_terminal_offline_cache_exports_hashes_without_clear_secret(api_client, 
 @pytest.mark.django_db
 @override_settings(TERMINAL_API_SECRET="test-terminal-secret")
 def test_terminal_offline_cache_requires_terminal_secret(api_client):
+    api_client.credentials()
     response = api_client.get(reverse("api-terminal-offline-cache"))
 
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
+    api_client.credentials(HTTP_X_TERMINAL_SECRET="test-terminal-secret")
     authorized_response = api_client.get(
         reverse("api-terminal-offline-cache"),
         HTTP_X_TERMINAL_SECRET="test-terminal-secret",
@@ -504,6 +532,7 @@ def test_terminal_offline_events_rejects_wrong_station(api_client, user, station
 @pytest.mark.django_db
 @override_settings(TERMINAL_API_SECRET="test-terminal-secret")
 def test_terminal_offline_events_requires_terminal_secret(api_client):
+    api_client.credentials()
     response = api_client.post(
         reverse("api-terminal-offline-events"),
         {"events": []},
@@ -512,6 +541,7 @@ def test_terminal_offline_events_requires_terminal_secret(api_client):
 
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
+    api_client.credentials(HTTP_X_TERMINAL_SECRET="test-terminal-secret")
     authorized_response = api_client.post(
         reverse("api-terminal-offline-events"),
         {"events": []},
@@ -525,6 +555,7 @@ def test_terminal_offline_events_requires_terminal_secret(api_client):
 @pytest.mark.django_db
 @override_settings(TERMINAL_API_SECRET="test-terminal-secret")
 def test_terminal_browser_flows_require_terminal_secret(api_client):
+    api_client.credentials()
     authenticate_response = api_client.post(
         reverse("api-terminal-authenticate"),
         {"auth_mode": "rfid", "auth_value": "RFID-1234"},
@@ -535,6 +566,7 @@ def test_terminal_browser_flows_require_terminal_secret(api_client):
     assert authenticate_response.status_code == status.HTTP_401_UNAUTHORIZED
     assert mobile_response.status_code == status.HTTP_401_UNAUTHORIZED
 
+    api_client.credentials(HTTP_X_TERMINAL_SECRET="test-terminal-secret")
     authorized_response = api_client.post(
         reverse("api-terminal-mobile-session-create"),
         {},
@@ -543,6 +575,19 @@ def test_terminal_browser_flows_require_terminal_secret(api_client):
     )
 
     assert authorized_response.status_code == status.HTTP_201_CREATED
+
+
+@pytest.mark.django_db
+@override_settings(DEBUG=False, TERMINAL_API_SECRET="")
+def test_terminal_api_fails_closed_when_secret_missing(api_client):
+    response = api_client.post(
+        reverse("api-terminal-mobile-session-create"),
+        {},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    assert response.data["detail"] == "Configuration terminal indisponible."
 
 
 @pytest.mark.django_db

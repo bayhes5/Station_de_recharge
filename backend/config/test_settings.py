@@ -1,7 +1,9 @@
 from .settings import *  # noqa: F401,F403
 
+DEBUG = True
 SECRET_KEY = "test-secret-key-for-pytest-only-keep-it-long-enough-for-jwt"
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "testserver"]
+TERMINAL_API_SECRET = "test-terminal-secret"
 
 DATABASES = {
     "default": {

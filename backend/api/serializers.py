@@ -399,6 +399,7 @@ class AuthMethodSerializer(serializers.ModelSerializer):
     """Serialize stored authentication methods without exposing raw secrets."""
 
     type_label = serializers.CharField(source="type_auth.libelle", read_only=True)
+    display_value = serializers.SerializerMethodField()
 
     class Meta:
         model = Authentification
@@ -413,9 +414,14 @@ class AuthMethodSerializer(serializers.ModelSerializer):
         )
         extra_kwargs = {
             "hash_valeur": {"write_only": True},
-            "display_value": {"read_only": True},
             "metadata": {"read_only": True},
         }
+
+    def get_display_value(self, obj):
+        """Return a safe authentication hint."""
+        if obj.type_auth and obj.type_auth.libelle == "RFID":
+            return "Badge RFID enregistre"
+        return obj.display_value
 
 
 class ReservationSerializer(serializers.ModelSerializer):
@@ -428,7 +434,7 @@ class ReservationSerializer(serializers.ModelSerializer):
     utilisateur_pseudo = serializers.CharField(source="utilisateur.pseudo", read_only=True)
     auth_mode = serializers.CharField(source="auth_choice", read_only=True)
     auth_type = serializers.CharField(source="authentification.type_auth.libelle", read_only=True)
-    auth_display_value = serializers.CharField(source="authentification.display_value", read_only=True)
+    auth_display_value = serializers.SerializerMethodField()
     auth_expiration = serializers.DateTimeField(source="authentification.expiration", read_only=True)
     auth_is_active = serializers.BooleanField(source="authentification.is_active", read_only=True)
     duration_minutes = serializers.SerializerMethodField()
@@ -470,6 +476,15 @@ class ReservationSerializer(serializers.ModelSerializer):
     def get_duration_minutes(self, obj):
         """Return the reservation duration in minutes."""
         return reservation_duration_minutes(obj.date_debut, obj.date_fin)
+
+    def get_auth_display_value(self, obj):
+        """Return an authentication hint without leaking raw RFID identifiers."""
+        auth_method = getattr(obj, "authentification", None)
+        if not auth_method:
+            return ""
+        if auth_method.type_auth and auth_method.type_auth.libelle == "RFID":
+            return "Badge RFID enregistre"
+        return auth_method.display_value
 
 
 class ReservationCreateSerializer(serializers.Serializer):
