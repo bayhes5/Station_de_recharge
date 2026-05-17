@@ -25,6 +25,17 @@ Vérifier les services :
 
    docker compose ps
 
+Vérifier la santé applicative Django :
+
+.. code-block:: bash
+
+   curl http://localhost:8000/api/health/live/
+   curl http://localhost:8000/api/health/ready/
+
+``live`` confirme que le processus HTTP répond. ``ready`` confirme que l'API
+peut utiliser la base de données, le cache et la configuration critique. Le
+healthcheck Docker du service ``backend`` utilise ``ready``.
+
 Services attendus pour une démonstration complète :
 
 * ``backend`` ;

@@ -33,6 +33,8 @@ from .views import (
     dashboard,
     delete_auth_method,
     export_account,
+    health_live,
+    health_ready,
     login,
     logout,
     me,
@@ -64,6 +66,8 @@ from .views import (
 )
 
 urlpatterns = [
+    path("health/live/", health_live, name="api-health-live"),
+    path("health/ready/", health_ready, name="api-health-ready"),
     path("register/", register, name="api-register"),
     path("register/availability/", register_availability, name="api-register-availability"),
     path("login/", login, name="api-login"),
