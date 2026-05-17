@@ -616,6 +616,25 @@ Point de charge numéroté dans une borne.
 * ``last_command_message`` : message lisible renvoyé par le firmware.
 * ``last_command_at`` : horodatage du dernier ACK reçu.
 
+``device_command_log``
+~~~~~~~~~~~~~~~~~~~~~~
+
+Historique des acquittements de commandes reçus depuis les ESP32.
+
+* ``id_command`` : UUID primaire.
+* ``id_device`` : ESP32 ayant répondu.
+* ``id_session`` : session de charge associée lorsque le payload contient un
+  ``session_id`` exploitable.
+* ``command_id`` : identifiant de corrélation envoyé par le Raspberry ou le
+  backend.
+* ``action`` : commande concernée. Exemple : ``START`` ou ``STOP``.
+* ``status`` : statut renvoyé par le firmware. Exemple : ``accepted`` ou
+  ``stopped``.
+* ``message`` : message lisible pour l'exploitation.
+* ``source`` : origine déclarée de la commande. Exemple : ``raspberry``.
+* ``payload`` : payload ACK brut conservé pour diagnostic.
+* ``timestamp`` : horodatage de l'ACK.
+
 ``capteur``
 ~~~~~~~~~~~
 

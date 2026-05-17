@@ -129,6 +129,19 @@ Table device {
   last_command_at timestamp
 }
 
+Table device_command_log {
+  id_command uuid [pk]
+  id_device uuid [not null, ref: > device.id_device]
+  id_session uuid [ref: > charging_session.id_session]
+  command_id varchar(100) [not null, default: ""]
+  action varchar(20) [not null, default: ""]
+  status varchar(50) [not null, default: ""]
+  message varchar(255) [not null, default: ""]
+  source varchar(50) [not null, default: ""]
+  payload jsonb [not null]
+  timestamp timestamp [not null]
+}
+
 Table capteur {
   id_capteur uuid [pk]
   id_device uuid [ref: > device.id_device]

@@ -127,6 +127,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         devices: [],
         alerts: [],
         measurements: [],
+        commands: [],
     };
     let currentAdminId = null;
     let currentTab = "overview";
@@ -140,6 +141,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const paginatedTables = ["users", "stations", "technicians", "maintenances"];
     const supervisionPaginationState = {
         devices: { page: 1, pageSize: 10 },
+        commands: { page: 1, pageSize: 10 },
         alerts: { page: 1, pageSize: 10 },
         measurements: { page: 1, pageSize: 10 },
     };
@@ -1079,6 +1081,23 @@ document.addEventListener("DOMContentLoaded", async () => {
         );
 
         renderClientPagination("admin-devices-list", "devices", supervision.devices || [], renderSupervision);
+
+        createDataTable(
+            document.getElementById("admin-commands-list"),
+            [
+                { label: "Date", render: (command) => formatDateTime(command.timestamp) },
+                { label: "Emplacement", render: (command) => command.slot_label || command.slot_id || "-" },
+                { label: "Action", render: (command) => command.action || "-" },
+                { label: "Statut", render: (command) => createStatusBadge(command.status || "-", ["accepted", "stopped", "locked", "unlocked"].includes(command.status) ? "success" : "warning") },
+                { label: "Message", render: (command) => command.message || "-" },
+                { label: "Source", render: (command) => command.source || "-" },
+                { label: "Session", render: (command) => command.session_id || "-" },
+            ],
+            paginateRows(supervision.commands || [], supervisionPaginationState.commands),
+            "Aucune commande ESP32 reçue."
+        );
+
+        renderClientPagination("admin-commands-list", "commands", supervision.commands || [], renderSupervision);
 
         createDataTable(
             document.getElementById("admin-alerts-list"),

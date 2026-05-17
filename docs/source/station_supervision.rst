@@ -233,9 +233,10 @@ démarrage si le relais ne confirme pas.
 Le bridge backend consomme aussi ces ACK. Il met à jour le device avec
 ``last_command_id``, ``last_command_action``, ``last_command_status``,
 ``last_command_message`` et ``last_command_at``. L'onglet administrateur
-``Supervision`` affiche ainsi le dernier acquittement reçu pour chaque ESP32 :
-cela permet de distinguer une commande publiée, une commande confirmée et une
-charge réellement active remontée ensuite par le statut ou la télémétrie.
+``Supervision`` affiche ainsi le dernier acquittement reçu pour chaque ESP32 et
+l'historique récent des commandes acquittées. Cela permet de distinguer une
+commande publiée, une commande confirmée et une charge réellement active
+remontée ensuite par le statut ou la télémétrie.
 
 Commandes utiles
 ----------------

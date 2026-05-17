@@ -72,6 +72,12 @@ ESP32 : identifiant de commande, action, statut, message et horodatage. Ils
 servent à l'exploitation et à la supervision, sans remplacer ``Device.status``
 ni ``Device.last_seen``.
 
+Le modèle ``DeviceCommandLog`` conserve l'historique récent des ACK de
+commandes ESP32. Il rattache l'action au device, à la session de charge lorsque
+le firmware renvoie ``session_id``, au ``command_id`` et au payload brut reçu.
+Ce journal sert à auditer les ordres ``START``, ``STOP``, ``LOCK`` et
+``UNLOCK`` sans dépendre uniquement du dernier état écrasé sur ``Device``.
+
 UUID
 ~~~~
 

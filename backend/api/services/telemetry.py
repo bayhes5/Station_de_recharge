@@ -15,6 +15,7 @@ from api.models import (
     Capteur,
     CapteurData,
     Device,
+    DeviceCommandLog,
     DeviceStatus,
     Emplacement,
     Session,
@@ -340,7 +341,9 @@ def ingest_slot_ack(slot_id: str, payload: dict[str, Any]) -> DeviceAckResult:
     action = str(payload.get("action") or "").strip().upper()
     ack_status = str(payload.get("status") or payload.get("state") or "").strip().lower()
     message = str(payload.get("message") or "").strip()[:255]
+    source = str(payload.get("source") or "").strip()[:50]
     device = _get_device(slot_id)
+    session = _get_active_session(device.emplacement, payload.get("session_id"))
     device.last_seen = timestamp
     device.last_command_id = command_id
     device.last_command_action = action
@@ -359,6 +362,17 @@ def ingest_slot_ack(slot_id: str, payload: dict[str, Any]) -> DeviceAckResult:
             "last_command_at",
             "status",
         ]
+    )
+    DeviceCommandLog.objects.create(
+        device=device,
+        session=session,
+        command_id=command_id,
+        action=action,
+        status=ack_status,
+        message=message,
+        source=source,
+        payload=payload,
+        timestamp=timestamp,
     )
     return DeviceAckResult(device=device, command_id=command_id, action=action, status=ack_status)
 

@@ -4,7 +4,7 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
-from api.models import Alerte, CapteurData, Device, Reservation, Session, SessionTelemetry
+from api.models import Alerte, CapteurData, Device, DeviceCommandLog, Reservation, Session, SessionTelemetry
 from api.services.mqtt_commands import build_slot_command_topic
 from api.tasks import process_mqtt_message
 
@@ -136,8 +136,22 @@ def test_process_mqtt_status_maps_charging_started(emplacements):
 
 
 @pytest.mark.django_db
-def test_process_mqtt_ack_tracks_last_command(emplacements):
+def test_process_mqtt_ack_tracks_last_command(user, emplacements):
     """Store ESP32 command acknowledgements for supervision traceability."""
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="ACKSESS1",
+        auth_choice="qr",
+        date_debut=timezone.now() - timedelta(minutes=10),
+        date_fin=timezone.now() + timedelta(minutes=20),
+        statut="active",
+    )
+    session = Session.objects.create(
+        reservation=reservation,
+        emplacement=emplacements[0],
+        start_time=timezone.now() - timedelta(minutes=5),
+    )
     Device.objects.create(
         emplacement=emplacements[0],
         type_device="ESP32",
@@ -154,6 +168,8 @@ def test_process_mqtt_ack_tracks_last_command(emplacements):
                 "action": "START",
                 "status": "accepted",
                 "message": "Emplacement reserve.",
+                "session_id": str(session.id_session),
+                "source": "raspberry",
             }
         ),
     )
@@ -169,6 +185,14 @@ def test_process_mqtt_ack_tracks_last_command(emplacements):
     assert device.last_command_status == "accepted"
     assert device.last_command_message == "Emplacement reserve."
     assert device.last_command_at is not None
+    command_log = DeviceCommandLog.objects.get()
+    assert command_log.device == device
+    assert command_log.command_id == "cmd-123"
+    assert command_log.action == "START"
+    assert command_log.status == "accepted"
+    assert command_log.message == "Emplacement reserve."
+    assert command_log.session == session
+    assert command_log.source == "raspberry"
 
 
 @pytest.mark.django_db

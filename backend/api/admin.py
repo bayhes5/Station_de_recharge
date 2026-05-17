@@ -9,6 +9,7 @@ from .models import (
     CapteurData,
     Consentement,
     Device,
+    DeviceCommandLog,
     Emplacement,
     JournalSecurite,
     Maintenance,
@@ -86,6 +87,7 @@ admin.site.register(Station)
 admin.site.register(Borne)
 admin.site.register(Emplacement)
 admin.site.register(Device)
+admin.site.register(DeviceCommandLog)
 admin.site.register(Capteur)
 admin.site.register(CapteurData)
 admin.site.register(Alerte)

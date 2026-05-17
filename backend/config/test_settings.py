@@ -18,6 +18,13 @@ SECURE_SSL_REDIRECT = False
 SESSION_COOKIE_SECURE = False
 CSRF_COOKIE_SECURE = False
 JWT_REFRESH_COOKIE_SECURE = False
+CELERY_TASK_ALWAYS_EAGER = True
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "station-test-cache",
+    }
+}
 
 CHANNEL_LAYERS = {
     "default": {

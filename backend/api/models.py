@@ -695,6 +695,42 @@ class Device(models.Model):
         ]
 
 
+class DeviceCommandLog(models.Model):
+    """Store command acknowledgements received from embedded devices."""
+
+    id_command = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    device = models.ForeignKey(
+        Device,
+        on_delete=models.CASCADE,
+        related_name="command_logs",
+        db_column="id_device",
+    )
+    session = models.ForeignKey(
+        Session,
+        on_delete=models.SET_NULL,
+        related_name="device_command_logs",
+        db_column="id_session",
+        null=True,
+        blank=True,
+    )
+    command_id = models.CharField(max_length=100, blank=True, default="")
+    action = models.CharField(max_length=20, blank=True, default="")
+    status = models.CharField(max_length=50, blank=True, default="")
+    message = models.CharField(max_length=255, blank=True, default="")
+    source = models.CharField(max_length=50, blank=True, default="")
+    payload = models.JSONField(default=dict, blank=True)
+    timestamp = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "device_command_log"
+        indexes = [
+            models.Index(fields=["device", "timestamp"], name="idx_cmd_device_time"),
+            models.Index(fields=["command_id"], name="idx_cmd_command_id"),
+            models.Index(fields=["action", "timestamp"], name="idx_cmd_action_time"),
+            models.Index(fields=["status", "timestamp"], name="idx_cmd_status_time"),
+        ]
+
+
 class Capteur(models.Model):
     """Represent a sensor attached to an embedded charging device."""
 

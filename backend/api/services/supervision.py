@@ -5,7 +5,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.utils import timezone
 
-from api.models import Alerte, CapteurData, Device
+from api.models import Alerte, CapteurData, Device, DeviceCommandLog
 
 DEVICE_ONLINE_GRACE_MINUTES = getattr(settings, "DEVICE_ONLINE_GRACE_MINUTES", 5)
 DEVICE_STATUS_DISPLAY = {
@@ -135,6 +135,34 @@ def serialize_sensor_data_supervision(sensor_data):
     }
 
 
+def serialize_command_log_supervision(command):
+    """Return one recent ESP32 command acknowledgement for the admin screen."""
+    device = command.device
+    emplacement = device.emplacement if device else None
+    station = emplacement.station if emplacement else None
+    borne = emplacement.borne if emplacement else None
+    return {
+        "id_command": str(command.id_command),
+        "command_id": command.command_id,
+        "action": command.action,
+        "status": command.status,
+        "message": command.message,
+        "source": command.source,
+        "timestamp": command.timestamp.isoformat() if command.timestamp else None,
+        "session_id": str(command.session_id) if command.session_id else None,
+        "slot_id": device.mac_address if device else "-",
+        "slot_label": (
+            f"{station.nom} - {borne.nom} - emplacement {emplacement.numero}"
+            if emplacement and station and borne
+            else "-"
+        ),
+        "station_nom": station.nom if station else "-",
+        "borne_nom": borne.nom if borne else "-",
+        "borne_numero": borne.numero if borne else "-",
+        "emplacement_numero": emplacement.numero if emplacement else "-",
+    }
+
+
 def build_admin_supervision_payload():
     """Build the complete admin supervision snapshot used by HTTP and WebSocket flows."""
     now = timezone.now()
@@ -171,6 +199,16 @@ def build_admin_supervision_payload():
         )
         .order_by("-timestamp")[:30]
     )
+    recent_commands = (
+        DeviceCommandLog.objects.select_related(
+            "device",
+            "device__emplacement",
+            "device__emplacement__station",
+            "device__emplacement__borne",
+            "session",
+        )
+        .order_by("-timestamp")[:30]
+    )
     sensor_since = now - timedelta(hours=24)
 
     return {
@@ -185,4 +223,5 @@ def build_admin_supervision_payload():
         "devices": [serialize_device_supervision(device, now=now) for device in devices],
         "alerts": [serialize_alert_supervision(alert) for alert in recent_alerts],
         "measurements": [serialize_sensor_data_supervision(data) for data in recent_sensor_data],
+        "commands": [serialize_command_log_supervision(command) for command in recent_commands],
     }
