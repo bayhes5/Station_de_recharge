@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 
 import pytest
+from django.core import mail
 from django.utils import timezone
 
 from api.models import (
@@ -15,6 +16,8 @@ from api.models import (
     Session,
     SessionTelemetry,
     Station,
+    Technicien,
+    TechnicienStation,
 )
 from api.services.mqtt_commands import build_slot_command_topic
 from api.tasks import process_mqtt_message
@@ -419,6 +422,43 @@ def test_process_mqtt_message_creates_alert_for_open_door(emplacements):
 
     assert result["alert_count"] == 1
     assert Alerte.objects.get().status == "nouvelle"
+
+
+@pytest.mark.django_db
+def test_process_mqtt_message_sends_alert_email_to_assigned_technicians(
+    emplacements,
+    django_capture_on_commit_callbacks,
+):
+    """Notify station technicians when a new operational alert is created."""
+    station = emplacements[0].station
+    technician = Technicien.objects.create(
+        nom="Technicien Centre",
+        email="tech-centre@example.com",
+        telephone="",
+    )
+    TechnicienStation.objects.create(technicien=technician, station=station)
+    Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="demo",
+        mac_address="slot1",
+        status="offline",
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        result = process_mqtt_message(
+            "station/slot1/telemetry",
+            json.dumps({"state": "charging", "door": False, "cable": True}),
+        )
+
+    assert result["alert_count"] == 1
+    assert len(mail.outbox) == 1
+    message = mail.outbox[0]
+    assert message.to == ["tech-centre@example.com"]
+    assert "Station Centre" in message.subject
+    assert "intrusion" in message.body
+    assert "Borne 1" in message.body
+    assert "Emplacement 1" in message.body
 
 
 @pytest.mark.django_db

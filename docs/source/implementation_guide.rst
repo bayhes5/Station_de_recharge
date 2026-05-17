@@ -394,6 +394,11 @@ Le choix d'éviter les doublons rend la supervision plus lisible pendant une
 simulation continue. Les alertes historiques restent en base pour conserver le
 contexte.
 
+À la création d'une nouvelle alerte, ``backend/api/services/email_notifications.py``
+notifie les techniciens actifs affectés à la station concernée. En environnement
+académique, Django envoie ces emails vers Mailpit via SMTP ; aucun fournisseur
+externe n'est nécessaire pour démontrer le parcours.
+
 Supervision administrateur
 --------------------------
 
@@ -587,8 +592,8 @@ local :
   simulations ;
 * MQTT n'est pas authentifié en développement local ;
 * Grafana n'est pas encore protégé par SSO ;
-* les notifications technicien par email ou SMS restent à définir séparément du
-  code SMS temporaire d'accès ;
+* les notifications technicien par email sont limitées au signalement des
+  nouvelles alertes ; l'acquittement et l'escalade SMS restent à définir ;
 * TimescaleDB est utilisé comme PostgreSQL compatible, sans hypertables dédiées
   pour l'instant ;
 * la gestion de conservation des historiques reste à définir.

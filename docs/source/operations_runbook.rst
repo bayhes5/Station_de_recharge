@@ -58,6 +58,7 @@ Services attendus pour une démonstration complète :
 * ``redis`` ;
 * ``db`` ;
 * ``grafana`` ;
+* ``mailpit`` ;
 * ``reverse-proxy``.
 
 URLs utiles
@@ -81,6 +82,8 @@ Ports directs :
    5173  Vite
    9000  kiosque Raspberry
    3000  Grafana
+   8025  Mailpit
+   1025  SMTP Mailpit
    1883  Mosquitto
    5432  PostgreSQL/TimescaleDB
 
@@ -358,6 +361,38 @@ Le contrôle doit rester sans erreur ``api.E``. Les avertissements ``api.W`` son
 après validation HTTPS, limiter ``ALLOWED_HOSTS``, configurer les identifiants
 MQTT, chiffrer MQTT si le trafic sort du réseau local de confiance et remplacer
 le mot de passe Grafana de démonstration.
+
+Email académique avec Mailpit
+-----------------------------
+
+Le projet utilise Mailpit pour capturer les emails en local et en démonstration.
+Cela permet de montrer des notifications réelles côté Django sans dépendre d'un
+service SMTP payant.
+
+Ouvrir l'interface Mailpit :
+
+.. code-block:: text
+
+   http://localhost:8025
+
+Configuration locale attendue :
+
+.. code-block:: text
+
+   EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+   EMAIL_HOST=mailpit
+   EMAIL_PORT=1025
+   DEFAULT_FROM_EMAIL=Station <no-reply@station.local>
+
+Les emails utiles au projet académique sont envoyés vers Mailpit :
+
+* notification des techniciens assignés lorsqu'une nouvelle alerte terrain est
+  créée ;
+* futurs emails de vérification de compte ou de réinitialisation de mot de
+  passe si ces parcours sont activés.
+
+Mailpit n'est pas un fournisseur d'envoi de production : il capture les messages
+pour les tests et la soutenance.
 
 SMS de production
 -----------------

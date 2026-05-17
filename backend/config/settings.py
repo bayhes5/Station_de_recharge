@@ -201,6 +201,19 @@ MOBILE_SESSION_TTL_SECONDS = env_int("MOBILE_SESSION_TTL_SECONDS", 10 * 60)
 REDIS_URL = os.environ.get("REDIS_URL", os.environ.get("CACHE_URL", "redis://redis:6379/1"))
 CACHE_URL = os.environ.get("CACHE_URL", "")
 
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.console.EmailBackend" if DEBUG else "django.core.mail.backends.smtp.EmailBackend",
+)
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "mailpit")
+EMAIL_PORT = env_int("EMAIL_PORT", 1025)
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", False)
+EMAIL_USE_SSL = env_bool("EMAIL_USE_SSL", False)
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Station <no-reply@station.local>")
+ALERT_EMAIL_NOTIFICATIONS_ENABLED = env_bool("ALERT_EMAIL_NOTIFICATIONS_ENABLED", True)
+
 if CACHE_URL:
     CACHES = {
         "default": {

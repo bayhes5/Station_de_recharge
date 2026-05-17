@@ -104,6 +104,18 @@ services:
       timeout: 3s
       retries: 5
 
+  mailpit:
+    image: axllent/mailpit:v1.30.0
+    container_name: mailpit
+    environment:
+      MP_MAX_MESSAGES: 5000
+      MP_DATABASE: /data/mailpit.db
+    volumes:
+      - mailpit_data:/data
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+
   mqtt:
     image: eclipse-mosquitto:2
     container_name: mqtt_broker
@@ -133,6 +145,13 @@ services:
     env_file:
       - .env
     environment:
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
+      EMAIL_HOST: ${EMAIL_HOST:-mailpit}
+      EMAIL_PORT: ${EMAIL_PORT:-1025}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-false}
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Station <no-reply@station.local>}
+      ALERT_EMAIL_NOTIFICATIONS_ENABLED: ${ALERT_EMAIL_NOTIFICATIONS_ENABLED:-true}
       TERMINAL_API_SECRET: ${TERMINAL_API_SECRET:-dev-terminal-secret}
     volumes:
       - ./backend:/app
@@ -145,6 +164,8 @@ services:
         condition: service_healthy
       mqtt:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     healthcheck:
       test:
         [
@@ -166,6 +187,14 @@ services:
     container_name: celery_worker
     env_file:
       - .env
+    environment:
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
+      EMAIL_HOST: ${EMAIL_HOST:-mailpit}
+      EMAIL_PORT: ${EMAIL_PORT:-1025}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-false}
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Station <no-reply@station.local>}
+      ALERT_EMAIL_NOTIFICATIONS_ENABLED: ${ALERT_EMAIL_NOTIFICATIONS_ENABLED:-true}
     volumes:
       - ./backend:/app
     depends_on:
@@ -173,6 +202,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "celery -A config inspect ping --timeout=3 >/dev/null 2>&1"]
       interval: 15s
@@ -188,6 +219,14 @@ services:
     container_name: mqtt_bridge
     env_file:
       - .env
+    environment:
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
+      EMAIL_HOST: ${EMAIL_HOST:-mailpit}
+      EMAIL_PORT: ${EMAIL_PORT:-1025}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-false}
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Station <no-reply@station.local>}
+      ALERT_EMAIL_NOTIFICATIONS_ENABLED: ${ALERT_EMAIL_NOTIFICATIONS_ENABLED:-true}
     volumes:
       - ./backend:/app
     depends_on:
@@ -317,6 +356,7 @@ services:
 volumes:
   frontend_node_modules:
   grafana_data:
+  mailpit_data:
   mqtt_data:
   mqtt_log:
   postgres_data:  # Volume pour persister les données de PostgreSQL

@@ -266,6 +266,14 @@ identifiants dédiés. Le mode production recommande aussi
 ``SMS_REQUIRE_VERIFIED_PHONE=True`` et un délai de renvoi afin de limiter les
 erreurs de numéro, les abus et les boucles de clic sur l'interface mobile.
 
+Pour les emails, le projet retient Mailpit en environnement académique. Django
+envoie via SMTP vers le service ``mailpit`` du ``docker-compose`` et les messages
+sont consultables dans l'interface web locale. Ce choix reste gratuit, open
+source et démontrable sans fournisseur externe. Les emails servent d'abord aux
+notifications technicien sur nouvelle alerte ; les parcours de vérification de
+compte ou de réinitialisation de mot de passe pourront réutiliser la même
+configuration.
+
 La régénération par l'administration remplace la valeur active et ne présente
 plus le QR/code SMS dans une modale de copie. Cette décision évite de transformer
 l'admin en canal de transmission du secret : si l'utilisateur affiche déjà son

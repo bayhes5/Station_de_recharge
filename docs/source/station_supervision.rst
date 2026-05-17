@@ -533,6 +533,12 @@ mise à jour au statut ``active`` au lieu de créer un doublon. Quand une
 télémétrie normale confirme que la condition a disparu, l'alerte passe
 automatiquement au statut ``resolue``.
 
+Lorsqu'une nouvelle alerte est créée, le backend envoie aussi un email aux
+techniciens actifs affectés à la station concernée. En environnement académique,
+ces emails sont capturés par Mailpit et consultables sur ``http://localhost:8025``.
+Ce mécanisme complète l'API de supervision : le technicien reçoit un signal,
+puis consulte son tableau de bord restreint pour traiter l'incident.
+
 Les conditions de résolution automatique sont :
 
 * ``intrusion`` : ``door`` repasse à ``true`` ou l'emplacement n'est plus en charge ;

@@ -22,6 +22,7 @@ from api.models import (
     Session,
     SessionTelemetry,
 )
+from api.services.email_notifications import notify_technicians_for_alert
 
 
 SENSOR_FIELDS = {
@@ -372,6 +373,9 @@ def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp, 
         )
         if was_created:
             created.append(alert)
+            transaction.on_commit(
+                lambda alert_id=alert.id_alerte: notify_technicians_for_alert(alert_id)
+            )
     return created
 
 
