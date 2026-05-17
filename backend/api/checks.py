@@ -31,12 +31,6 @@ INSECURE_GRAFANA_PASSWORDS = {
 SMS_PROVIDER_REQUIRED_SETTINGS = {
     "twilio": ("SMS_TWILIO_ACCOUNT_SID", "SMS_TWILIO_AUTH_TOKEN", "SMS_TWILIO_FROM"),
     "brevo": ("SMS_BREVO_API_KEY",),
-    "ovh": (
-        "SMS_OVH_APPLICATION_KEY",
-        "SMS_OVH_APPLICATION_SECRET",
-        "SMS_OVH_CONSUMER_KEY",
-        "SMS_OVH_SERVICE_NAME",
-    ),
 }
 
 
@@ -145,8 +139,15 @@ def station_deployment_checks(app_configs, **kwargs):
     if sms_backend in {"console", "disabled"}:
         messages.append(
             Warning(
-                "SMS_BACKEND should use a production provider such as twilio, brevo or ovh.",
+                "SMS_BACKEND should use a production provider such as twilio or brevo.",
                 id="api.W006",
+            )
+        )
+    elif sms_backend == "ovh":
+        messages.append(
+            Error(
+                "SMS_BACKEND=ovh is not enabled in the hardened build because the OVH REST signature uses SHA-1.",
+                id="api.E008",
             )
         )
     for setting_name in SMS_PROVIDER_REQUIRED_SETTINGS.get(sms_backend, ()):

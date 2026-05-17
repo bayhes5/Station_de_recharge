@@ -486,9 +486,11 @@ un fournisseur explicite :
      - ``SMS_TWILIO_ACCOUNT_SID``, ``SMS_TWILIO_AUTH_TOKEN``, ``SMS_TWILIO_FROM``
    * - ``brevo``
      - ``SMS_BREVO_API_KEY``
-   * - ``ovh``
-     - ``SMS_OVH_APPLICATION_KEY``, ``SMS_OVH_APPLICATION_SECRET``,
-       ``SMS_OVH_CONSUMER_KEY``, ``SMS_OVH_SERVICE_NAME``
+
+Le backend ``ovh`` n'est pas activé dans le profil durci : l'API REST OVH impose
+une signature historique en SHA-1, ce qui crée une alerte CodeQL bloquante. Pour
+ce projet, utiliser ``console`` en démonstration locale et ``brevo`` ou
+``twilio`` pour une démonstration avec envoi réel.
 
 Réglages recommandés avant ouverture du service :
 

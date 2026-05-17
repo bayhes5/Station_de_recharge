@@ -68,3 +68,11 @@ def test_station_deployment_checks_accept_hardened_settings(monkeypatch):
     monkeypatch.setenv("GRAFANA_ADMIN_PASSWORD", "grafana-production-password")
 
     assert station_deployment_checks(None) == []
+
+
+@override_settings(SMS_BACKEND="ovh")
+def test_station_deployment_checks_reject_ovh_backend():
+    """Reject OVH in hardened mode because its REST signature requires SHA-1."""
+    ids = _check_ids()
+
+    assert "api.E008" in ids

@@ -170,10 +170,12 @@ recevoir un code SMS.
 
 Le service d'envoi est abstrait dans ``backend/api/services/sms.py``. Le backend
 ``console`` sert au développement local et journalise seulement l'envoi. Les
-backends ``twilio``, ``brevo`` et ``ovh`` utilisent des variables
-d'environnement dédiées et échouent immédiatement si leurs identifiants sont
-absents. ``SMS_RESEND_COOLDOWN_SECONDS`` limite le renvoi manuel du même code
-pour éviter le spam et les boucles côté interface mobile.
+backends ``twilio`` et ``brevo`` utilisent des variables d'environnement dédiées
+et échouent immédiatement si leurs identifiants sont absents. Le backend
+``ovh`` reste volontairement non actif dans le profil durci, car sa signature
+REST historique repose sur SHA-1. ``SMS_RESEND_COOLDOWN_SECONDS`` limite le
+renvoi manuel du même code pour éviter le spam et les boucles côté interface
+mobile.
 
 L'implantation principale est dans ``backend/api/views.py`` :
 

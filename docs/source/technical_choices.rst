@@ -261,8 +261,9 @@ créneau ou lorsqu'il clique sur ``Recevoir le code SMS``.
 
 Le transport SMS est isolé derrière un service backend. En local, le fournisseur
 ``console`` évite tout coût et tout envoi réel. En production, le fournisseur
-doit être choisi explicitement parmi ``twilio``, ``brevo`` ou ``ovh`` avec ses
-identifiants dédiés. Le mode production recommande aussi
+doit être choisi explicitement parmi ``twilio`` ou ``brevo`` avec ses
+identifiants dédiés. ``ovh`` n'est pas activé dans le profil durci, car la
+signature REST OVH repose sur SHA-1. Le mode production recommande aussi
 ``SMS_REQUIRE_VERIFIED_PHONE=True`` et un délai de renvoi afin de limiter les
 erreurs de numéro, les abus et les boucles de clic sur l'interface mobile.
 
