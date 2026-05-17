@@ -55,7 +55,7 @@ Nginx :
    https://localhost/          -> frontend
    https://localhost/api/      -> API Django
    https://localhost/admin/    -> admin Django
-   https://localhost/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s
+   https://localhost/grafana/d/station-overview/station-vue-globale-supervision?orgId=1&from=now-6h&to=now&refresh=10s
                          -> dashboard Grafana de supervision
    https://localhost/kiosk/    -> kiosque Raspberry
 
@@ -261,6 +261,12 @@ production. ``SECURE_HSTS_SECONDS`` peut être activé après validation du HTTP
 ``SECURE_HSTS_PRELOAD`` ne doit être activé que si le domaine est prêt pour la
 preload list navigateur.
 
+Le projet ajoute aussi des contrôles spécifiques à la station. Les erreurs
+``api.E001`` à ``api.E005`` bloquent les secrets de démonstration et les cookies
+non sécurisés. Les avertissements ``api.W001`` à ``api.W005`` signalent les
+points à durcir avant exposition réelle : HSTS, ``ALLOWED_HOSTS``, identifiants
+MQTT, TLS MQTT et mot de passe administrateur Grafana.
+
 Lancer les tests
 ----------------
 
@@ -268,9 +274,11 @@ Les tests pytest sont exécutés automatiquement pendant le build de l'image
 backend. Si un test échoue, ``docker compose up -d --build`` s'arrête avant de
 lancer les services.
 
-Le workflow GitHub Actions ``CI`` relance aussi les tests backend, la qualité
-des docstrings backend, la validation frontend avec ``npm run verify`` et la
-génération de la documentation HTML sur chaque push et pull request.
+Le workflow GitHub Actions ``CI`` relance aussi les tests backend, Ruff, la
+qualité des docstrings backend, la validation du schéma OpenAPI, les contrôles
+de déploiement Django, les tests du kiosque Raspberry, la validation frontend
+avec ``npm run verify`` et la génération de la documentation HTML sur chaque
+push et pull request.
 
 Automatisations DevSecOps
 -------------------------
@@ -301,6 +309,7 @@ vert :
 
 * ``Backend tests`` ;
 * ``Backend quality`` ;
+* ``Raspberry edge tests`` ;
 * ``Frontend verify`` ;
 * ``Documentation build`` ;
 * ``Analyze (python)`` ;
@@ -390,7 +399,7 @@ Installer les dépendances de développement :
 
    .\.venv\Scripts\python.exe -m pip install -r backend\requirements-dev.txt
 
-Vérifier le style des docstrings :
+Vérifier la qualité Python avec Ruff :
 
 .. code-block:: powershell
 
@@ -405,5 +414,6 @@ Mesurer la couverture documentaire :
    ..\.venv\Scripts\python.exe -m interrogate api
 
 Le seuil Interrogate est fixé à ``100`` : une nouvelle classe ou fonction suivie
-par l'audit doit donc recevoir une docstring. Ruff active aussi les règles ``D``
-pour contrôler la présence et le style des docstrings publiques.
+par l'audit doit donc recevoir une docstring. Ruff active les règles ``D`` pour
+les docstrings publiques, les règles ``E4/E7/E9/F`` pour les erreurs Python
+probables et ``B`` pour quelques pièges courants.

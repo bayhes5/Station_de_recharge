@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "check:js": "node scripts/check-js.mjs",
+    "check:a11y": "node scripts/check-accessibility.mjs",
     "build": "vite build",
     "e2e": "playwright test",
     "preview": "vite preview --host 0.0.0.0",
-    "verify": "npm run check:js && npm run build && npm run e2e"
+    "verify": "npm run check:js && npm run check:a11y && npm run build && npm run e2e"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",

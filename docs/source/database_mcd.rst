@@ -19,8 +19,8 @@ La base est organisée autour de cinq ensembles fonctionnels :
 
 * **comptes et sécurité** : utilisateurs, profils, rôles, moyens
   d’authentification, consentements et journal de sécurité ;
-* **infrastructure terrain** : stations, emplacements de charge, devices ESP32
-  et capteurs ;
+* **infrastructure terrain** : stations, bornes physiques, emplacements de
+  charge, devices ESP32 et capteurs ;
 * **réservation et session** : réservation utilisateur, authentification choisie
   et session de charge effective ;
 * **télémétrie et alertes** : mesures capteurs, mesures électriques et alertes
@@ -78,8 +78,11 @@ puis d'exporter l'image en SVG ou PNG si une version graphique doit être intég
      - ``auth_method``
      - Chaque moyen d'accès est classé par type.
    * - ``station``
+     - ``borne``
+     - Une station contient une ou plusieurs bornes physiques.
+   * - ``borne``
      - ``emplacement``
-     - Une station contient plusieurs emplacements.
+     - Une borne contient plusieurs emplacements.
    * - ``emplacement``
      - ``device``
      - Un emplacement est piloté par un équipement embarqué.
@@ -107,6 +110,12 @@ puis d'exporter l'image en SVG ou PNG si une version graphique doit être intég
    * - ``utilisateur``
      - ``technicien``
      - Un technicien peut être lié à un compte utilisateur.
+   * - ``technicien``
+     - ``technicien_station``
+     - Un technicien peut être autorisé sur plusieurs stations.
+   * - ``station``
+     - ``technicien_station``
+     - Une station peut être suivie par plusieurs techniciens.
    * - ``station``
      - ``maintenance``
      - Une intervention concerne une station.
@@ -136,9 +145,12 @@ Clés structurantes
    * - ``station``
      - ``id_station``
      - Nom, localisation et statut d'exploitation.
-   * - ``emplacement``
-     - ``id_emplacement``, ``id_station``
+   * - ``borne``
+     - ``id_borne``, ``id_station``
      - Numéro unique dans une station.
+   * - ``emplacement``
+     - ``id_emplacement``, ``id_borne``, ``id_station``
+     - Numéro unique dans une borne.
    * - ``device``
      - ``id_device``, ``id_emplacement``
      - Un device par emplacement, ``last_seen`` pour la supervision.
@@ -252,13 +264,25 @@ faire évoluer la base.
        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
    );
 
+   CREATE TABLE borne (
+       id_borne UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+       id_station UUID NOT NULL REFERENCES station(id_station) ON DELETE CASCADE,
+       numero INTEGER NOT NULL,
+       nom VARCHAR(100) NOT NULL,
+       mqtt_prefix VARCHAR(100) NOT NULL DEFAULT 'station',
+       statut VARCHAR(50) NOT NULL,
+       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       UNIQUE (id_station, numero)
+   );
+
    CREATE TABLE emplacement (
        id_emplacement UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+       id_borne UUID NOT NULL REFERENCES borne(id_borne) ON DELETE CASCADE,
        id_station UUID NOT NULL REFERENCES station(id_station) ON DELETE CASCADE,
        numero INTEGER NOT NULL,
        etat VARCHAR(50) NOT NULL,
        statut_cadenas VARCHAR(50) NOT NULL,
-       UNIQUE (id_station, numero)
+       UNIQUE (id_borne, numero)
    );
 
    CREATE TABLE device (
@@ -267,6 +291,8 @@ faire évoluer la base.
        type_device VARCHAR(50) NOT NULL,
        firmware_version VARCHAR(50) NOT NULL,
        ip_address INET,
+       slot_id VARCHAR(50) NOT NULL DEFAULT '',
+       hardware_mac VARCHAR(50) NOT NULL DEFAULT '',
        mac_address VARCHAR(50) NOT NULL DEFAULT '',
        last_seen TIMESTAMP,
        status VARCHAR(50) NOT NULL
@@ -325,7 +351,11 @@ faire évoluer la base.
        message TEXT NOT NULL,
        niveau_severite VARCHAR(50) NOT NULL,
        status VARCHAR(50) NOT NULL,
-       date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+       date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       notified_at TIMESTAMP,
+       notification_count INTEGER NOT NULL DEFAULT 0
    );
 
    CREATE TABLE technicien (
@@ -334,6 +364,17 @@ faire évoluer la base.
        nom VARCHAR(100) NOT NULL,
        email VARCHAR(254) UNIQUE NOT NULL,
        telephone VARCHAR(20) NOT NULL DEFAULT ''
+   );
+
+   CREATE TABLE technicien_station (
+       id_assignment UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+       id_technicien UUID NOT NULL REFERENCES technicien(id_tech) ON DELETE CASCADE,
+       id_station UUID NOT NULL REFERENCES station(id_station) ON DELETE CASCADE,
+       role VARCHAR(50) NOT NULL DEFAULT 'intervenant',
+       is_active BOOLEAN NOT NULL DEFAULT TRUE,
+       assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       CONSTRAINT uq_technicien_station UNIQUE (id_technicien, id_station),
+       CONSTRAINT chk_tech_station_role CHECK (role IN ('referent', 'intervenant', 'observateur'))
    );
 
    CREATE TABLE maintenance (
@@ -355,6 +396,8 @@ faire évoluer la base.
    CREATE INDEX idx_auth_expiration ON auth_method(expiration);
    CREATE INDEX idx_station_nom ON station(nom);
    CREATE INDEX idx_station_statut ON station(statut);
+   CREATE INDEX idx_borne_station_statut ON borne(id_station, statut);
+   CREATE INDEX idx_emp_borne_statut ON emplacement(id_borne, etat);
    CREATE INDEX idx_emp_station_statut ON emplacement(id_station, etat);
    CREATE INDEX idx_emp_lock_state ON emplacement(statut_cadenas, etat);
    CREATE INDEX idx_reservation_emp_dates ON reservation(id_emplacement, date_debut, date_fin);
@@ -377,6 +420,8 @@ faire évoluer la base.
    CREATE INDEX idx_alert_ts ON alerte(date DESC);
    CREATE INDEX idx_alert_sev_time ON alerte(niveau_severite, date);
    CREATE INDEX idx_alert_type_time ON alerte(type, date);
+   CREATE INDEX idx_tech_station_tech ON technicien_station(id_technicien, is_active);
+   CREATE INDEX idx_tech_station_station ON technicien_station(id_station, is_active);
    CREATE INDEX idx_maint_tech_date ON maintenance(id_technicien, date_planifiee);
    CREATE INDEX idx_maint_station_date ON maintenance(id_station, date_planifiee);
    CREATE INDEX idx_maint_status_date ON maintenance(status, date_planifiee);
@@ -536,14 +581,32 @@ Site physique de recharge.
   ``maintenance``, ``inactive``.
 * ``created_at`` : date d’enregistrement.
 
+``borne``
+~~~~~~~~~
+
+Équipement physique installé dans une station. Une borne peut piloter plusieurs
+emplacements et porte la configuration locale utilisée par le Raspberry et MQTT.
+
+* ``id_borne`` : UUID primaire.
+* ``id_station`` : station parente.
+* ``numero`` : numéro de borne unique dans la station. Exemple : ``1``.
+* ``nom`` : libellé lisible. Exemple : ``Borne 1``.
+* ``mqtt_prefix`` : préfixe MQTT utilisé pour router les messages terrain.
+  Exemple : ``station``.
+* ``statut`` : état d'exploitation. Valeurs fermées côté application :
+  ``active``, ``maintenance``, ``inactive``.
+* ``created_at`` : date d’enregistrement.
+
 ``emplacement``
 ~~~~~~~~~~~~~~~
 
-Point de charge numéroté dans une station.
+Point de charge numéroté dans une borne.
 
 * ``id_emplacement`` : UUID primaire.
-* ``id_station`` : station parente.
-* ``numero`` : numéro visible sur site. Exemple : ``1``.
+* ``id_borne`` : borne parente.
+* ``id_station`` : station dérivée de la borne, conservée pour les filtres et les
+  requêtes de disponibilité.
+* ``numero`` : numéro visible sur la borne. Exemple : ``1``.
 * ``etat`` : disponibilité opérationnelle. Valeurs fermées côté application :
   ``disponible``, ``reserve``, ``occupe``, ``maintenance``.
 * ``statut_cadenas`` : état du verrou. Valeurs fermées côté application :
@@ -559,8 +622,11 @@ Point de charge numéroté dans une station.
 * ``type_device`` : type matériel. Exemple : ``ESP32``.
 * ``firmware_version`` : version embarquée. Exemple : ``1.2.0``.
 * ``ip_address`` : adresse IP locale si disponible. Exemple : ``192.168.1.42``.
-* ``mac_address`` : adresse MAC ou identifiant matériel. Exemple :
+* ``slot_id`` : identifiant logique MQTT de l'emplacement. Exemple : ``slot1``.
+* ``hardware_mac`` : adresse MAC physique Wi-Fi de l'ESP32. Exemple :
   ``AA:BB:CC:DD:EE:FF``.
+* ``mac_address`` : ancien champ conservé en compatibilité pendant la migration ;
+  il contient encore souvent l'ancien ``slot_id`` logique.
 * ``last_seen`` : dernière télémétrie reçue. Ce champ sert à calculer la
   connexion opérationnelle de l'ESP32 dans l'interface de supervision.
 * ``status`` : dernier état métier remonté par l'équipement. Valeurs observées :
@@ -569,6 +635,33 @@ Point de charge numéroté dans une station.
   ``offline`` pour un état explicitement remonté hors ligne et ``error`` pour
   une anomalie embarquée. La disponibilité réelle ne doit pas être déduite de ce
   champ seul : elle dépend de la fraîcheur de ``last_seen``.
+* ``last_command_id`` : identifiant de la dernière commande acquittée par
+  l'ESP32.
+* ``last_command_action`` : action de la dernière commande. Exemple :
+  ``START`` ou ``STOP``.
+* ``last_command_status`` : statut de l'ACK reçu. Exemple : ``accepted`` ou
+  ``stopped``.
+* ``last_command_message`` : message lisible renvoyé par le firmware.
+* ``last_command_at`` : horodatage du dernier ACK reçu.
+
+``device_command_log``
+~~~~~~~~~~~~~~~~~~~~~~
+
+Historique des acquittements de commandes reçus depuis les ESP32.
+
+* ``id_command`` : UUID primaire.
+* ``id_device`` : ESP32 ayant répondu.
+* ``id_session`` : session de charge associée lorsque le payload contient un
+  ``session_id`` exploitable.
+* ``command_id`` : identifiant de corrélation envoyé par le Raspberry ou le
+  backend.
+* ``action`` : commande concernée. Exemple : ``START`` ou ``STOP``.
+* ``status`` : statut renvoyé par le firmware. Exemple : ``accepted`` ou
+  ``stopped``.
+* ``message`` : message lisible pour l'exploitation.
+* ``source`` : origine déclarée de la commande. Exemple : ``raspberry``.
+* ``payload`` : payload ACK brut conservé pour diagnostic.
+* ``timestamp`` : horodatage de l'ACK.
 
 ``capteur``
 ~~~~~~~~~~~
@@ -650,6 +743,12 @@ Incident opérationnel issu d’une mesure capteur ou d’une session.
 * ``status`` : cycle de vie. Valeurs fermées côté application : ``nouvelle``,
   ``active``, ``resolue``, ``closed``, ``fermee``.
 * ``date`` : date de création ou de dernière mise à jour.
+* ``first_seen`` : premier signal de l'anomalie.
+* ``last_seen`` : dernière observation de la même anomalie.
+* ``notified_at`` : date du dernier email envoyé, si une notification a été
+  déclenchée.
+* ``notification_count`` : nombre de notifications envoyées pour limiter les
+  relances.
 
 ``technicien``
 ~~~~~~~~~~~~~~

@@ -3,9 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Réservation d’un créneau de recharge Métropole Verte avec choix du mode d’accès RFID, QR ou code SMS temporaire.">
     <meta name="theme-color" content="#1f8f55">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icons/pwa-icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icons/pwa-icon-192.png">
     <meta http-equiv="Cache-Control" content="no-store">
     <title>R&eacute;server | M&eacute;tropole Verte</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -21,7 +23,7 @@
                 <div>
                     <p class="eyebrow">M&eacute;tropole Verte</p>
                     <h1 id="reservation-title">Nouvelle r&eacute;servation</h1>
-                    <p class="lead">Recherchez une station, choisissez un cr&eacute;neau, puis l&rsquo;application attribue automatiquement un emplacement disponible.</p>
+                    <p class="lead">Recherchez une station, choisissez un d&eacute;but et une dur&eacute;e de recharge, puis l&rsquo;application attribue automatiquement un emplacement disponible.</p>
                 </div>
                 <div class="header-actions">
                     <a class="btn btn-secondary" href="/dashboard.html">Tableau de bord</a>
@@ -63,12 +65,16 @@
                                 <label for="reservation-start">D&eacute;but de r&eacute;servation</label>
                                 <input id="reservation-start" name="date_debut" type="datetime-local" step="1800" required>
                             </div>
+                            <div class="field">
+                                <label for="reservation-duration">Dur&eacute;e de recharge</label>
+                                <select id="reservation-duration" name="duration_minutes" required></select>
+                            </div>
+                        </div>
+                        <div class="form-grid">
                             <div class="field readonly-field">
                                 <label>Fin de fen&ecirc;tre</label>
                                 <output id="reservation-end-display">-</output>
                             </div>
-                        </div>
-                        <div class="form-grid">
                             <div class="field">
                                 <label for="reservation-auth-mode">Authentification</label>
                                 <select id="reservation-auth-mode" name="auth_mode" required></select>
@@ -79,7 +85,7 @@
                             </div>
                         </div>
                         <p class="helper">
-                            La r&eacute;servation garantit un emplacement libre dans la station pendant 30 minutes. L&rsquo;emplacement pr&eacute;cis est attribu&eacute; automatiquement et appara&icirc;t dans la confirmation.
+                            La r&eacute;servation garantit un emplacement libre pendant la dur&eacute;e choisie. Une courte tol&eacute;rance d&apos;acc&egrave;s peut s&apos;appliquer &agrave; la borne, sans prolonger la dur&eacute;e r&eacute;serv&eacute;e. Dur&eacute;e par d&eacute;faut : 1 heure.
                         </p>
                         <button class="btn btn-primary" type="submit">Cr&eacute;er la r&eacute;servation</button>
                     </form>

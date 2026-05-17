@@ -42,6 +42,11 @@ Fichiers principaux
    Client MQTT local. Il publie les commandes sur ``station/<slot_id>/cmd`` et
    attend un ACK sur ``station/<slot_id>/ack``.
 
+``raspberry/app/charge_state.py``
+   Machine d'état locale persistée en SQLite. Elle empêche les doubles
+   commandes ``START`` / ``STOP`` sur un même emplacement et rend visible l'état
+   opérationnel courant côté Raspberry.
+
 ``raspberry/app/offline_store.py``
    Cache SQLite local utilisé uniquement lorsque le backend est indisponible.
 
@@ -53,16 +58,26 @@ Les variables minimales pour tester sur un Raspberry physique sont :
 .. code-block:: bash
 
    export BACKEND_API_BASE_URL=http://<ip-backend>:8000/api
-   export MQTT_HOST=<ip-broker-mqtt>
+   export MQTT_HOST=localhost
    export MQTT_PORT=1883
    export MQTT_BASE_TOPIC=station
+   export MQTT_ACK_REQUIRED=true
    export TERMINAL_API_SECRET=<même-secret-que-le-backend>
    export TERMINAL_STATION_ID=<id-station>
+   export TERMINAL_BORNE_ID=<id-borne>
+   export CHARGE_STATE_DB_PATH=charge_state.sqlite3
    export RFID_READER_BACKEND=acr122u
 
-En développement, si le backend et Mosquitto tournent sur le PC dans Docker,
-``<ip-backend>`` et ``<ip-broker-mqtt>`` correspondent à l'adresse du PC sur le
-réseau Wi-Fi local.
+Pour un réseau de production, ``MQTT_BASE_TOPIC`` peut intégrer la station et la
+borne, par exemple ``station/<station_id>/<borne_id>``. Le Raspberry publiera
+alors les commandes sur ``station/<station_id>/<borne_id>/<slot_id>/cmd`` et
+attendra les ACK sur ``station/<station_id>/<borne_id>/<slot_id>/ack``.
+
+En production, Mosquitto tourne sur le Raspberry : ``MQTT_HOST=localhost`` pour
+le kiosque, tandis que les ESP32 utilisent l'adresse IP Wi-Fi du Raspberry. En
+développement, si le backend et Mosquitto tournent sur le PC dans Docker,
+``<ip-backend>`` correspond à l'adresse du PC sur le réseau Wi-Fi local et
+``MQTT_HOST`` peut pointer vers cette même adresse.
 
 Lecture RFID ACR122U
 --------------------
@@ -140,7 +155,7 @@ Le kiosque doit couvrir les situations suivantes :
 * téléphone utilisateur scannant le QR de session affiché par la borne ;
 * code SMS temporaire saisi avec le code de réservation ;
 * association d'un badge avec un code court généré depuis le profil web ;
-* mauvaise station ou mauvais emplacement, avec message explicite ;
+* mauvaise station, mauvaise borne ou mauvais emplacement, avec message explicite ;
 * backend indisponible, avec bascule limitée vers le cache local si le droit a
   déjà été synchronisé.
 
@@ -171,11 +186,20 @@ Le mode dégradé s'appuie sur ``offline_store.py``. Le Raspberry synchronise à
 l'avance les autorisations proches du créneau via le backend, puis peut les
 vérifier localement si l'API devient indisponible.
 
+Le backend transmet aussi les marges de validation temporelle :
+``start_grace_minutes`` et ``end_grace_minutes``. Le cache local les applique
+pour garder le même comportement qu'en ligne : arrivée légèrement anticipée et
+courte tolérance après la fin du créneau. Par défaut, l'arrivée anticipée est
+limitée à 5 minutes et la tolérance de fin à 10 minutes. En mode dégradé, le
+cache refuse aussi une ouverture anticipée si l'emplacement est encore couvert
+par le créneau précédent.
+
 Règles de sécurité :
 
 * le cache ne crée aucun nouveau droit ;
 * les secrets restent stockés sous forme de hash ;
-* la portée est limitée à la station déclarée par ``TERMINAL_STATION_ID`` ;
+* la portée est limitée à la station déclarée par ``TERMINAL_STATION_ID`` et,
+  sur une installation réelle, à la borne déclarée par ``TERMINAL_BORNE_ID`` ;
 * les événements offline sont rejoués au backend dès que la communication
   revient ;
 * en cas d'ambiguïté ou de cache expiré, l'accès doit être refusé.
@@ -199,6 +223,23 @@ Topic :
 
    station/<slot_id>/cmd
 
+Si la session backend contient un ``mqtt_prefix`` de borne, le kiosk publie sur
+le topic structuré correspondant :
+
+.. code-block:: text
+
+   station/<mqtt_prefix>/<slot_id>/cmd
+
+Le même préfixe est utilisé pour attendre l'ACK :
+
+.. code-block:: text
+
+   station/<mqtt_prefix>/<slot_id>/ack
+
+Cela permet à deux bornes différentes d'utiliser chacune ``slot1`` sans risque
+de commander le mauvais ESP32. Si ``MQTT_BASE_TOPIC`` est déjà configuré avec le
+préfixe complet de la borne, le Raspberry ne le duplique pas.
+
 ACK attendu :
 
 .. code-block:: json
@@ -216,6 +257,51 @@ ACK attendu :
 En développement, ``MQTT_ACK_REQUIRED=False`` permet de tester l'interface sans
 ESP32. Sur une borne réelle, ``MQTT_ACK_REQUIRED=True`` doit être utilisé afin
 de refuser le démarrage si l'emplacement ne confirme pas la commande.
+
+Le kiosk distingue deux notions :
+
+* ``ack_received`` : un message a bien été reçu sur le canal ``ack`` ;
+* ``command_confirmed`` : cet ACK confirme réellement l'action demandée.
+
+Un ACK ``error``, ``rejected``, ``denied``, ``failed`` ou ``fault`` est toujours
+traité comme un échec. En production, un ACK reçu mais non confirmant, par
+exemple ``status=stopped`` pour une commande ``START``, bloque aussi la suite du
+parcours quand ``MQTT_ACK_REQUIRED=True``.
+
+Machine d'état locale
+---------------------
+
+Le Raspberry conserve aussi un état local par emplacement dans
+``CHARGE_STATE_DB_PATH``. Cette couche ne remplace pas le backend et ne crée
+aucun droit d'accès ; elle sert uniquement à protéger l'exécution physique
+locale.
+
+États utilisés :
+
+.. code-block:: text
+
+   idle          : aucun ordre local en cours
+   reserved      : réservation connue localement, avant validation d'accès
+   access_validated : accès validé côté kiosk, commande START prête à partir
+   waiting_plug  : START confirmé par l'ESP32, attente câble + boîtier fermé
+   charging      : charge confirmée active
+   stopping      : STOP demandé, attente confirmation ou clôture
+   stopped       : session arrêtée localement
+   error         : état incohérent ou commande non confirmée
+
+Règles principales :
+
+* un ``START`` est refusé si l'emplacement est déjà ``reserved``,
+  ``access_validated``, ``waiting_plug``, ``charging`` ou ``stopping`` ;
+* un ``STOP`` doit porter le même ``session_id`` que la session locale active ;
+* un ACK ESP32 non confirmant fait passer l'emplacement en ``error`` ;
+* l'état ``error`` impose une vérification technicien avant de relancer une
+  charge, car l'état physique réel peut être incertain ;
+* ``GET /charge/state`` permet de consulter les états locaux depuis le
+  Raspberry ;
+* ``POST /charge/state/reset`` réinitialise un emplacement après intervention
+  technicien. Si ``TERMINAL_API_SECRET`` est configuré, l'appel doit fournir le
+  même secret dans l'en-tête ``X-Terminal-Secret``.
 
 Contrôles avant démonstration
 -----------------------------

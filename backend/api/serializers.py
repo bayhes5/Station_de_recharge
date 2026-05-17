@@ -4,20 +4,33 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 import re
 
 from .models import (
     Authentification,
+    Borne,
     Consentement,
+    Device,
     Emplacement,
+    FirmwareUpdateStatus,
     Maintenance,
     ProfilUtilisateur,
     Reservation,
     Station,
     Technicien,
-    TypeAuth,
+    TechnicienStation,
 )
+from .reservation_rules import (
+    DEFAULT_RESERVATION_DURATION_MINUTES,
+    RESERVATION_DURATION_MINUTES,
+    default_reservation_end,
+    reservation_duration_error_message,
+    reservation_duration_is_allowed,
+    reservation_duration_minutes,
+)
+from .services.firmware import expected_firmware_version, firmware_update_required
 
 
 User = get_user_model()
@@ -133,10 +146,21 @@ class ProfileSerializer(serializers.ModelSerializer):
 
     nom = serializers.CharField(max_length=255, required=False, allow_blank=True)
     telephone = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    telephone_verifie = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ("id_user", "pseudo", "email", "telephone", "statut", "nom", "is_staff", "is_superuser")
+        fields = (
+            "id_user",
+            "pseudo",
+            "email",
+            "telephone",
+            "telephone_verifie",
+            "statut",
+            "nom",
+            "is_staff",
+            "is_superuser",
+        )
         extra_kwargs = {
             "telephone": {"required": False, "allow_blank": True},
             "statut": {"required": False},
@@ -164,14 +188,21 @@ class ProfileSerializer(serializers.ModelSerializer):
             profile.nom = profile_name
         if telephone is not None:
             profile.telephone = telephone
+            profile.telephone_verifie = False
         if profile_name is not None or telephone is not None:
-            profile.save(update_fields=["nom", "telephone"])
+            profile.save(update_fields=["nom", "telephone", "telephone_verifie"])
 
         return instance
+
+    def get_telephone_verifie(self, obj) -> bool:
+        """Return whether the current profile phone number is verified."""
+        return getattr(getattr(obj, "profil", None), "telephone_verifie", False)
 
 
 class AdminUserUpdateSerializer(ProfileSerializer):
     """Expose administrative user fields while reusing profile synchronization."""
+
+    telephone_verifie = serializers.BooleanField(required=False)
 
     class Meta(ProfileSerializer.Meta):
         fields = (
@@ -179,6 +210,7 @@ class AdminUserUpdateSerializer(ProfileSerializer):
             "pseudo",
             "email",
             "telephone",
+            "telephone_verifie",
             "statut",
             "nom",
             "is_active",
@@ -197,6 +229,7 @@ class AdminUserUpdateSerializer(ProfileSerializer):
         """Update user flags and profile fields from the admin API."""
         profile_name = validated_data.pop("nom", None)
         telephone = validated_data.pop("telephone", None)
+        telephone_verifie = validated_data.pop("telephone_verifie", None)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
@@ -213,8 +246,11 @@ class AdminUserUpdateSerializer(ProfileSerializer):
             profile.nom = profile_name
         if telephone is not None:
             profile.telephone = telephone
-        if profile_name is not None or telephone is not None:
-            profile.save(update_fields=["nom", "telephone"])
+            profile.telephone_verifie = False
+        if telephone_verifie is not None:
+            profile.telephone_verifie = bool(telephone_verifie)
+        if profile_name is not None or telephone is not None or telephone_verifie is not None:
+            profile.save(update_fields=["nom", "telephone", "telephone_verifie"])
 
         return instance
 
@@ -244,6 +280,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
 
     nom = serializers.SerializerMethodField()
     telephone = serializers.SerializerMethodField()
+    telephone_verifie = serializers.SerializerMethodField()
     is_technician = serializers.SerializerMethodField()
 
     class Meta:
@@ -253,6 +290,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
             "pseudo",
             "email",
             "telephone",
+            "telephone_verifie",
             "statut",
             "is_active",
             "is_staff",
@@ -271,6 +309,10 @@ class AdminUserSerializer(serializers.ModelSerializer):
         """Return the phone number stored on the related profile."""
         return getattr(getattr(obj, "profil", None), "telephone", "")
 
+    def get_telephone_verifie(self, obj) -> bool:
+        """Return whether the phone number stored on the related profile is verified."""
+        return getattr(getattr(obj, "profil", None), "telephone_verifie", False)
+
     def get_is_technician(self, obj):
         """Return whether the user is linked to a technician profile."""
         return hasattr(obj, "technicien_profile")
@@ -284,23 +326,155 @@ class StationSerializer(serializers.ModelSerializer):
         fields = ("id_station", "nom", "localisation_text", "latitude", "longitude", "statut")
 
 
-class EmplacementSerializer(serializers.ModelSerializer):
-    """Serialize charging bay records with their station label."""
+class BorneSerializer(serializers.ModelSerializer):
+    """Serialize physical kiosk/cabinet records with their station label."""
 
     station_nom = serializers.CharField(source="station.nom", read_only=True)
+    emplacements_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Borne
+        fields = (
+            "id_borne",
+            "station",
+            "station_nom",
+            "numero",
+            "nom",
+            "mqtt_prefix",
+            "statut",
+            "emplacements_count",
+        )
+        extra_kwargs = {
+            "station": {"required": True},
+            "statut": {"required": False},
+            "mqtt_prefix": {"required": False, "allow_blank": True},
+        }
+
+    def get_emplacements_count(self, obj) -> int:
+        """Return the number of charging bays attached to the cabinet."""
+        return obj.emplacements.count()
+
+
+class EmplacementSerializer(serializers.ModelSerializer):
+    """Serialize charging bay records with their station and cabinet labels."""
+
+    station_nom = serializers.CharField(source="station.nom", read_only=True)
+    borne_nom = serializers.CharField(source="borne.nom", read_only=True)
+    borne_numero = serializers.IntegerField(source="borne.numero", read_only=True)
 
     class Meta:
         model = Emplacement
-        fields = ("id_emplacement", "station", "station_nom", "numero", "statut", "lock_state")
+        fields = (
+            "id_emplacement",
+            "station",
+            "station_nom",
+            "borne",
+            "borne_nom",
+            "borne_numero",
+            "numero",
+            "statut",
+            "lock_state",
+        )
         extra_kwargs = {
-            "station": {"required": True},
+            "station": {"required": False},
+            "borne": {"required": False},
         }
+
+    def validate(self, attrs):
+        """Derive the station from the selected cabinet and keep both aligned."""
+        station = attrs.get("station") or getattr(self.instance, "station", None)
+        borne = attrs.get("borne") or getattr(self.instance, "borne", None)
+
+        if borne is not None:
+            if station is not None and station != borne.station:
+                raise serializers.ValidationError({"borne": "Cette borne n'appartient pas a la station selectionnee."})
+            attrs["station"] = borne.station
+            return attrs
+
+        if station is None:
+            raise serializers.ValidationError({"station": "Une station ou une borne est obligatoire."})
+
+        attrs["borne"] = Borne.default_for_station(station)
+        return attrs
+
+
+class DeviceAdminSerializer(serializers.ModelSerializer):
+    """Serialize ESP32 inventory and firmware policy fields for admins."""
+
+    station_nom = serializers.CharField(source="emplacement.station.nom", read_only=True)
+    borne_nom = serializers.CharField(source="emplacement.borne.nom", read_only=True)
+    borne_numero = serializers.IntegerField(source="emplacement.borne.numero", read_only=True)
+    emplacement_numero = serializers.IntegerField(source="emplacement.numero", read_only=True)
+    firmware_update_required = serializers.SerializerMethodField()
+    effective_expected_firmware_version = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Device
+        fields = (
+            "id_device",
+            "emplacement",
+            "station_nom",
+            "borne_nom",
+            "borne_numero",
+            "emplacement_numero",
+            "type_device",
+            "slot_id",
+            "mac_address",
+            "hardware_mac",
+            "ip_address",
+            "status",
+            "last_seen",
+            "firmware_version",
+            "expected_firmware_version",
+            "effective_expected_firmware_version",
+            "firmware_update_status",
+            "firmware_update_required",
+            "ota_target_version",
+            "ota_update_url",
+            "ota_requested_at",
+            "ota_completed_at",
+            "ota_last_error",
+        )
+        read_only_fields = (
+            "id_device",
+            "station_nom",
+            "borne_nom",
+            "borne_numero",
+            "emplacement_numero",
+            "last_seen",
+            "firmware_version",
+            "firmware_update_required",
+            "ota_requested_at",
+            "ota_completed_at",
+        )
+        extra_kwargs = {
+            "firmware_update_status": {"required": False},
+            "expected_firmware_version": {"required": False, "allow_blank": True},
+            "ota_target_version": {"required": False, "allow_blank": True},
+            "ota_update_url": {"required": False, "allow_blank": True},
+            "ota_last_error": {"required": False, "allow_blank": True},
+        }
+
+    def validate_firmware_update_status(self, value):
+        """Allow admins to edit only operational OTA status values."""
+        if value not in FirmwareUpdateStatus.values:
+            raise serializers.ValidationError("Statut firmware inconnu.")
+        return value
+
+    def get_firmware_update_required(self, obj):
+        """Return whether the device firmware differs from the expected version."""
+        return firmware_update_required(obj)
+
+    def get_effective_expected_firmware_version(self, obj):
+        """Return the device override or global firmware target."""
+        return expected_firmware_version(obj)
 
 
 class AuthMethodSerializer(serializers.ModelSerializer):
     """Serialize stored authentication methods without exposing raw secrets."""
 
     type_label = serializers.CharField(source="type_auth.libelle", read_only=True)
+    display_value = serializers.SerializerMethodField()
 
     class Meta:
         model = Authentification
@@ -315,22 +489,30 @@ class AuthMethodSerializer(serializers.ModelSerializer):
         )
         extra_kwargs = {
             "hash_valeur": {"write_only": True},
-            "display_value": {"read_only": True},
             "metadata": {"read_only": True},
         }
+
+    def get_display_value(self, obj):
+        """Return a safe authentication hint."""
+        if obj.type_auth and obj.type_auth.libelle == "RFID":
+            return "Badge RFID enregistre"
+        return obj.display_value
 
 
 class ReservationSerializer(serializers.ModelSerializer):
     """Serialize reservations with station, bay and authentication metadata."""
 
     station_nom = serializers.CharField(source="emplacement.station.nom", read_only=True)
+    borne_nom = serializers.CharField(source="emplacement.borne.nom", read_only=True)
+    borne_numero = serializers.IntegerField(source="emplacement.borne.numero", read_only=True)
     emplacement_numero = serializers.IntegerField(source="emplacement.numero", read_only=True)
     utilisateur_pseudo = serializers.CharField(source="utilisateur.pseudo", read_only=True)
     auth_mode = serializers.CharField(source="auth_choice", read_only=True)
     auth_type = serializers.CharField(source="authentification.type_auth.libelle", read_only=True)
-    auth_display_value = serializers.CharField(source="authentification.display_value", read_only=True)
+    auth_display_value = serializers.SerializerMethodField()
     auth_expiration = serializers.DateTimeField(source="authentification.expiration", read_only=True)
     auth_is_active = serializers.BooleanField(source="authentification.is_active", read_only=True)
+    duration_minutes = serializers.SerializerMethodField()
     can_cancel = serializers.SerializerMethodField()
 
     class Meta:
@@ -343,6 +525,8 @@ class ReservationSerializer(serializers.ModelSerializer):
             "emplacement",
             "emplacement_numero",
             "station_nom",
+            "borne_nom",
+            "borne_numero",
             "authentification",
             "auth_mode",
             "auth_type",
@@ -351,6 +535,7 @@ class ReservationSerializer(serializers.ModelSerializer):
             "auth_is_active",
             "date_debut",
             "date_fin",
+            "duration_minutes",
             "statut",
             "can_cancel",
         )
@@ -363,6 +548,19 @@ class ReservationSerializer(serializers.ModelSerializer):
         """Return whether the reservation can still be cancelled by a user."""
         return obj.statut not in {"annulee", "terminee"} and obj.date_debut > timezone.now()
 
+    def get_duration_minutes(self, obj):
+        """Return the reservation duration in minutes."""
+        return reservation_duration_minutes(obj.date_debut, obj.date_fin)
+
+    def get_auth_display_value(self, obj):
+        """Return an authentication hint without leaking raw RFID identifiers."""
+        auth_method = getattr(obj, "authentification", None)
+        if not auth_method:
+            return ""
+        if auth_method.type_auth and auth_method.type_auth.libelle == "RFID":
+            return "Badge RFID enregistre"
+        return auth_method.display_value
+
 
 class ReservationCreateSerializer(serializers.Serializer):
     """Validate reservation creation input from the user-facing API."""
@@ -371,12 +569,30 @@ class ReservationCreateSerializer(serializers.Serializer):
     emplacement = serializers.UUIDField(required=False)
     date_debut = serializers.DateTimeField()
     date_fin = serializers.DateTimeField(required=False)
+    duration_minutes = serializers.IntegerField(
+        required=False,
+        min_value=min(RESERVATION_DURATION_MINUTES),
+        max_value=max(RESERVATION_DURATION_MINUTES),
+    )
     auth_mode = serializers.ChoiceField(choices=("rfid", "qr", "code"))
     auth_value = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     def validate(self, attrs):
-        """Force reservations to occupy one fixed 30-minute slot."""
-        attrs["date_fin"] = attrs["date_debut"] + timedelta(minutes=30)
+        """Validate or derive the reservation end from an allowed duration."""
+        duration_minutes = attrs.get("duration_minutes")
+        if duration_minutes is not None:
+            if duration_minutes not in RESERVATION_DURATION_MINUTES:
+                raise serializers.ValidationError({"duration_minutes": reservation_duration_error_message()})
+            attrs["date_fin"] = attrs["date_debut"] + timedelta(minutes=duration_minutes)
+            return attrs
+
+        if not attrs.get("date_fin"):
+            attrs["duration_minutes"] = DEFAULT_RESERVATION_DURATION_MINUTES
+            attrs["date_fin"] = default_reservation_end(attrs["date_debut"])
+            return attrs
+
+        if not reservation_duration_is_allowed(attrs["date_debut"], attrs["date_fin"]):
+            raise serializers.ValidationError({"date_fin": reservation_duration_error_message()})
         return attrs
 
 
@@ -405,15 +621,66 @@ class TechnicianMaintenanceSerializer(serializers.ModelSerializer):
             "technicien": {"read_only": True},
         }
 
-    def get_emplacement_count(self, obj):
+    def get_emplacement_count(self, obj) -> int:
         """Return the number of charging bays at the maintenance station."""
         return obj.station.emplacements.count()
+
+
+class TechnicianStationAssignmentSerializer(serializers.ModelSerializer):
+    """Serialize station assignments used to scope technician access."""
+
+    technicien_nom = serializers.CharField(source="technicien.nom", read_only=True)
+    station_nom = serializers.CharField(source="station.nom", read_only=True)
+    station_localisation = serializers.CharField(source="station.localisation_text", read_only=True)
+    role_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TechnicienStation
+        fields = (
+            "id_assignment",
+            "technicien",
+            "technicien_nom",
+            "station",
+            "station_nom",
+            "station_localisation",
+            "role",
+            "role_display",
+            "is_active",
+            "assigned_at",
+        )
+        extra_kwargs = {
+            "role": {"required": False},
+            "is_active": {"required": False},
+            "assigned_at": {"read_only": True},
+        }
+
+    def get_role_display(self, obj) -> str:
+        """Return the localized role label."""
+        return obj.get_role_display()
+
+    def validate(self, attrs):
+        """Reject duplicate station assignments with a clear API error."""
+        technicien = attrs.get("technicien") or getattr(self.instance, "technicien", None)
+        station = attrs.get("station") or getattr(self.instance, "station", None)
+        if technicien and station:
+            duplicate = TechnicienStation.objects.filter(
+                technicien=technicien,
+                station=station,
+            )
+            if self.instance is not None:
+                duplicate = duplicate.exclude(pk=self.instance.pk)
+            if duplicate.exists():
+                raise serializers.ValidationError(
+                    {"station": "Cette station est deja affectee a ce technicien."}
+                )
+        return attrs
 
 
 class TechnicianSerializer(serializers.ModelSerializer):
     """Serialize technician profiles for administrative management."""
 
     utilisateur_pseudo = serializers.CharField(source="utilisateur.pseudo", read_only=True)
+    assigned_stations = serializers.SerializerMethodField()
 
     class Meta:
         model = Technicien
@@ -424,10 +691,23 @@ class TechnicianSerializer(serializers.ModelSerializer):
             "nom",
             "email",
             "telephone",
+            "assigned_stations",
         )
         extra_kwargs = {
             "utilisateur": {"required": False, "allow_null": True},
         }
+
+    @extend_schema_field(TechnicianStationAssignmentSerializer(many=True))
+    def get_assigned_stations(self, obj):
+        """Return active station assignments without broadening technician scope."""
+        assignments = getattr(obj, "prefetched_active_station_assignments", None)
+        if assignments is None:
+            assignments = (
+                obj.station_assignments.filter(is_active=True)
+                .select_related("station")
+                .order_by("station__nom")
+            )
+        return TechnicianStationAssignmentSerializer(assignments, many=True).data
 
 
 class MaintenanceAdminSerializer(serializers.ModelSerializer):

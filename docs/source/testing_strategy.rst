@@ -52,13 +52,16 @@ Tests couverts actuellement :
 * administration utilisateurs/réservations ;
 * génération et révocation QR/code SMS/RFID ;
 * authentification terminal QR/code SMS/RFID ;
+* parcours A à Z réservation QR -> session mobile -> kiosque -> START MQTT ->
+  télémétrie de l'emplacement réservé -> STOP -> clôture de session ;
 * ingestion des télémétries vers capteurs/alertes ;
 * performance de requêtes ciblées.
 
 Qualité backend
 ---------------
 
-Ruff vérifie notamment les docstrings suivies par le projet :
+Ruff vérifie les docstrings suivies par le projet, les erreurs Python probables,
+les imports inutilisés et quelques pièges courants signalés par Bugbear :
 
 .. code-block:: powershell
 
@@ -162,6 +165,18 @@ Test manuel d'une commande via Raspberry :
      -H "Content-Type: application/json" \
      -d '{"slot_id":"slot1","action":"START","session_id":"demo"}'
 
+Test unitaire du comportement ACK côté Raspberry :
+
+.. code-block:: powershell
+
+   .\.venv\Scripts\python.exe -m pytest raspberry\tests -q
+
+Ce test vérifie trois cas sans ESP32 physique : commande acceptée sans ACK en
+développement, refus en mode ``MQTT_ACK_REQUIRED=true`` et acceptation lorsqu'un
+ACK correspondant au ``command_id`` est reçu.
+Le workflow CI exécute aussi ``Raspberry edge tests`` : compilation des modules
+Python du kiosque et exécution de ``raspberry/tests``.
+
 Test local de télémétrie temps réel sans ESP32 :
 
 .. code-block:: bash
@@ -170,6 +185,32 @@ Test local de télémétrie temps réel sans ESP32 :
    docker compose --profile simulation run --rm mqtt-simulator
    docker compose logs -f mqtt-bridge
    docker compose logs -f celery
+
+Test complet QR -> kiosk -> télémétrie -> Grafana sans ESP32 :
+
+.. code-block:: powershell
+
+   .\scripts\run-demo-scenario.ps1 -Reference DEMOQR1 -Emplacement 1 -TelemetryCount 5
+
+Le script vérifie que la télémétrie simulée se limite à l'emplacement autorisé
+par la réservation et que la session est clôturée proprement après ``STOP``. Si
+la borne possède un ``mqtt_prefix``, le simulateur publie sur
+``station/<mqtt_prefix>/<slot_id>/telemetry`` pour tester le routage production.
+
+Contrôles frontend de préparation production :
+
+.. code-block:: powershell
+
+   cd frontend
+   npm run check:js
+   npm run check:a11y
+
+``check:js`` bloque les constructions dangereuses côté DOM, notamment les
+insertions HTML non contrôlées. ``check:a11y`` parcourt les pages HTML frontend
+et le kiosque Raspberry pour vérifier les bases : langue de page, titre, meta
+viewport, ``main``, ``h1``, libellés accessibles des boutons, liens, champs et
+images. Ces contrôles ne remplacent pas une revue visuelle, mais empêchent les
+régressions les plus fréquentes avant démonstration ou déploiement.
 
 Contrôle rapide des mesures en base :
 
@@ -183,7 +224,9 @@ Test Wokwi vers Grafana :
 2. Démarrer la stack Docker.
 3. Lancer ``esp32/wokwi/`` dans Wokwi.
 4. Vérifier les logs d'ingestion côté ``mqtt-bridge``.
-5. Ouvrir ``https://localhost/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s`` et consulter le dashboard technique.
+5. Ouvrir ``https://localhost/grafana/d/station-overview/station-vue-globale-supervision?orgId=1&from=now-6h&to=now&refresh=10s``.
+6. Filtrer par station, borne ou emplacement, puis ouvrir le détail technique si
+   nécessaire.
 
 Scénarios manuels de recette
 ----------------------------

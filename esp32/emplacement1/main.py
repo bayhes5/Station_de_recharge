@@ -1,7 +1,8 @@
 """MicroPython firmware prototype for one charging slot ESP32.
 
 The same file can be reused by the three physical slots by changing SLOT_ID.
-It publishes telemetry to MQTT and listens for backend/Raspberry commands.
+In production the ESP32 connects to the Mosquitto broker hosted on the local
+Raspberry Pi kiosk, publishes telemetry, and listens for Raspberry commands.
 """
 
 import time
@@ -14,6 +15,8 @@ from umqtt.simple import MQTTClient
 WIFI_SSID = "WIFI_SSID"
 WIFI_PASSWORD = "WIFI_PASSWORD"
 
+# Production target: IP address or hostname of the Raspberry Pi running Mosquitto.
+# Development target: Wi-Fi IP address of the PC running the Docker MQTT broker.
 MQTT_HOST = "192.168.1.10"
 MQTT_PORT = 1883
 MQTT_USER = None
@@ -21,6 +24,8 @@ MQTT_PASSWORD = None
 MQTT_BASE_TOPIC = "station"
 SLOT_ID = "slot1"
 CLIENT_ID = "esp32-slot1"
+FIRMWARE_VERSION = "1.0.0"
+MQTT_KEEPALIVE_SECONDS = 60
 
 HALL_PIN = 19
 DOOR_PIN = 18
@@ -73,6 +78,33 @@ def connect_wifi():
     while not wlan.isconnected():
         time.sleep(1)
     return wlan
+
+
+def format_mac(mac_bytes):
+    """Return a colon-separated MAC address from MicroPython bytes."""
+    return ":".join("{:02X}".format(value) for value in mac_bytes)
+
+
+def device_identity():
+    """Return ESP32 inventory fields attached to status and telemetry payloads."""
+    wlan = network.WLAN(network.STA_IF)
+    ip_address = ""
+    hardware_mac = ""
+    try:
+        if wlan.isconnected():
+            ip_address = wlan.ifconfig()[0]
+    except Exception:
+        ip_address = ""
+    try:
+        hardware_mac = format_mac(wlan.config("mac"))
+    except Exception:
+        hardware_mac = ""
+    return {
+        "client_id": CLIENT_ID,
+        "firmware_version": FIRMWARE_VERSION,
+        "hardware_mac": hardware_mac,
+        "ip_address": ip_address,
+    }
 
 
 def read_cable_present():
@@ -260,33 +292,37 @@ def publish_json(client, mqtt_topic, payload):
 
 def publish_status(client, event, reason=""):
     """Publish one status event."""
+    payload = {
+        "slot_id": SLOT_ID,
+        "event": event,
+        "reason": reason,
+        "state": state,
+        "session_id": session_id,
+    }
+    payload.update(device_identity())
     publish_json(
         client,
         TOPIC_STATUS,
-        {
-            "slot_id": SLOT_ID,
-            "event": event,
-            "reason": reason,
-            "state": state,
-            "session_id": session_id,
-        },
+        payload,
     )
 
 
 def publish_ack(client, payload, status, message=""):
     """Confirm command execution to the Raspberry kiosk."""
+    ack_payload = {
+        "command_id": payload.get("command_id") or "",
+        "action": str(payload.get("action") or "").upper(),
+        "status": status,
+        "message": message,
+        "state": state,
+        "slot_id": SLOT_ID,
+        "session_id": session_id,
+    }
+    ack_payload.update(device_identity())
     publish_json(
         client,
         TOPIC_ACK,
-        {
-            "command_id": payload.get("command_id") or "",
-            "action": str(payload.get("action") or "").upper(),
-            "status": status,
-            "message": message,
-            "state": state,
-            "slot_id": SLOT_ID,
-            "session_id": session_id,
-        },
+        ack_payload,
     )
 
 
@@ -327,7 +363,7 @@ def handle_stop(client, reason="remote_stop"):
 
 
 def on_message(topic_bytes, message):
-    """Handle backend/Raspberry commands."""
+    """Handle Raspberry commands received through the local MQTT broker."""
     try:
         payload = ujson.loads(message)
     except ValueError:
@@ -360,7 +396,7 @@ def connect_mqtt():
         port=MQTT_PORT,
         user=MQTT_USER,
         password=MQTT_PASSWORD,
-        keepalive=60,
+        keepalive=MQTT_KEEPALIVE_SECONDS,
     )
     client.set_callback(on_message)
     client.connect()
@@ -411,6 +447,7 @@ def publish_telemetry(client):
         "door": read_door_closed(),
         "cable": read_cable_present(),
     }
+    payload.update(device_identity())
     publish_json(client, TOPIC_TELEMETRY, payload)
 
 

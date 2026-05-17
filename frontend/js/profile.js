@@ -207,7 +207,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     async function deleteRfidBadge(method) {
-        const confirmed = window.confirm("Supprimer ce badge RFID ?");
+        const confirmed = await window.AuthAPI.confirmAction(
+            "Supprimer ce badge RFID ?",
+            {
+                title: "Supprimer le badge RFID",
+                confirmLabel: "Supprimer",
+                danger: true,
+            }
+        );
         if (!confirmed) return;
 
         try {
@@ -234,7 +241,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         profileForm.nom.value = profile.nom || user.nom || "";
         profileForm.statut.value = user.statut || "";
 
-        setStatus("Profil chargé.");
+        setStatus("");
     }
 
     async function loadAuthMethods() {
@@ -403,8 +410,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
 
     deleteBtn.addEventListener("click", async () => {
-        const confirmed = window.confirm(
-            "Cette action supprime votre compte et les données associées. Continuer ?"
+        const confirmed = await window.AuthAPI.confirmAction(
+            "Cette action supprime votre compte et les données associées. Continuer ?",
+            {
+                title: "Supprimer le compte",
+                confirmLabel: "Supprimer mon compte",
+                danger: true,
+            }
         );
 
         if (!confirmed) {

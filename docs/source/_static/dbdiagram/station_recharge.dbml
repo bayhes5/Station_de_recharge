@@ -1,6 +1,6 @@
 Project station_recharge {
   database_type: "PostgreSQL"
-  Note: "MCD/MLD de reference pour la station de recharge intelligente. Source importable dans dbdiagram.io."
+  Note: "MCD/MLD de référence pour la station de recharge intelligente. Source importable dans dbdiagram.io."
 }
 
 Table utilisateur {
@@ -86,15 +86,30 @@ Table station {
   created_at timestamp [not null]
 }
 
+Table borne {
+  id_borne uuid [pk]
+  id_station uuid [not null, ref: > station.id_station]
+  numero integer [not null]
+  nom varchar(100) [not null]
+  mqtt_prefix varchar(100) [not null]
+  statut varchar(50) [not null]
+  created_at timestamp [not null]
+
+  indexes {
+    (id_station, numero) [unique]
+  }
+}
+
 Table emplacement {
   id_emplacement uuid [pk]
+  id_borne uuid [not null, ref: > borne.id_borne]
   id_station uuid [not null, ref: > station.id_station]
   numero integer [not null]
   etat varchar(50) [not null]
   statut_cadenas varchar(50) [not null]
 
   indexes {
-    (id_station, numero) [unique]
+    (id_borne, numero) [unique]
   }
 }
 
@@ -104,9 +119,29 @@ Table device {
   type_device varchar(50) [not null]
   firmware_version varchar(50) [not null]
   ip_address inet
+  slot_id varchar(50) [not null, default: ""]
+  hardware_mac varchar(50) [not null, default: ""]
   mac_address varchar(50) [not null, default: ""]
   last_seen timestamp
   status varchar(50) [not null]
+  last_command_id varchar(100) [not null, default: ""]
+  last_command_action varchar(20) [not null, default: ""]
+  last_command_status varchar(50) [not null, default: ""]
+  last_command_message varchar(255) [not null, default: ""]
+  last_command_at timestamp
+}
+
+Table device_command_log {
+  id_command uuid [pk]
+  id_device uuid [not null, ref: > device.id_device]
+  id_session uuid [ref: > charging_session.id_session]
+  command_id varchar(100) [not null, default: ""]
+  action varchar(20) [not null, default: ""]
+  status varchar(50) [not null, default: ""]
+  message varchar(255) [not null, default: ""]
+  source varchar(50) [not null, default: ""]
+  payload jsonb [not null]
+  timestamp timestamp [not null]
 }
 
 Table capteur {
@@ -161,6 +196,10 @@ Table alerte {
   niveau_severite varchar(50) [not null]
   status varchar(50) [not null]
   date timestamp [not null]
+  first_seen timestamp [not null]
+  last_seen timestamp [not null]
+  notified_at timestamp
+  notification_count int [not null, default: 0]
 }
 
 Table technicien {
@@ -169,6 +208,21 @@ Table technicien {
   nom varchar(100) [not null]
   email varchar(254) [not null, unique]
   telephone varchar(20) [not null, default: ""]
+}
+
+Table technicien_station {
+  id_assignment uuid [pk]
+  id_technicien uuid [not null, ref: > technicien.id_tech]
+  id_station uuid [not null, ref: > station.id_station]
+  role varchar(50) [not null, default: "intervenant"]
+  is_active boolean [not null, default: true]
+  assigned_at timestamp [not null]
+
+  indexes {
+    (id_technicien, id_station) [unique]
+    (id_technicien, is_active)
+    (id_station, is_active)
+  }
 }
 
 Table maintenance {

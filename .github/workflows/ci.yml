@@ -56,13 +56,73 @@ jobs:
         working-directory: backend
         run: python -m pip install -r requirements-dev.txt
 
-      - name: Check docstring style
+      - name: Run Ruff
         working-directory: backend
         run: python -m ruff check .
+
+      - name: Validate OpenAPI schema
+        working-directory: backend
+        env:
+          DEBUG: "True"
+          SECRET_KEY: schema-ci-secret-key-with-more-than-50-characters-for-openapi
+        run: python manage.py spectacular --validate --file /tmp/schema.yml
+
+      - name: Validate deployment checks
+        working-directory: backend
+        env:
+          ALLOWED_HOSTS: station.example.com
+          CSRF_COOKIE_SECURE: "True"
+          DEBUG: "False"
+          GRAFANA_ADMIN_PASSWORD: grafana-production-password
+          JWT_REFRESH_COOKIE_SECURE: "True"
+          MQTT_ACK_REQUIRED: "True"
+          MQTT_PASSWORD: mqtt-production-password
+          MQTT_TLS_ENABLED: "True"
+          MQTT_USERNAME: station-backend
+          SECRET_KEY: station-production-secret-key-with-enough-random-length
+          SECURE_HSTS_SECONDS: "31536000"
+          SESSION_COOKIE_SECURE: "True"
+          SMS_BACKEND: brevo
+          SMS_BREVO_API_KEY: brevo-production-api-key
+          SMS_REQUIRE_VERIFIED_PHONE: "True"
+          TERMINAL_API_SECRET: terminal-production-secret-with-enough-length
+        run: python manage.py check --deploy
 
       - name: Check docstring coverage
         working-directory: backend
         run: python -m interrogate api
+
+  raspberry-tests:
+    name: Raspberry edge tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: raspberry/app/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install pytest
+          python -m pip install -r raspberry/app/requirements.txt
+
+      - name: Compile Raspberry modules
+        run: |
+          python -m py_compile \
+            raspberry/app/charge_state.py \
+            raspberry/app/main.py \
+            raspberry/app/mqtt_client.py \
+            raspberry/app/offline_store.py \
+            raspberry/app/rfid_reader.py
+
+      - name: Run Raspberry tests
+        run: python -m pytest raspberry/tests -q
 
   frontend-verify:
     name: Frontend verify

@@ -25,6 +25,31 @@ Vérifier les services :
 
    docker compose ps
 
+Vérifier la santé applicative Django :
+
+.. code-block:: bash
+
+   curl http://localhost:8000/api/health/live/
+   curl http://localhost:8000/api/health/ready/
+
+``live`` confirme que le processus HTTP répond. ``ready`` confirme que l'API
+peut utiliser la base de données, le cache et la configuration critique. Le
+healthcheck Docker du service ``backend`` utilise ``ready``.
+
+Vérifier la chaîne asynchrone :
+
+.. code-block:: bash
+
+   docker compose exec celery celery -A config inspect ping --timeout=3
+   docker compose exec mqtt-bridge python manage.py check_mqtt_bridge_health
+
+Le worker ``celery`` est considéré sain s'il répond au ping Celery. Le service
+``mqtt-bridge`` écrit un heartbeat local tant qu'il est connecté au broker MQTT ;
+le healthcheck échoue si ce heartbeat est absent ou trop ancien.
+Le service ``celery-beat`` publie les tâches périodiques de supervision :
+contrôle des sessions sans télémétrie et envoi des notifications d'alertes en
+attente.
+
 Services attendus pour une démonstration complète :
 
 * ``backend`` ;
@@ -33,9 +58,11 @@ Services attendus pour une démonstration complète :
 * ``mqtt`` ;
 * ``mqtt-bridge`` ;
 * ``celery`` ;
+* ``celery-beat`` ;
 * ``redis`` ;
 * ``db`` ;
 * ``grafana`` ;
+* ``mailpit`` ;
 * ``reverse-proxy``.
 
 URLs utiles
@@ -59,8 +86,52 @@ Ports directs :
    5173  Vite
    9000  kiosque Raspberry
    3000  Grafana
+   8025  Mailpit
+   1025  SMTP Mailpit
    1883  Mosquitto
    5432  PostgreSQL/TimescaleDB
+
+Scénario complet sans matériel
+------------------------------
+
+Le script ``scripts/run-demo-scenario.ps1`` joue un parcours de démonstration de
+bout en bout sans ESP32 physique :
+
+1. création d'une réservation QR sur la station de démonstration ;
+2. création d'une session mobile de borne ;
+3. connexion de l'utilisateur de démonstration ;
+4. sélection et autorisation de la réservation ;
+5. consommation par le kiosque ;
+6. publication ``START`` vers le slot MQTT ;
+7. simulation de télémétrie uniquement pour l'emplacement validé ;
+8. publication ``STOP`` ;
+9. clôture de session backend ;
+10. résumé final reservation/session/device.
+
+Lorsque la borne possède un ``mqtt_prefix``, le script et le simulateur utilisent
+le topic structuré ``station/<mqtt_prefix>/<slot_id>/telemetry``. Cela valide le
+routage production station/borne/emplacement au lieu de publier sur un simple
+``station/<slot_id>/telemetry``.
+
+Commande :
+
+.. code-block:: powershell
+
+   .\scripts\run-demo-scenario.ps1 -Reference DEMOQR1 -Emplacement 1 -TelemetryCount 5
+
+Résultat attendu :
+
+* réservation ``terminee`` ;
+* session ``closed`` ;
+* télémétrie attachée à la session ;
+* device de l'emplacement revenu ``online`` ;
+* aucune simulation parasite sur les autres emplacements.
+
+Pour rejouer plus vite lorsque la stack est déjà lancée :
+
+.. code-block:: powershell
+
+   .\scripts\run-demo-scenario.ps1 -SkipDockerStart -TelemetryCount 3
 
 Supervision MQTT et Grafana
 ---------------------------
@@ -69,7 +140,7 @@ Démarrer les services nécessaires à la supervision :
 
 .. code-block:: bash
 
-   docker compose up -d mqtt mqtt-bridge celery grafana
+   docker compose up -d mqtt mqtt-bridge celery celery-beat grafana
 
 Publier cinq mesures simulées :
 
@@ -99,7 +170,8 @@ Les types attendus sont :
 * ``door`` ;
 * ``cable``.
 
-Le dashboard Grafana à ouvrir est ``Station - Supervision technique``.
+Le dashboard Grafana à ouvrir en premier est ``Station - Vue globale supervision``.
+Il permet ensuite d'accéder au détail ``Station - Supervision technique``.
 
 Diagnostic du bridge MQTT
 -------------------------
@@ -107,7 +179,7 @@ Diagnostic du bridge MQTT
 Si les messages sont visibles sur MQTT mais pas en base :
 
 1. vérifier que ``mqtt-bridge`` tourne ;
-2. vérifier que ``celery`` tourne ;
+2. vérifier que ``celery`` et ``celery-beat`` tournent ;
 3. lire les logs des deux services ;
 4. republier une télémétrie de test.
 
@@ -115,13 +187,15 @@ Commandes :
 
 .. code-block:: bash
 
-   docker compose ps mqtt mqtt-bridge celery redis db
+   docker compose ps mqtt mqtt-bridge celery celery-beat redis db
    docker compose logs --tail=100 mqtt-bridge
    docker compose logs --tail=100 celery
-   docker compose restart mqtt-bridge celery
+   docker compose logs --tail=100 celery-beat
+   docker compose restart mqtt-bridge celery celery-beat
 
 Le bridge reçoit les messages et les met en file. Celery exécute réellement
-l'ingestion et écrit en base.
+l'ingestion et écrit en base. Celery Beat planifie les contrôles récurrents qui
+ne dépendent pas directement d'un message MQTT entrant.
 
 Test de commande ESP32
 ----------------------
@@ -146,6 +220,84 @@ En présence d'un ESP32 réel, on doit voir :
 * l'ACK sur ``station/slot1/ack`` ;
 * les statuts sur ``station/slot1/status`` ;
 * la télémétrie périodique sur ``station/slot1/telemetry``.
+
+Validation ACK sans matériel
+----------------------------
+
+Même sans ESP32 physique, le comportement de sécurité peut être validé : si
+``MQTT_ACK_REQUIRED`` vaut ``true``, le kiosque doit refuser de considérer une
+commande comme réussie lorsqu'aucun ACK n'arrive sur ``station/<slot_id>/ack``.
+
+Test automatisé du client MQTT Raspberry :
+
+.. code-block:: powershell
+
+   .\.venv\Scripts\python.exe -m pytest raspberry\tests -q
+
+Test manuel avec la stack Docker, sans ESP32 connecté :
+
+.. code-block:: powershell
+
+   $env:MQTT_ACK_REQUIRED="true"
+   docker compose up -d --force-recreate raspberry
+   curl -X POST http://localhost:9000/mqtt/command `
+     -H "Content-Type: application/json" `
+     -d '{"slot_id":"slot1","action":"START","session_id":"ack-test"}'
+
+Résultat attendu :
+
+* réponse HTTP ``503`` ;
+* message indiquant l'absence de confirmation ESP32 ;
+* aucune charge considérée comme réellement démarrée côté kiosque.
+
+Revenir au mode de développement sans ESP32 :
+
+.. code-block:: powershell
+
+   $env:MQTT_ACK_REQUIRED="false"
+   docker compose up -d --force-recreate raspberry
+
+Sur une vraie borne, ``MQTT_ACK_REQUIRED`` doit rester à ``true``.
+
+Sécurisation Mosquitto sans matériel
+------------------------------------
+
+Le broker de développement accepte les connexions anonymes pour faciliter les
+tests locaux. Avant un déploiement terrain, préparer les comptes MQTT :
+
+.. code-block:: powershell
+
+   .\scripts\init-mqtt-auth.ps1
+
+Le script crée ``mosquitto/config/passwords`` avec les comptes :
+
+* ``station_backend`` ;
+* ``raspberry_kiosk`` ;
+* ``esp32_slot1`` ;
+* ``esp32_slot2`` ;
+* ``esp32_slot3`` ;
+* ``esp32_station_demo_borne_1_slot1`` ;
+* ``esp32_station_demo_borne_1_slot2`` ;
+* ``esp32_station_demo_borne_1_slot3``.
+
+Activer ensuite ``mosquitto/config/mosquitto.secure.conf`` comme configuration
+Mosquitto et redémarrer le service. Les règles dans ``mosquitto/config/acl``
+doivent garantir qu'un ESP32 ne peut publier que sur son propre emplacement.
+Les comptes ``esp32_slotX`` servent aux tests locaux historiques
+``station/slotX/...``. Les comptes ``esp32_station_demo_borne_1_slotX`` servent
+au routage plus réaliste ``station/station-demo/borne-1/slotX/...``.
+
+Contrôle recommandé avec Mosquitto sécurisé :
+
+.. code-block:: bash
+
+   docker compose exec mqtt mosquitto_pub -h localhost -u esp32_slot1 -P <mot-de-passe> -t station/slot1/status -m '{"state":"idle"}'
+   docker compose exec mqtt mosquitto_pub -h localhost -u esp32_slot1 -P <mot-de-passe> -t station/slot2/status -m '{"state":"idle"}'
+   docker compose exec mqtt mosquitto_pub -h localhost -u esp32_station_demo_borne_1_slot1 -P <mot-de-passe> -t station/station-demo/borne-1/slot1/status -m '{"state":"idle"}'
+   docker compose exec mqtt mosquitto_pub -h localhost -u esp32_station_demo_borne_1_slot1 -P <mot-de-passe> -t station/station-demo/borne-1/slot2/status -m '{"state":"idle"}'
+
+La première commande de chaque paire doit réussir, la seconde doit être refusée
+par l'ACL.
 
 Test RFID Raspberry
 -------------------
@@ -200,6 +352,159 @@ Le mode dégradé n'est pas un mode autonome complet. Il sert uniquement à
 réutiliser des droits déjà synchronisés et encore valides si le backend devient
 temporairement indisponible.
 
+Contrôles de déploiement
+------------------------
+
+Avant une bascule vers un environnement exposé, exécuter les contrôles Django
+avec les variables de production chargées :
+
+.. code-block:: bash
+
+   docker compose exec backend python manage.py check --deploy
+
+Le contrôle doit rester sans erreur ``api.E``. Les avertissements ``api.W`` sont
+à traiter avant ouverture du service hors réseau de développement : activer HSTS
+après validation HTTPS, limiter ``ALLOWED_HOSTS``, configurer les identifiants
+MQTT, chiffrer MQTT si le trafic sort du réseau local de confiance et remplacer
+le mot de passe Grafana de démonstration.
+
+Email académique avec Mailpit
+-----------------------------
+
+Le projet utilise Mailpit pour capturer les emails en local et en démonstration.
+Cela permet de montrer des notifications réelles côté Django sans dépendre d'un
+service SMTP payant.
+
+Ouvrir l'interface Mailpit :
+
+.. code-block:: text
+
+   http://localhost:8025
+
+Configuration locale attendue :
+
+.. code-block:: text
+
+   EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+   EMAIL_HOST=mailpit
+   EMAIL_PORT=1025
+   DEFAULT_FROM_EMAIL=Station <no-reply@station.local>
+
+Les emails utiles au projet académique sont envoyés vers Mailpit :
+
+* notification des techniciens assignés lorsqu'une alerte terrain active dépasse
+  le délai de persistance configuré ;
+* futurs emails de vérification de compte ou de réinitialisation de mot de
+  passe si ces parcours sont activés.
+
+Mailpit n'est pas un fournisseur d'envoi de production : il capture les messages
+pour les tests et la soutenance.
+
+Politique d'alertes
+-------------------
+
+Le backend distingue les alertes courtes des incidents qui persistent. Une
+alerte terrain suit le cycle suivant :
+
+* ``nouvelle`` : premier signal reçu, aucune notification immédiate ;
+* ``active`` : même anomalie observée à nouveau ;
+* ``resolue`` : retour à une télémétrie normale.
+
+Les notifications email sont envoyées uniquement aux techniciens actifs affectés
+à la station concernée, et seulement pour les types listés dans
+``ALERT_TECHNICIAN_EMAIL_TYPES``. Les délais recommandés sont ceux du fichier
+``.env.example`` :
+
+* ``60`` secondes pour une alerte critique ;
+* ``120`` secondes pour une alerte haute ou moyenne ;
+* ``1800`` secondes de délai de relance si l'alerte reste active.
+
+Traiter les notifications en attente manuellement :
+
+.. code-block:: bash
+
+   docker compose exec backend python manage.py send_alert_notifications
+
+Contrôler les sessions actives sans télémétrie manuellement :
+
+.. code-block:: bash
+
+   docker compose exec backend python manage.py check_session_telemetry_health
+
+Ce contrôle crée une alerte ``session_without_telemetry`` si une session ouverte
+ne reçoit plus de mesure depuis ``SESSION_TELEMETRY_STALE_MINUTES`` minutes,
+``2`` par défaut. L'alerte se résout automatiquement quand la télémétrie revient
+ou quand la session est clôturée.
+En fonctionnement normal, ces deux commandes sont exécutées automatiquement par
+``celery-beat`` toutes les ``60`` secondes par défaut, via
+``CELERY_BEAT_ALERT_NOTIFICATIONS_SECONDS`` et
+``CELERY_BEAT_SESSION_TELEMETRY_HEALTH_SECONDS``.
+
+L'alerte ``firmware_outdated`` est levée si une version attendue est définie
+pour le ``Device`` ou via ``EXPECTED_ESP32_FIRMWARE_VERSION`` et si un ESP32
+remonte une version différente. Elle se résout lorsque la version remontée
+redevient conforme. Elle ne doit pas déclencher d'email technicien par défaut :
+seul l'administrateur ou le responsable technique décide de planifier et
+appliquer une mise à jour firmware.
+
+Politique firmware et OTA
+-------------------------
+
+La politique firmware est volontairement séparée de la maintenance terrain :
+
+* l'ESP32 remonte automatiquement ``firmware_version``, ``hardware_mac`` et
+  ``ip_address`` dans les messages ``status``, ``ack`` et ``telemetry`` ;
+* le backend compare la version remontée avec la version attendue de
+  l'équipement ou avec ``EXPECTED_ESP32_FIRMWARE_VERSION`` ;
+* l'API admin ``/api/admin/devices/`` expose l'inventaire, le statut firmware et
+  les champs OTA ;
+* l'API admin ``/api/admin/devices/<id>/schedule-ota/`` enregistre la version
+  cible et l'URL du binaire validé par l'administrateur ;
+* le statut ``update_scheduled`` signifie qu'une mise à jour est approuvée, mais
+  l'application réelle du firmware dépend encore du canal opérationnel retenu
+  sur le matériel final.
+
+En projet académique, la mise à jour peut rester manuelle via Thonny tant que le
+matériel n'est pas disponible. Le point important pour la production est que la
+décision soit tracée côté admin, que la non-conformité soit visible en
+supervision, et que l'alerte se ferme automatiquement lorsque l'ESP32 remonte la
+version attendue.
+
+SMS de production
+-----------------
+
+En développement, ``SMS_BACKEND=console`` suffit : aucun SMS réel n'est envoyé
+et le backend journalise seulement une tentative d'envoi. En production, choisir
+un fournisseur explicite :
+
+.. list-table::
+   :header-rows: 1
+
+   * - Fournisseur
+     - Variables requises
+   * - ``twilio``
+     - ``SMS_TWILIO_ACCOUNT_SID``, ``SMS_TWILIO_AUTH_TOKEN``, ``SMS_TWILIO_FROM``
+   * - ``brevo``
+     - ``SMS_BREVO_API_KEY``
+
+Le backend ``ovh`` n'est pas activé dans le profil durci : l'API REST OVH impose
+une signature historique en SHA-1, ce qui crée une alerte CodeQL bloquante. Pour
+ce projet, utiliser ``console`` en démonstration locale et ``brevo`` ou
+``twilio`` pour une démonstration avec envoi réel.
+
+Réglages recommandés avant ouverture du service :
+
+* ``SMS_REQUIRE_VERIFIED_PHONE=True`` pour bloquer l'envoi vers un téléphone non
+  vérifié ;
+* ``SMS_RESEND_COOLDOWN_SECONDS=60`` ou plus pour limiter le bouton de renvoi ;
+* ``SMS_HTTP_TIMEOUT_SECONDS=10`` pour éviter de bloquer trop longtemps une
+  requête utilisateur si le fournisseur ne répond pas ;
+* ``SMS_SENDER_NAME`` limité à un libellé court compatible avec le fournisseur.
+
+Le profil utilisateur expose ``telephone_verifie``. Un changement de numéro
+depuis le profil remet automatiquement cette valeur à ``False``. L'admin peut la
+remettre à ``True`` après vérification opérationnelle du numéro.
+
 Tests automatisés
 -----------------
 
@@ -246,7 +551,8 @@ Avant une présentation, vérifier :
 * une réservation de test existe ;
 * le backend est joignable depuis le Raspberry ;
 * le broker MQTT est joignable depuis le Raspberry et les ESP32 ;
-* ``mqtt-bridge`` et ``celery`` sont lancés pour alimenter Grafana ;
+* ``mqtt-bridge``, ``celery`` et ``celery-beat`` sont lancés pour alimenter
+  Grafana et maintenir les alertes métier ;
 * le dashboard Grafana affiche des points récents ;
 * le lecteur RFID lit bien un UID ;
 * l'ESP32 répond aux commandes avec un ACK.

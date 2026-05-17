@@ -21,7 +21,7 @@ function createActionButton(label, onClick, variant = "") {
 }
 
 function createDataTable(container, columns, rows, emptyMessage) {
-    container.innerHTML = "";
+    container.replaceChildren();
 
     if (!rows.length) {
         const empty = document.createElement("div");
@@ -53,10 +53,10 @@ function createDataTable(container, columns, rows, emptyMessage) {
         columns.forEach((column) => {
             const td = document.createElement("td");
             if (column.className) td.className = column.className;
-            const value = column.render ? column.render(row) : row[column.key];
-            if (value instanceof Node) {
-                td.appendChild(value);
+            if (column.renderNode) {
+                td.appendChild(column.renderNode(row));
             } else {
+                const value = column.render ? column.render(row) : row[column.key];
                 td.textContent = value ?? "-";
             }
             tr.appendChild(td);
@@ -102,19 +102,22 @@ function createStatusBadge(label, variant = "") {
 
 document.addEventListener("DOMContentLoaded", async () => {
     const AUTO_REFRESH_MS = 30000;
-    const GRAFANA_DASHBOARD_UID = "station-supervision";
-    const GRAFANA_DASHBOARD_SLUG = "station-supervision-technique";
-    const GRAFANA_DASHBOARD_QUERY = "orgId=1&from=now-6h&to=now&refresh=5s";
+    const GRAFANA_DASHBOARD_UID = "station-overview";
+    const GRAFANA_DASHBOARD_SLUG = "station-vue-globale-supervision";
+    const GRAFANA_DASHBOARD_QUERY = "orgId=1&from=now-6h&to=now&refresh=10s";
     const GRAFANA_DASHBOARD_PATH = `/d/${GRAFANA_DASHBOARD_UID}/${GRAFANA_DASHBOARD_SLUG}?${GRAFANA_DASHBOARD_QUERY}`;
     const GRAFANA_DASHBOARD_SUBPATH = `/grafana${GRAFANA_DASHBOARD_PATH}`;
     const status = document.getElementById("admin-status");
     const logoutBtn = document.getElementById("logout-admin");
     const grafanaLink = document.getElementById("grafana-link");
+    const realtimeStatus = document.getElementById("supervision-realtime-status");
 
     let users = [];
     let stations = [];
+    let bornes = [];
     let emplacements = [];
     let technicians = [];
+    let technicianAssignments = [];
     let maintenances = [];
     let upcomingReservations = [];
     let archivedReservations = [];
@@ -125,15 +128,21 @@ document.addEventListener("DOMContentLoaded", async () => {
         devices: [],
         alerts: [],
         measurements: [],
+        commands: [],
     };
     let currentAdminId = null;
     let currentTab = "overview";
     let isLoading = false;
     let isRefreshingLiveData = false;
+    let supervisionSocket = null;
+    let supervisionReconnectTimer = null;
+    let supervisionRealtimeStarted = false;
+    let supervisionReconnectAttempts = 0;
     const expandedStations = new Set();
-    const paginatedTables = ["users", "stations", "technicians", "maintenances"];
+    const paginatedTables = ["users", "stations", "technicians", "technicianAssignments", "maintenances"];
     const supervisionPaginationState = {
         devices: { page: 1, pageSize: 10 },
+        commands: { page: 1, pageSize: 10 },
         alerts: { page: 1, pageSize: 10 },
         measurements: { page: 1, pageSize: 10 },
     };
@@ -153,6 +162,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         users: "",
         stations: "",
         technicians: "",
+        technicianAssignments: "",
         maintenances: "",
         upcomingReservations: "",
         archivedReservations: "",
@@ -173,12 +183,23 @@ document.addEventListener("DOMContentLoaded", async () => {
             station.latitude,
             station.longitude,
             station.statut,
+            ...bornes.filter((borne) => String(borne.station) === String(station.id_station)).map((borne) => `${borne.nom} ${borne.numero} ${borne.statut}`),
+            ...emplacements.filter((emplacement) => String(emplacement.station) === String(station.id_station)).map((emplacement) => `${emplacement.borne_nom || ""} ${emplacement.numero} ${emplacement.statut}`),
         ]),
         technicians: (technician) => collectSearchText([
             technician.nom,
             technician.email,
             technician.telephone,
             technician.utilisateur_pseudo,
+            ...(technician.assigned_stations || []).map((assignment) => `${assignment.station_nom} ${assignment.role}`),
+        ]),
+        technicianAssignments: (assignment) => collectSearchText([
+            assignment.technicien_nom,
+            assignment.station_nom,
+            assignment.station_localisation,
+            assignment.role,
+            assignment.role_display,
+            assignment.is_active ? "active" : "inactive",
         ]),
         maintenances: (maintenance) => collectSearchText([
             maintenance.station_nom,
@@ -200,6 +221,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             reservation.reference_code,
             reservation.utilisateur_pseudo,
             reservation.station_nom,
+            reservation.borne_nom,
             reservation.emplacement_numero,
             reservation.emplacement,
             reservation.auth_mode,
@@ -216,6 +238,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             session.utilisateur_pseudo,
             session.reference_code,
             session.station,
+            session.borne,
             session.emplacement,
             session.status === "active" ? "en cours active" : "archivee archivée",
             formatDateTime(session.start_time),
@@ -230,6 +253,19 @@ document.addEventListener("DOMContentLoaded", async () => {
             maximumFractionDigits: 2,
         }) : row.valeur;
         return `${formatted} ${row.unite || ""}`.trim();
+    }
+
+    function formatCommandAck(device) {
+        if (!device.last_command_action && !device.last_command_status && !device.last_command_message) {
+            return "-";
+        }
+        const parts = [
+            device.last_command_action,
+            device.last_command_status,
+            device.last_command_message,
+            device.last_command_at ? formatDateTime(device.last_command_at) : "",
+        ].filter(Boolean);
+        return parts.join(" - ");
     }
 
     function buildGrafanaDashboardUrl(baseUrl) {
@@ -248,6 +284,86 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
 
         return GRAFANA_DASHBOARD_SUBPATH;
+    }
+
+    function setRealtimeStatus(label, state = "") {
+        if (!realtimeStatus) return;
+        realtimeStatus.textContent = label;
+        realtimeStatus.classList.toggle("connected", state === "connected");
+        realtimeStatus.classList.toggle("fallback", state === "fallback");
+    }
+
+    function buildSupervisionWebSocketUrl(token) {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        return `${protocol}//${window.location.host}/ws/admin/supervision/?token=${encodeURIComponent(token)}`;
+    }
+
+    function scheduleSupervisionReconnect() {
+        if (!supervisionRealtimeStarted) return;
+        window.clearTimeout(supervisionReconnectTimer);
+        const delay = Math.min(30000, 3000 * 2 ** Math.min(supervisionReconnectAttempts, 3));
+        supervisionReconnectAttempts += 1;
+        supervisionReconnectTimer = window.setTimeout(() => {
+            connectSupervisionSocket();
+        }, delay);
+    }
+
+    async function connectSupervisionSocket() {
+        if (!("WebSocket" in window)) {
+            setRealtimeStatus("Polling de secours", "fallback");
+            return;
+        }
+        if (
+            supervisionSocket &&
+            [WebSocket.CONNECTING, WebSocket.OPEN].includes(supervisionSocket.readyState)
+        ) {
+            return;
+        }
+
+        const token = window.AuthAPI.getAccessToken();
+        if (!token) {
+            setRealtimeStatus("Polling de secours", "fallback");
+            return;
+        }
+
+        setRealtimeStatus("Connexion temps réel", "fallback");
+        const socket = new WebSocket(buildSupervisionWebSocketUrl(token));
+        supervisionSocket = socket;
+
+        socket.addEventListener("open", () => {
+            supervisionReconnectAttempts = 0;
+            setRealtimeStatus("Temps réel actif", "connected");
+        });
+
+        socket.addEventListener("message", (event) => {
+            let message = null;
+            try {
+                message = JSON.parse(event.data);
+            } catch (_error) {
+                return;
+            }
+            if (message?.type !== "supervision.snapshot" || !message.payload) return;
+            supervision = message.payload;
+            renderSupervision();
+        });
+
+        socket.addEventListener("close", async (event) => {
+            if (supervisionSocket !== socket) return;
+            supervisionSocket = null;
+            setRealtimeStatus("Polling de secours", "fallback");
+            if (event.code === 4401) {
+                try {
+                    await window.AuthAPI.refreshAccessToken();
+                } catch (_error) {
+                    return;
+                }
+            }
+            scheduleSupervisionReconnect();
+        });
+
+        socket.addEventListener("error", () => {
+            setRealtimeStatus("Polling de secours", "fallback");
+        });
     }
 
     function filterRows(tableKey, rows) {
@@ -527,7 +643,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     async function deleteAndReload(confirmMessage, deleteRequest) {
-        if (!window.confirm(confirmMessage)) return;
+        const confirmed = await window.AuthAPI.confirmAction(confirmMessage, {
+            title: "Confirmer la suppression",
+            confirmLabel: "Supprimer",
+            danger: true,
+        });
+        if (!confirmed) return;
         try {
             await deleteRequest();
             await loadAll();
@@ -538,28 +659,41 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     async function regenerateReservationAccess(reservation) {
-        const confirmed = window.confirm(`Regenerer l'acces temporaire de la reservation ${reservation.reference_code || ""} ?`);
+        const confirmed = await window.AuthAPI.confirmAction(
+            `Régénérer l'accès temporaire de la réservation ${reservation.reference_code || ""} ?`,
+            {
+                title: "Régénérer l'accès",
+                confirmLabel: "Régénérer",
+            }
+        );
         if (!confirmed) return;
 
         try {
             await window.AuthAPI.regenerateAdminReservationAccess(reservation.id_reservation);
             await loadAll();
-            setStatus(`Acces temporaire regenere pour ${reservation.reference_code || "la reservation"}. L'utilisateur verra la nouvelle valeur automatiquement.`);
+            setStatus(`Accès temporaire régénéré pour ${reservation.reference_code || "la réservation"}. L'utilisateur verra la nouvelle valeur automatiquement.`);
         } catch (error) {
-            setStatus(error.message || "Regeneration impossible.", true);
+            setStatus(error.message || "Régénération impossible.", true);
         }
     }
 
     async function revokeReservationAccess(reservation) {
-        const confirmed = window.confirm(`Revoquer l'acces temporaire de la reservation ${reservation.reference_code || ""} ?`);
+        const confirmed = await window.AuthAPI.confirmAction(
+            `Révoquer l'accès temporaire de la réservation ${reservation.reference_code || ""} ?`,
+            {
+                title: "Révoquer l'accès",
+                confirmLabel: "Révoquer",
+                danger: true,
+            }
+        );
         if (!confirmed) return;
 
         try {
             await window.AuthAPI.revokeAdminReservationAccess(reservation.id_reservation);
             await loadAll();
-            setStatus(`Acces temporaire revoque pour ${reservation.reference_code || "la reservation"}.`);
+            setStatus(`Accès temporaire révoqué pour ${reservation.reference_code || "la réservation"}.`);
         } catch (error) {
-            setStatus(error.message || "Revocation impossible.", true);
+            setStatus(error.message || "Révocation impossible.", true);
         }
     }
 
@@ -585,7 +719,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 {
                     label: "Actions",
                     className: "actions-column",
-                    render: (user) => renderActions({
+                    renderNode: (user) => renderActions({
                         resource: "user",
                         id: user.id_user,
                         label: user.pseudo,
@@ -621,14 +755,14 @@ document.addEventListener("DOMContentLoaded", async () => {
             return;
         }
 
-        const columnsCount = 7;
+        const columnsCount = 8;
         const tableWrap = document.createElement("div");
         tableWrap.className = "data-table-wrap admin-data-table-wrap";
         const table = document.createElement("table");
         table.className = "data-table admin-data-table station-tree-table";
         const thead = document.createElement("thead");
         const headRow = document.createElement("tr");
-        ["Station", "Localisation", "Latitude", "Longitude", "Statut", "Emplacements", "Actions"].forEach((label) => {
+        ["Station", "Localisation", "Latitude", "Longitude", "Statut", "Bornes", "Emplacements", "Actions"].forEach((label) => {
             const th = document.createElement("th");
             th.textContent = label;
             headRow.appendChild(th);
@@ -639,9 +773,12 @@ document.addEventListener("DOMContentLoaded", async () => {
         const tbody = document.createElement("tbody");
         rows.forEach((station) => {
             const stationId = String(station.id_station);
+            const stationBornes = bornes
+                .filter((borne) => String(borne.station) === stationId)
+                .sort((left, right) => Number(left.numero) - Number(right.numero));
             const stationEmplacements = emplacements
                 .filter((emplacement) => String(emplacement.station) === stationId)
-                .sort((left, right) => Number(left.numero) - Number(right.numero));
+                .sort((left, right) => Number(left.borne_numero ?? 0) - Number(right.borne_numero ?? 0) || Number(left.numero) - Number(right.numero));
             const expanded = expandedStations.has(stationId);
 
             const stationRow = document.createElement("tr");
@@ -659,20 +796,20 @@ document.addEventListener("DOMContentLoaded", async () => {
                 renderStations();
             });
             toggle.className = "table-action station-toggle";
-            toggle.setAttribute("aria-label", `${expanded ? "Masquer" : "Afficher"} les emplacements de ${station.nom}`);
+            toggle.setAttribute("aria-label", `${expanded ? "Masquer" : "Afficher"} les bornes et emplacements de ${station.nom}`);
             const nameStack = document.createElement("div");
             nameStack.className = "station-name-cell";
             const strong = document.createElement("strong");
             strong.textContent = station.nom;
             const small = document.createElement("small");
-            small.textContent = expanded ? "Emplacements affichés" : "Cliquer pour dérouler";
+            small.textContent = expanded ? "Infrastructure affichée" : "Cliquer pour dérouler";
             nameStack.appendChild(strong);
             nameStack.appendChild(small);
             nameCell.appendChild(toggle);
             nameCell.appendChild(nameStack);
             stationRow.appendChild(nameCell);
 
-            [station.localisation_text, station.latitude, station.longitude, station.statut, stationEmplacements.length].forEach((value) => {
+            [station.localisation_text, station.latitude, station.longitude, station.statut, stationBornes.length, stationEmplacements.length].forEach((value) => {
                 const td = document.createElement("td");
                 td.textContent = value ?? "-";
                 stationRow.appendChild(td);
@@ -716,7 +853,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 detailsRow.className = "station-details-row";
                 const detailsCell = document.createElement("td");
                 detailsCell.colSpan = columnsCount;
-                detailsCell.appendChild(renderStationEmplacements(station, stationEmplacements));
+                detailsCell.appendChild(renderStationEmplacements(station, stationBornes, stationEmplacements));
                 detailsRow.appendChild(detailsCell);
                 tbody.appendChild(detailsRow);
             }
@@ -728,55 +865,98 @@ document.addEventListener("DOMContentLoaded", async () => {
         renderPagination("stations-list", "stations");
     }
 
-    function renderStationEmplacements(station, stationEmplacements) {
+    function renderStationEmplacements(station, stationBornes, stationEmplacements) {
         const wrapper = document.createElement("div");
         wrapper.className = "station-emplacements-panel";
 
         const heading = document.createElement("div");
         heading.className = "station-emplacements-heading";
         const title = document.createElement("strong");
-        title.textContent = `Emplacements de ${station.nom}`;
+        title.textContent = `Bornes et emplacements de ${station.nom}`;
+        const addBorneLink = createActionLink("Ajouter une borne", "/admin-form.html?resource=borne");
+        addBorneLink.className = "table-action";
         const addLink = createActionLink("Ajouter un emplacement", "/admin-form.html?resource=emplacement");
         addLink.className = "table-action";
         heading.appendChild(title);
+        heading.appendChild(addBorneLink);
         heading.appendChild(addLink);
         wrapper.appendChild(heading);
 
-        if (!stationEmplacements.length) {
+        if (!stationBornes.length && !stationEmplacements.length) {
             const empty = document.createElement("div");
             empty.className = "empty-state";
-            empty.textContent = "Aucun emplacement pour cette station.";
+            empty.textContent = "Aucune borne ni emplacement pour cette station.";
             wrapper.appendChild(empty);
             return wrapper;
         }
 
         const grid = document.createElement("div");
         grid.className = "slot-grid";
-        stationEmplacements.forEach((emplacement) => {
+        const bornesToRender = stationBornes.length
+            ? stationBornes
+            : [{ id_borne: "__unassigned__", nom: "Borne non renseign\u00e9e", numero: "-", statut: "-" }];
+
+        bornesToRender.forEach((borne) => {
+            const borneEmplacements = stationEmplacements.filter((emplacement) => String(emplacement.borne) === String(borne.id_borne));
             const card = document.createElement("article");
             card.className = "slot-card";
             const head = document.createElement("div");
             head.className = "slot-card-head";
-            const title = document.createElement("strong");
-            title.textContent = `Emplacement ${emplacement.numero}`;
-            const statusBadge = createStatusBadge(emplacement.statut || "-", emplacement.statut === "disponible" ? "success" : "warning");
-            head.appendChild(title);
+            const borneTitle = document.createElement("strong");
+            borneTitle.textContent = borne.nom || `Borne ${borne.numero}`;
+            const statusBadge = createStatusBadge(borne.statut || "-", borne.statut === "active" ? "success" : "warning");
+            head.appendChild(borneTitle);
             head.appendChild(statusBadge);
-
-            const lock = document.createElement("p");
-            lock.textContent = `Serrure : ${emplacement.lock_state || "-"}`;
 
             const actions = document.createElement("div");
             actions.className = "table-actions";
-            actions.appendChild(createActionLink("Modifier", editHref("emplacement", emplacement.id_emplacement)));
-            actions.appendChild(createActionButton("Supprimer", () => deleteAndReload(
-                `Supprimer l'emplacement ${emplacement.numero} ?`,
-                () => window.AuthAPI.deleteAdminEmplacement(emplacement.id_emplacement)
-            ), "danger-action"));
+            if (borne.id_borne !== "__unassigned__") {
+                actions.appendChild(createActionLink("Modifier", editHref("borne", borne.id_borne)));
+                actions.appendChild(createActionButton("Supprimer", () => deleteAndReload(
+                    `Supprimer la borne ${borne.nom || borne.numero} ?`,
+                    () => window.AuthAPI.deleteAdminBorne(borne.id_borne)
+                ), "danger-action"));
+            }
+
+            const slots = document.createElement("div");
+            slots.className = "stacked-list";
+            if (!borneEmplacements.length) {
+                const empty = document.createElement("p");
+                empty.className = "helper";
+                empty.textContent = "Aucun emplacement rattach\u00e9.";
+                slots.appendChild(empty);
+            } else {
+                borneEmplacements.forEach((emplacement) => {
+                    const row = document.createElement("div");
+                    row.className = "list-item compact-list-item";
+                    const rowHead = document.createElement("div");
+                    rowHead.className = "list-item-head";
+                    const emplacementTitle = document.createElement("strong");
+                    emplacementTitle.textContent = `Emplacement ${emplacement.numero}`;
+                    rowHead.appendChild(emplacementTitle);
+                    rowHead.appendChild(createStatusBadge(emplacement.statut || "-", emplacement.statut === "disponible" ? "success" : "warning"));
+
+                    const lock = document.createElement("p");
+                    lock.textContent = `Serrure : ${emplacement.lock_state || "-"}`;
+
+                    const slotActions = document.createElement("div");
+                    slotActions.className = "table-actions";
+                    slotActions.appendChild(createActionLink("Modifier", editHref("emplacement", emplacement.id_emplacement)));
+                    slotActions.appendChild(createActionButton("Supprimer", () => deleteAndReload(
+                        `Supprimer l'emplacement ${emplacement.numero} ?`,
+                        () => window.AuthAPI.deleteAdminEmplacement(emplacement.id_emplacement)
+                    ), "danger-action"));
+
+                    row.appendChild(rowHead);
+                    row.appendChild(lock);
+                    row.appendChild(slotActions);
+                    slots.appendChild(row);
+                });
+            }
 
             card.appendChild(head);
-            card.appendChild(lock);
             card.appendChild(actions);
+            card.appendChild(slots);
             grid.appendChild(card);
         });
         wrapper.appendChild(grid);
@@ -792,9 +972,15 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Utilisateur li\u00e9", render: (technician) => technician.utilisateur_pseudo || "-" },
                 { label: "T\u00e9l\u00e9phone", render: (technician) => technician.telephone || "-" },
                 {
+                    label: "Stations",
+                    render: (technician) => (technician.assigned_stations || [])
+                        .map((assignment) => assignment.station_nom)
+                        .join(", ") || "-",
+                },
+                {
                     label: "Actions",
                     className: "actions-column",
-                    render: (technician) => renderActions({
+                    renderNode: (technician) => renderActions({
                         resource: "technician",
                         id: technician.id_technicien,
                         label: technician.nom,
@@ -811,6 +997,41 @@ document.addEventListener("DOMContentLoaded", async () => {
         renderPagination("technicians-list", "technicians");
     }
 
+    function renderTechnicianAssignments() {
+        createDataTable(
+            document.getElementById("technician-assignments-list"),
+            [
+                { label: "Technicien", render: (assignment) => assignment.technicien_nom || "-" },
+                { label: "Station", render: (assignment) => assignment.station_nom || "-" },
+                { label: "Localisation", render: (assignment) => assignment.station_localisation || "-" },
+                { label: "R\u00f4le", render: (assignment) => assignment.role_display || assignment.role || "-" },
+                {
+                    label: "Statut",
+                    renderNode: (assignment) => createStatusBadge(
+                        assignment.is_active ? "Actif" : "Inactif",
+                        assignment.is_active ? "success" : "warning"
+                    ),
+                },
+                {
+                    label: "Actions",
+                    className: "actions-column",
+                    renderNode: (assignment) => renderActions({
+                        resource: "technician-station",
+                        id: assignment.id_assignment,
+                        label: `${assignment.technicien_nom} - ${assignment.station_nom}`,
+                        onDelete: () => deleteAndReload(
+                            `Supprimer l'affectation ${assignment.technicien_nom} / ${assignment.station_nom} ?`,
+                            () => window.AuthAPI.deleteAdminTechnicianStationAssignment(assignment.id_assignment)
+                        ),
+                    }),
+                },
+            ],
+            filterRows("technicianAssignments", technicianAssignments),
+            emptyMessageFor("technicianAssignments", "Aucune affectation technicien-station.")
+        );
+        renderPagination("technician-assignments-list", "technicianAssignments");
+    }
+
     function renderMaintenances() {
         createDataTable(
             document.getElementById("maintenances-list"),
@@ -824,7 +1045,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 {
                     label: "Actions",
                     className: "actions-column",
-                    render: (maintenance) => renderActions({
+                    renderNode: (maintenance) => renderActions({
                         resource: "maintenance",
                         id: maintenance.id_maintenance,
                         label: maintenance.type,
@@ -848,16 +1069,17 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Code", render: (reservation) => reservation.reference_code || "-" },
                 { label: "Utilisateur", render: (reservation) => reservation.utilisateur_pseudo || "-" },
                 { label: "Station", render: (reservation) => reservation.station_nom || "-" },
+                { label: "Borne", render: (reservation) => reservation.borne_nom || "-" },
                 { label: "Emplacement", render: (reservation) => reservation.emplacement_numero || reservation.emplacement || "-" },
                 { label: "Début", render: (reservation) => formatDateTime(reservation.date_debut) },
                 { label: "Fin", render: (reservation) => formatDateTime(reservation.date_fin) },
                 { label: "Mode", render: (reservation) => reservation.auth_mode || "-" },
-                { label: "Accès", className: "access-column", render: renderAccessSummary },
+                { label: "Accès", className: "access-column", renderNode: renderAccessSummary },
                 { label: "Statut", render: (reservation) => reservation.statut || "-" },
                 {
                     label: "Actions",
                     className: "actions-column reservation-actions-column",
-                    render: renderReservationActions,
+                    renderNode: renderReservationActions,
                 },
             ],
             filterRows(searchKey, rows),
@@ -872,6 +1094,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Utilisateur", render: (session) => session.utilisateur_pseudo || "-" },
                 { label: "Code réservation", render: (session) => session.reference_code || "-" },
                 { label: "Station", render: (session) => session.station || "-" },
+                { label: "Borne", render: (session) => session.borne || "-" },
                 { label: "Emplacement", render: (session) => session.emplacement || "-" },
                 { label: "Début", render: (session) => formatDateTime(session.start_time) },
                 { label: "Fin", render: (session) => formatDateTime(session.end_time) },
@@ -886,6 +1109,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         const stats = supervision.stats || {};
         document.getElementById("stat-devices-online").textContent = stats.devices_online ?? "-";
         document.getElementById("stat-devices-offline").textContent = stats.devices_offline ?? "-";
+        document.getElementById("stat-devices-firmware").textContent = stats.devices_firmware_update_required ?? "-";
         document.getElementById("stat-alerts-active").textContent = stats.active_alerts ?? "-";
         document.getElementById("stat-alerts-critical").textContent = stats.critical_alerts ?? "-";
         document.getElementById("stat-telemetry-24h").textContent = stats.telemetry_samples_24h ?? "-";
@@ -894,13 +1118,18 @@ document.addEventListener("DOMContentLoaded", async () => {
             document.getElementById("admin-devices-list"),
             [
                 { label: "Emplacement", render: (device) => device.slot_label || device.slot_id || "-" },
-                { label: "Connexion", render: (device) => createStatusBadge(device.online ? "En ligne" : "Hors ligne", device.online ? "success" : "danger") },
+                { label: "Connexion", renderNode: (device) => createStatusBadge(device.online ? "En ligne" : "Hors ligne", device.online ? "success" : "danger") },
                 { label: "Dernier état reçu", render: (device) => device.status_display || device.status || "-" },
+                { label: "Dernier ACK", render: formatCommandAck },
                 { label: "Station", render: (device) => device.station_nom || "-" },
+                { label: "Borne", render: (device) => device.borne_nom || "-" },
                 { label: "Emplacement", render: (device) => device.emplacement_numero ?? "-" },
                 { label: "Serrure", render: (device) => device.lock_state || "-" },
                 { label: "Firmware", render: (device) => device.firmware_version || "-" },
+                { label: "Cible", render: (device) => device.effective_expected_firmware_version || device.expected_firmware_version || "-" },
+                { label: "OTA", render: (device) => device.firmware_update_status || "-" },
                 { label: "IP", render: (device) => device.ip_address || "-" },
+                { label: "MAC ESP32", render: (device) => device.hardware_mac || "-" },
                 { label: "Dernier signal", render: (device) => formatDateTime(device.last_seen) },
             ],
             paginateRows(supervision.devices || [], supervisionPaginationState.devices),
@@ -910,13 +1139,31 @@ document.addEventListener("DOMContentLoaded", async () => {
         renderClientPagination("admin-devices-list", "devices", supervision.devices || [], renderSupervision);
 
         createDataTable(
+            document.getElementById("admin-commands-list"),
+            [
+                { label: "Date", render: (command) => formatDateTime(command.timestamp) },
+                { label: "Emplacement", render: (command) => command.slot_label || command.slot_id || "-" },
+                { label: "Action", render: (command) => command.action || "-" },
+                { label: "Statut", renderNode: (command) => createStatusBadge(command.status || "-", ["accepted", "stopped", "locked", "unlocked"].includes(command.status) ? "success" : "warning") },
+                { label: "Message", render: (command) => command.message || "-" },
+                { label: "Source", render: (command) => command.source || "-" },
+                { label: "Session", render: (command) => command.session_id || "-" },
+            ],
+            paginateRows(supervision.commands || [], supervisionPaginationState.commands),
+            "Aucune commande ESP32 reçue."
+        );
+
+        renderClientPagination("admin-commands-list", "commands", supervision.commands || [], renderSupervision);
+
+        createDataTable(
             document.getElementById("admin-alerts-list"),
             [
                 { label: "Date", render: (alert) => formatDateTime(alert.timestamp) },
                 { label: "Type", render: (alert) => alert.type || "-" },
-                { label: "Sévérité", render: (alert) => createStatusBadge(alert.niveau_severite || "-", ["critical", "critique"].includes(alert.niveau_severite) ? "danger" : "warning") },
+                { label: "Sévérité", renderNode: (alert) => createStatusBadge(alert.niveau_severite || "-", ["critical", "critique"].includes(alert.niveau_severite) ? "danger" : "warning") },
                 { label: "Statut", render: (alert) => alert.status || "-" },
                 { label: "Station", render: (alert) => alert.station_nom || "-" },
+                { label: "Borne", render: (alert) => alert.borne_nom || "-" },
                 { label: "Emplacement", render: (alert) => alert.emplacement_numero ?? "-" },
                 { label: "Message", render: (alert) => alert.message || "-" },
             ],
@@ -934,6 +1181,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Capteur", render: (row) => row.type || "-" },
                 { label: "Valeur", render: formatMeasurementValue },
                 { label: "Station", render: (row) => row.station_nom || "-" },
+                { label: "Borne", render: (row) => row.borne_nom || "-" },
                 { label: "Emplacement", render: (row) => row.emplacement_numero ?? "-" },
             ],
             paginateRows(supervision.measurements || [], supervisionPaginationState.measurements),
@@ -947,6 +1195,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         renderUsers();
         renderStations();
         renderTechnicians();
+        renderTechnicianAssignments();
         renderMaintenances();
         renderReservations("admin-upcoming-reservations", upcomingReservations, "Aucune réservation à venir.", "upcomingReservations");
         renderReservations("admin-archived-reservations", archivedReservations, "Aucune réservation archivée.", "archivedReservations");
@@ -964,16 +1213,20 @@ document.addEventListener("DOMContentLoaded", async () => {
                 adminSupervision,
                 adminUsers,
                 adminStations,
+                adminBornes,
                 adminEmplacements,
                 adminTechnicians,
+                adminTechnicianAssignments,
                 adminMaintenances,
             ] = await Promise.all([
                 window.AuthAPI.getAdminOverview(),
                 window.AuthAPI.getAdminSupervision(),
                 window.AuthAPI.getAdminUsers(pageParams("users")),
                 window.AuthAPI.getAdminStations(pageParams("stations")),
+                window.AuthAPI.getAdminBornes(),
                 window.AuthAPI.getAdminEmplacements(),
                 window.AuthAPI.getAdminTechnicians(pageParams("technicians")),
+                window.AuthAPI.getAdminTechnicianStationAssignments(pageParams("technicianAssignments")),
                 window.AuthAPI.getAdminMaintenances(pageParams("maintenances")),
             ]);
 
@@ -994,13 +1247,16 @@ document.addEventListener("DOMContentLoaded", async () => {
 
             users = adminUsers.results || [];
             stations = adminStations.results || [];
+            bornes = adminBornes.results || [];
             emplacements = adminEmplacements.results || [];
             technicians = adminTechnicians.results || [];
+            technicianAssignments = adminTechnicianAssignments.results || [];
             maintenances = adminMaintenances.results || [];
             supervision = adminSupervision || supervision;
             updatePageState("users", adminUsers);
             updatePageState("stations", adminStations);
             updatePageState("technicians", adminTechnicians);
+            updatePageState("technicianAssignments", adminTechnicianAssignments);
             updatePageState("maintenances", adminMaintenances);
             upcomingReservations = adminReservations.upcoming || [];
             archivedReservations = adminReservations.archived || [];
@@ -1012,7 +1268,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             setStatus(
                 optionalDataFailed
                     ? "Administration chargée. Redémarrez le backend pour activer les vues réservations/sessions."
-                    : "Données chargées. La supervision se met à jour automatiquement en arrière-plan.",
+                    : "",
                 optionalDataFailed
             );
         } finally {
@@ -1057,6 +1313,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (grafanaLink) {
         grafanaLink.href = resolveGrafanaUrl();
     }
+    window.addEventListener("beforeunload", () => {
+        supervisionRealtimeStarted = false;
+        window.clearTimeout(supervisionReconnectTimer);
+        if (supervisionSocket) {
+            supervisionSocket.close();
+        }
+    });
 
     const session = await window.AuthAPI.ensureSession();
     if (!session) {
@@ -1079,6 +1342,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
 
         await loadAll();
+        supervisionRealtimeStarted = true;
+        connectSupervisionSocket();
         const initialTab = (window.location.hash || "#overview").replace("#", "");
         const allowedTabs = ["overview", "supervision", "users", "infrastructure", "reservations", "sessions", "operations"];
         setAdminTab(allowedTabs.includes(initialTab) ? initialTab : "overview", false);

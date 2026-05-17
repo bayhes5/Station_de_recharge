@@ -5,12 +5,14 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from api.models import Emplacement, Station
+from api.models import Borne, Emplacement, Station
 
 
 @pytest.fixture
 def api_client():
-    return APIClient()
+    client = APIClient()
+    client.credentials(HTTP_X_TERMINAL_SECRET="test-terminal-secret")
+    return client
 
 
 @pytest.fixture
@@ -56,10 +58,21 @@ def station(db):
 
 
 @pytest.fixture
-def emplacements(station):
+def borne(station):
+    return Borne.objects.create(
+        station=station,
+        numero=1,
+        nom="Borne 1",
+        statut="active",
+    )
+
+
+@pytest.fixture
+def emplacements(station, borne):
     return [
         Emplacement.objects.create(
             station=station,
+            borne=borne,
             numero=numero,
             statut="disponible",
             lock_state="verrouille",

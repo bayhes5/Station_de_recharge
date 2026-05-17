@@ -4,10 +4,12 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from .models import (
     Alerte,
     Authentification,
+    Borne,
     Capteur,
     CapteurData,
     Consentement,
     Device,
+    DeviceCommandLog,
     Emplacement,
     JournalSecurite,
     Maintenance,
@@ -18,6 +20,7 @@ from .models import (
     SessionTelemetry,
     Station,
     Technicien,
+    TechnicienStation,
     TypeAuth,
     Utilisateur,
     UtilisateurRole,
@@ -82,10 +85,50 @@ admin.site.register(Reservation)
 admin.site.register(Session)
 admin.site.register(SessionTelemetry)
 admin.site.register(Station)
+admin.site.register(Borne)
 admin.site.register(Emplacement)
-admin.site.register(Device)
+admin.site.register(DeviceCommandLog)
 admin.site.register(Capteur)
 admin.site.register(CapteurData)
 admin.site.register(Alerte)
 admin.site.register(Technicien)
+admin.site.register(TechnicienStation)
 admin.site.register(Maintenance)
+
+
+@admin.register(Device)
+class DeviceAdmin(admin.ModelAdmin):
+    """Expose ESP32 inventory and OTA policy fields to administrators."""
+
+    list_display = (
+        "emplacement",
+        "slot_id",
+        "firmware_version",
+        "expected_firmware_version",
+        "firmware_update_status",
+        "ip_address",
+        "last_seen",
+        "status",
+    )
+    list_filter = ("status", "firmware_update_status", "type_device")
+    search_fields = (
+        "slot_id",
+        "hardware_mac",
+        "mac_address",
+        "firmware_version",
+        "expected_firmware_version",
+        "emplacement__station__nom",
+        "emplacement__borne__nom",
+    )
+    readonly_fields = (
+        "firmware_version",
+        "hardware_mac",
+        "ip_address",
+        "last_seen",
+        "last_command_id",
+        "last_command_action",
+        "last_command_status",
+        "last_command_message",
+        "last_command_at",
+        "ota_completed_at",
+    )

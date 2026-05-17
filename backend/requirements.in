@@ -9,4 +9,5 @@ redis
 celery
 channels
 channels-redis
+daphne
 paho-mqtt

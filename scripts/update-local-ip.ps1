@@ -133,10 +133,14 @@ $lines = Set-EnvValue -Lines $lines -Key "LOCAL_WIFI_IP" -Value $newIp
 $lines = Set-EnvValue -Lines $lines -Key "FRONTEND_BASE_URL" -Value "http://${newIp}:5173"
 $lines = Set-EnvValue -Lines $lines -Key "ALLOWED_HOSTS" -Value $allowedHosts
 $lines = Set-EnvValue -Lines $lines -Key "CORS_ALLOWED_ORIGINS" -Value $corsOrigins
+$lines = Set-EnvValue -Lines $lines -Key "JWT_REFRESH_COOKIE_SECURE" -Value "False"
+$lines = Set-EnvValue -Lines $lines -Key "SESSION_COOKIE_SECURE" -Value "False"
+$lines = Set-EnvValue -Lines $lines -Key "CSRF_COOKIE_SECURE" -Value "False"
 
 Set-Content -Path $envFile -Value $lines -Encoding UTF8
 
 Write-Host "Adresse IP locale detectee: $newIp"
 Write-Host "Frontend PC/mobile: http://${newIp}:5173/"
 Write-Host "Kiosk Raspberry local: http://${newIp}:9000/"
+Write-Host "Cookies de developpement configures pour HTTP local."
 Write-Host ".env mis a jour: $envFile"

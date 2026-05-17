@@ -45,6 +45,14 @@ class StationStatus(models.TextChoices):
     INACTIVE = "inactive", "Inactive"
 
 
+class BorneStatus(models.TextChoices):
+    """Operational lifecycle values for one physical kiosk/charging cabinet."""
+
+    ACTIVE = "active", "Active"
+    MAINTENANCE = "maintenance", "Maintenance"
+    INACTIVE = "inactive", "Inactive"
+
+
 class EmplacementStatus(models.TextChoices):
     """Availability values for one charging bay."""
 
@@ -97,6 +105,17 @@ class DeviceStatus(models.TextChoices):
     ERROR = "error", "Erreur"
 
 
+class FirmwareUpdateStatus(models.TextChoices):
+    """Lifecycle values for firmware compliance and OTA preparation."""
+
+    UNKNOWN = "unknown", "Non renseigne"
+    UP_TO_DATE = "up_to_date", "A jour"
+    UPDATE_REQUIRED = "update_required", "Mise a jour requise"
+    UPDATE_SCHEDULED = "update_scheduled", "Mise a jour planifiee"
+    UPDATING = "updating", "Mise a jour en cours"
+    FAILED = "failed", "Echec de mise a jour"
+
+
 class AlertSeverity(models.TextChoices):
     """Severity scale used by operational alerts."""
 
@@ -124,6 +143,14 @@ class MaintenanceStatus(models.TextChoices):
     IN_PROGRESS = "en_cours", "En cours"
     DONE = "realisee", "Réalisée"
     CANCELLED = "annulee", "Annulée"
+
+
+class TechnicianStationRole(models.TextChoices):
+    """Operational responsibility levels for a technician on one station."""
+
+    REFERENT = "referent", "Referent"
+    INTERVENANT = "intervenant", "Intervenant"
+    OBSERVATEUR = "observateur", "Observateur"
 
 
 class UtilisateurManager(BaseUserManager):
@@ -213,6 +240,7 @@ class ProfilUtilisateur(models.Model):
     )
     nom = models.CharField(max_length=100, blank=True)
     telephone = models.CharField(max_length=20, blank=True)
+    telephone_verifie = models.BooleanField(default=False)
 
     class Meta:
         db_table = "profil_utilisateur"
@@ -374,6 +402,13 @@ class Authentification(models.Model):
             ),
             models.Index(fields=["expiration"], name="idx_auth_expiration"),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["type_auth", "hash_valeur"],
+                condition=Q(is_active=True) & ~Q(hash_valeur="pending"),
+                name="uniq_active_auth_type_secret",
+            ),
+        ]
 
 
 class Station(models.Model):
@@ -405,8 +440,56 @@ class Station(models.Model):
         return self.nom
 
 
+class Borne(models.Model):
+    """Represent one physical charging cabinet attached to a station."""
+
+    id_borne = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    station = models.ForeignKey(
+        Station,
+        on_delete=models.CASCADE,
+        related_name="bornes",
+        db_column="id_station",
+    )
+    numero = models.PositiveIntegerField()
+    nom = models.CharField(max_length=100)
+    mqtt_prefix = models.CharField(max_length=120, blank=True, default="")
+    statut = models.CharField(max_length=50, choices=BorneStatus.choices, default=BorneStatus.ACTIVE)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "borne"
+        unique_together = ("station", "numero")
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(statut__in=BorneStatus.values),
+                name="chk_borne_statut",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["station", "statut"], name="idx_borne_station_statut"),
+            models.Index(fields=["mqtt_prefix"], name="idx_borne_mqtt_prefix"),
+        ]
+
+    @classmethod
+    def default_for_station(cls, station):
+        """Return the default cabinet used by compatibility flows."""
+        borne, _created = cls.objects.get_or_create(
+            station=station,
+            numero=1,
+            defaults={
+                "nom": "Borne 1",
+                "statut": BorneStatus.ACTIVE,
+            },
+        )
+        return borne
+
+    def __str__(self):
+        """Return a readable station and cabinet identifier."""
+        return f"{self.station.nom} - borne {self.numero}"
+
+
 class Emplacement(models.Model):
-    """Represent a numbered charging bay within a station."""
+    """Represent a numbered charging bay within a physical cabinet."""
 
     id_emplacement = models.UUIDField(
         primary_key=True,
@@ -419,6 +502,13 @@ class Emplacement(models.Model):
         related_name="emplacements",
         db_column="id_station",
     )
+    borne = models.ForeignKey(
+        Borne,
+        on_delete=models.CASCADE,
+        related_name="emplacements",
+        db_column="id_borne",
+        blank=True,
+    )
     numero = models.PositiveIntegerField()
     statut = models.CharField(
         max_length=50, choices=EmplacementStatus.choices, db_column="etat"
@@ -429,7 +519,7 @@ class Emplacement(models.Model):
 
     class Meta:
         db_table = "emplacement"
-        unique_together = ("station", "numero")
+        unique_together = ("borne", "numero")
         constraints = [
             models.CheckConstraint(
                 condition=Q(statut__in=EmplacementStatus.values),
@@ -442,12 +532,21 @@ class Emplacement(models.Model):
         ]
         indexes = [
             models.Index(fields=["station", "statut"], name="idx_emp_station_statut"),
+            models.Index(fields=["borne", "statut"], name="idx_emp_borne_statut"),
             models.Index(fields=["lock_state", "statut"], name="idx_emp_lock_state"),
         ]
 
+    def save(self, *args, **kwargs):
+        """Keep the denormalized station field aligned with the parent cabinet."""
+        if self.borne_id:
+            self.station = self.borne.station
+        elif self.station_id:
+            self.borne = Borne.default_for_station(self.station)
+        super().save(*args, **kwargs)
+
     def __str__(self):
         """Return a readable station and bay identifier."""
-        return f"{self.station.nom} - {self.numero}"
+        return f"{self.station.nom} - borne {self.borne.numero} - emplacement {self.numero}"
 
 
 class Reservation(models.Model):
@@ -594,10 +693,28 @@ class Device(models.Model):
     )
     type_device = models.CharField(max_length=50, choices=DeviceType.choices)
     firmware_version = models.CharField(max_length=50)
+    expected_firmware_version = models.CharField(max_length=50, blank=True, default="")
+    firmware_update_status = models.CharField(
+        max_length=50,
+        choices=FirmwareUpdateStatus.choices,
+        default=FirmwareUpdateStatus.UNKNOWN,
+    )
+    ota_update_url = models.URLField(blank=True, default="")
+    ota_target_version = models.CharField(max_length=50, blank=True, default="")
+    ota_requested_at = models.DateTimeField(null=True, blank=True)
+    ota_completed_at = models.DateTimeField(null=True, blank=True)
+    ota_last_error = models.CharField(max_length=255, blank=True, default="")
     ip_address = models.GenericIPAddressField(null=True, blank=True)
+    slot_id = models.CharField(max_length=50, blank=True, default="")
+    hardware_mac = models.CharField(max_length=50, blank=True, default="")
     mac_address = models.CharField(max_length=50, blank=True)
     last_seen = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=50, choices=DeviceStatus.choices)
+    last_command_id = models.CharField(max_length=100, blank=True, default="")
+    last_command_action = models.CharField(max_length=20, blank=True, default="")
+    last_command_status = models.CharField(max_length=50, blank=True, default="")
+    last_command_message = models.CharField(max_length=255, blank=True, default="")
+    last_command_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "device"
@@ -610,10 +727,61 @@ class Device(models.Model):
                 condition=Q(status__in=DeviceStatus.values),
                 name="chk_device_status",
             ),
+            models.CheckConstraint(
+                condition=Q(firmware_update_status__in=FirmwareUpdateStatus.values),
+                name="chk_device_fw_status",
+            ),
         ]
         indexes = [
+            models.Index(fields=["slot_id"], name="idx_device_slot_id"),
+            models.Index(fields=["hardware_mac"], name="idx_device_hw_mac"),
+            models.Index(
+                fields=["firmware_update_status"],
+                name="idx_device_fw_status",
+            ),
+            models.Index(
+                fields=["expected_firmware_version"],
+                name="idx_device_fw_expected",
+            ),
             models.Index(fields=["last_seen"], name="idx_device_last_seen"),
             models.Index(fields=["status", "last_seen"], name="idx_device_status_seen"),
+            models.Index(fields=["last_command_at"], name="idx_device_last_cmd_at"),
+        ]
+
+
+class DeviceCommandLog(models.Model):
+    """Store command acknowledgements received from embedded devices."""
+
+    id_command = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    device = models.ForeignKey(
+        Device,
+        on_delete=models.CASCADE,
+        related_name="command_logs",
+        db_column="id_device",
+    )
+    session = models.ForeignKey(
+        Session,
+        on_delete=models.SET_NULL,
+        related_name="device_command_logs",
+        db_column="id_session",
+        null=True,
+        blank=True,
+    )
+    command_id = models.CharField(max_length=100, blank=True, default="")
+    action = models.CharField(max_length=20, blank=True, default="")
+    status = models.CharField(max_length=50, blank=True, default="")
+    message = models.CharField(max_length=255, blank=True, default="")
+    source = models.CharField(max_length=50, blank=True, default="")
+    payload = models.JSONField(default=dict, blank=True)
+    timestamp = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "device_command_log"
+        indexes = [
+            models.Index(fields=["device", "timestamp"], name="idx_cmd_device_time"),
+            models.Index(fields=["command_id"], name="idx_cmd_command_id"),
+            models.Index(fields=["action", "timestamp"], name="idx_cmd_action_time"),
+            models.Index(fields=["status", "timestamp"], name="idx_cmd_status_time"),
         ]
 
 
@@ -685,6 +853,10 @@ class Alerte(models.Model):
     niveau_severite = models.CharField(max_length=50, choices=AlertSeverity.choices)
     status = models.CharField(max_length=50, choices=AlertStatus.choices)
     timestamp = models.DateTimeField(default=timezone.now, db_column="date")
+    first_seen = models.DateTimeField(default=timezone.now)
+    last_seen = models.DateTimeField(default=timezone.now)
+    notified_at = models.DateTimeField(null=True, blank=True)
+    notification_count = models.PositiveIntegerField(default=0)
 
     class Meta:
         db_table = "alerte"
@@ -735,6 +907,52 @@ class Technicien(models.Model):
     def __str__(self):
         """Return the technician display name."""
         return self.nom
+
+
+class TechnicienStation(models.Model):
+    """Limit a technician's operational scope to assigned stations."""
+
+    id_assignment = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    technicien = models.ForeignKey(
+        Technicien,
+        on_delete=models.CASCADE,
+        related_name="station_assignments",
+        db_column="id_technicien",
+    )
+    station = models.ForeignKey(
+        Station,
+        on_delete=models.CASCADE,
+        related_name="technician_assignments",
+        db_column="id_station",
+    )
+    role = models.CharField(
+        max_length=50,
+        choices=TechnicianStationRole.choices,
+        default=TechnicianStationRole.INTERVENANT,
+    )
+    is_active = models.BooleanField(default=True)
+    assigned_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "technicien_station"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["technicien", "station"],
+                name="uq_technicien_station",
+            ),
+            models.CheckConstraint(
+                condition=Q(role__in=TechnicianStationRole.values),
+                name="chk_tech_station_role",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["technicien", "is_active"], name="idx_tech_station_tech"),
+            models.Index(fields=["station", "is_active"], name="idx_tech_station_station"),
+        ]
+
+    def __str__(self):
+        """Return a readable technician-station assignment label."""
+        return f"{self.technicien.nom} - {self.station.nom}"
 
 
 class Maintenance(models.Model):

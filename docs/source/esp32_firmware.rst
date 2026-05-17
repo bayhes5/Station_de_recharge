@@ -15,7 +15,7 @@ de base pour les trois emplacements en changeant uniquement :
 * ``SLOT_ID`` ;
 * ``CLIENT_ID`` ;
 * les identifiants Wi-Fi ;
-* l'adresse du broker MQTT ;
+* l'adresse du broker MQTT local du Raspberry ;
 * les pins réels des capteurs, relais et serrure.
 
 Le code cible actuellement :
@@ -36,8 +36,10 @@ Extrait de configuration :
 
    WIFI_SSID = "WIFI_SSID"
    WIFI_PASSWORD = "WIFI_PASSWORD"
-   MQTT_HOST = "192.168.1.10"
+   MQTT_HOST = "192.168.1.10"  # IP du Raspberry Pi qui héberge Mosquitto
    MQTT_PORT = 1883
+   MQTT_USER = "esp32_slot1"
+   MQTT_PASSWORD = "mot-de-passe-mqtt"
    MQTT_BASE_TOPIC = "station"
    SLOT_ID = "slot1"
    CLIENT_ID = "esp32-slot1"
@@ -59,11 +61,12 @@ Procédure de test sur carte physique :
 1. installer MicroPython sur l'ESP32 ;
 2. ouvrir Thonny avec l'interpréteur MicroPython ESP32 ;
 3. adapter ``WIFI_SSID``, ``WIFI_PASSWORD`` et ``MQTT_HOST`` ;
-4. adapter ``SLOT_ID`` et ``CLIENT_ID`` pour l'emplacement ;
-5. enregistrer ``esp32/emplacement1/main.py`` sur la carte sous le nom
+4. renseigner ``MQTT_USER`` et ``MQTT_PASSWORD`` si le broker sécurisé est actif ;
+5. adapter ``SLOT_ID`` et ``CLIENT_ID`` pour l'emplacement ;
+6. enregistrer ``esp32/emplacement1/main.py`` sur la carte sous le nom
    ``main.py`` ;
-6. redémarrer la carte ;
-7. vérifier les topics MQTT depuis le PC.
+7. redémarrer la carte ;
+8. vérifier les topics MQTT depuis le PC ou le Raspberry.
 
 Commande d'écoute :
 
@@ -71,8 +74,10 @@ Commande d'écoute :
 
    docker compose exec mqtt mosquitto_sub -h localhost -t 'station/#' -v
 
-Si l'ESP32 utilise le broker Docker du PC, ``MQTT_HOST`` doit être l'adresse IP
-du PC sur le même réseau Wi-Fi, pas ``localhost``.
+En production, ``MQTT_HOST`` doit être l'adresse IP du Raspberry sur le réseau
+Wi-Fi local de la borne. En développement, si l'ESP32 utilise le broker Docker
+du PC, ``MQTT_HOST`` doit être l'adresse IP du PC sur le même réseau Wi-Fi, pas
+``localhost``. Depuis un ESP32, ``localhost`` désigne l'ESP32 lui-même.
 
 Topics MQTT
 -----------
@@ -91,6 +96,19 @@ Topic écouté par l'ESP32 :
 .. code-block:: text
 
    station/<slot_id>/cmd
+
+Pour une borne de production, ``MQTT_BASE_TOPIC`` peut être configuré avec un
+préfixe plus précis, par exemple ``station/<station_id>/<borne_id>``. Les topics
+deviennent alors ``station/<station_id>/<borne_id>/<slot_id>/telemetry`` et
+``station/<station_id>/<borne_id>/<slot_id>/cmd``. Le firmware n'a pas besoin de
+logique métier supplémentaire : il concatène toujours ``MQTT_BASE_TOPIC``,
+``SLOT_ID`` et le suffixe.
+
+Le backend retire le préfixe global ``station`` et compare la partie
+``<station_id>/<borne_id>`` au champ ``mqtt_prefix`` de la borne. En production,
+chaque borne doit donc avoir un ``mqtt_prefix`` stable, par exemple
+``station-centre/borne-1``. Cela évite qu'un ``slot1`` publié par deux bornes
+différentes soit rattaché au mauvais emplacement.
 
 Commandes acceptées
 -------------------
@@ -135,6 +153,10 @@ Chaque commande doit produire un acquittement :
      "message": "Emplacement reserve.",
      "state": "reserved",
      "slot_id": "slot1",
+     "client_id": "esp32-slot1",
+     "firmware_version": "1.0.0",
+     "hardware_mac": "AA:BB:CC:DD:EE:FF",
+     "ip_address": "192.168.1.42",
      "session_id": "<uuid-session>"
    }
 
@@ -142,10 +164,32 @@ Le Raspberry utilise cet ACK pour confirmer que l'ESP32 a bien reçu et appliqu�
 la commande. En production, une commande sans ACK doit être traitée comme un
 échec opérationnel.
 
+Un ACK doit reprendre le ``command_id`` et, si le champ ``action`` est présent,
+il doit correspondre à l'action demandée. Côté Raspberry, un ACK reçu n'est
+accepté comme confirmation que si son ``status`` est cohérent avec la commande :
+
+* ``START`` : ``accepted``, ``reserved``, ``ready``, ``charging`` ou
+  ``charging_started`` ;
+* ``STOP`` : ``accepted``, ``stopped`` ou ``idle`` ;
+* ``LOCK`` : ``accepted`` ou ``locked`` ;
+* ``UNLOCK`` : ``accepted`` ou ``unlocked``.
+
+Les statuts ``error``, ``rejected``, ``denied``, ``failed`` et ``fault`` doivent
+être réservés aux refus explicites. Ils bloquent le parcours kiosk même en mode
+développement.
+
+Le backend ingère également les ACK via le bridge MQTT. Le dernier
+acquittement connu est conservé sur le ``Device`` pour la supervision :
+identifiant de commande, action, statut, message lisible et horodatage. Cette
+trace ne remplace pas les statuts ``reserved`` ou ``charging_started`` ; elle
+sert à prouver que l'ordre ``START``, ``STOP``, ``LOCK`` ou ``UNLOCK`` a été reçu
+par l'ESP32.
+
 Machine d'état
 --------------
 
-Les états embarqués restent volontairement simples :
+Les états embarqués restent volontairement simples. Ils décrivent uniquement
+l'état physique de l'emplacement, pas la décision métier de réservation :
 
 .. code-block:: text
 
@@ -158,6 +202,12 @@ Transitions principales :
 * ``START`` fait passer de ``idle`` à ``reserved`` ;
 * câble présent et boîtier fermé font passer de ``reserved`` à ``charging`` ;
 * ``STOP`` ou une anomalie font revenir à ``idle``.
+
+Le Raspberry maintient en parallèle une machine d'état locale plus explicite
+(``reserved``, ``access_validated``, ``waiting_plug``, ``charging``,
+``stopping``, ``stopped``, ``error``). Elle évite les doubles commandes et
+signale les états douteux côté kiosk. L'ESP32 reste responsable des sécurités
+immédiates : relais, serrure, câble, boîtier, courant et température.
 
 Sécurités locales
 -----------------
@@ -184,6 +234,10 @@ Payload publié sur ``station/<slot_id>/telemetry`` :
      "slot_id": "slot1",
      "session_id": "<uuid-session>",
      "state": "charging",
+     "client_id": "esp32-slot1",
+     "firmware_version": "1.0.0",
+     "hardware_mac": "AA:BB:CC:DD:EE:FF",
+     "ip_address": "192.168.1.42",
      "current": 1.42,
      "voltage": 42.1,
      "power": 59.78,
@@ -198,6 +252,23 @@ Le firmware lit le DHT22 et l'INA219 lorsque les capteurs répondent. Si un
 capteur est absent pendant le développement, le firmware publie des valeurs
 simulées afin de tester immédiatement la chaîne MQTT, l'ingestion backend et
 Grafana.
+
+Les champs d'inventaire sont publiés automatiquement par le firmware :
+
+* ``slot_id`` identifie l'emplacement logique et le topic MQTT ;
+* ``hardware_mac`` identifie la carte ESP32 physique ;
+* ``ip_address`` décrit l'adresse Wi-Fi courante ;
+* ``firmware_version`` permet au backend de détecter une version non conforme
+  avec ``EXPECTED_ESP32_FIRMWARE_VERSION``.
+
+Le backend ne demande pas une saisie manuelle de ces informations : elles sont
+remontées automatiquement par le firmware dans les messages ``status``, ``ack``
+et ``telemetry``. L'administrateur peut ensuite définir une version attendue
+par équipement ou planifier une cible OTA depuis l'API admin. Les champs
+``firmware_update_status``, ``ota_target_version``, ``ota_update_url``,
+``ota_requested_at``, ``ota_completed_at`` et ``ota_last_error`` servent à
+tracer la décision et l'état de conformité sans donner d'accès global à Grafana
+aux techniciens terrain.
 
 Chaîne de supervision
 ---------------------

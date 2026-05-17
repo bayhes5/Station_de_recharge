@@ -14,7 +14,7 @@ projet :
 
 * utilisateurs, profils, rôles et moyens d’authentification ;
 * consentements et journal de sécurité ;
-* stations, emplacements, devices ESP32 et capteurs ;
+* stations, bornes, emplacements, devices ESP32 et capteurs ;
 * réservations, sessions de charge et télémétrie ;
 * alertes, techniciens et maintenances ;
 * pistes RGPD et performance avec vues, anonymisation, TimescaleDB et index.
@@ -66,6 +66,17 @@ Les champs concernés sont notamment :
 Les types de capteurs, types d'alertes et types d'intervention restent plus
 ouverts. Ils dépendent du matériel, du firmware et de l'exploitation terrain ;
 les figer trop tôt rendrait l'intégration ESP32 moins souple.
+
+Les champs ``Device.last_command_*`` conservent le dernier ACK MQTT reçu pour un
+ESP32 : identifiant de commande, action, statut, message et horodatage. Ils
+servent à l'exploitation et à la supervision, sans remplacer ``Device.status``
+ni ``Device.last_seen``.
+
+Le modèle ``DeviceCommandLog`` conserve l'historique récent des ACK de
+commandes ESP32. Il rattache l'action au device, à la session de charge lorsque
+le firmware renvoie ``session_id``, au ``command_id`` et au payload brut reçu.
+Ce journal sert à auditer les ordres ``START``, ``STOP``, ``LOCK`` et
+``UNLOCK`` sans dépendre uniquement du dernier état écrasé sur ``Device``.
 
 UUID
 ~~~~
@@ -175,17 +186,21 @@ Les mécanismes PostgreSQL avancés du MCD, comme l’extension ``anon``, les
 ``SECURITY LABEL`` et les vues SQL d'export, ne sont pas encore actives. Le
 projet gère pour l’instant l’export et la suppression côté API Django.
 
-Stations et emplacements
-~~~~~~~~~~~~~~~~~~~~~~~~
+Stations, bornes et emplacements
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``Station`` et ``Emplacement`` correspondent directement au MCD.
+``Station``, ``Borne`` et ``Emplacement`` décrivent l'infrastructure physique.
 
 Le modèle Django ajoute ``latitude`` et ``longitude`` sur ``Station`` afin de
-supporter la carte de réservation. ``Emplacement`` garde le numéro, l’état
+supporter la carte de réservation. ``Borne`` représente une armoire ou un
+kiosque physique rattaché à une station. ``Emplacement`` garde le numéro, l’état
 métier et l’état de cadenas.
 
-Une contrainte d’unicité empêche deux emplacements d’une même station de porter
-le même numéro.
+La hiérarchie métier est donc : station, borne, emplacement. Une contrainte
+d’unicité empêche deux emplacements d’une même borne de porter le même numéro.
+Le champ ``station`` reste aussi présent sur ``Emplacement`` pour conserver des
+requêtes simples et une compatibilité avec les flux existants ; il est aligné
+automatiquement avec la station de la borne.
 
 Devices ESP32
 ~~~~~~~~~~~~~
@@ -194,8 +209,18 @@ Devices ESP32
 emplacement. La relation avec ``Emplacement`` est un ``OneToOneField`` : un
 emplacement ne doit avoir qu’un device principal dans la version actuelle.
 
-Le modèle garde le type de device, la version de firmware, l’adresse IP,
-l’adresse MAC, la dernière présence et le statut courant.
+Le modèle distingue l'identité logique et l'identité physique :
+
+* ``slot_id`` : identifiant MQTT de l'emplacement, par exemple ``slot1`` ;
+* ``hardware_mac`` : adresse MAC Wi-Fi réelle de la carte ESP32 ;
+* ``ip_address`` : adresse IP courante, informative car elle peut changer ;
+* ``firmware_version`` : version publiée par le firmware ;
+* ``mac_address`` : ancien champ conservé temporairement pour compatibilité avec
+  les données et tests déjà existants.
+
+Le backend utilise ``slot_id`` pour router et afficher l'emplacement. Les
+payloads ``status``, ``ack`` et ``telemetry`` peuvent mettre à jour
+automatiquement ``firmware_version``, ``hardware_mac`` et ``ip_address``.
 
 Capteurs et données capteurs
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -261,8 +286,12 @@ Alertes
 ``CapteurData`` et ``Session`` sont en ``SET_NULL``. Cela permet de garder une
 alerte historique même si la mesure ou la session associée n’est plus disponible.
 
-Le champ ``timestamp`` est stocke dans la colonne SQL ``date`` pour rester proche
+Le champ ``timestamp`` est stocké dans la colonne SQL ``date`` pour rester proche
 du MCD tout en gardant un nom Django plus explicite.
+
+Les champs ``first_seen`` et ``last_seen`` encadrent la durée de l'anomalie. Les
+champs ``notified_at`` et ``notification_count`` permettent de tracer les emails
+envoyés et d'appliquer un délai de relance sans dupliquer les alertes.
 
 Le cycle actuel est géré côté application :
 
@@ -276,6 +305,14 @@ Maintenance
 ``Technicien`` et ``Maintenance`` reprennent le MCD. Le projet ajoute la
 possibilité de lier un technicien à un compte ``Utilisateur``. Cela permet à un
 technicien de se connecter et de consulter ses interventions.
+
+``TechnicienStation`` applique le principe du moindre privilège côté métier :
+un administrateur affecte explicitement un technicien à une ou plusieurs
+stations. La supervision technicien ne lit ensuite que les devices, alertes,
+mesures et commandes des stations actives dans ce périmètre. Grafana reste un
+outil de supervision technique global ou administrateur ; l'accès terrain
+quotidien des techniciens passe par l'application, où le filtrage est porté par
+l'API Django.
 
 Performance et TimescaleDB
 --------------------------
@@ -295,13 +332,14 @@ comme une simple commande SQL ajoutée en fin de migration.
 
 Les index déjà présents couvrent les requêtes les plus importantes :
 
-* emplacements par station et statut opérationnel ;
+* emplacements par borne, station et statut opérationnel ;
 * réservations par utilisateur, statut, emplacement et dates ;
 * sessions par emplacement et dates ;
 * devices par dernière activité ;
 * télémétrie par session et timestamp ;
 * données capteurs par capteur et timestamp ;
 * alertes par statut, session et timestamp ;
+* affectations technicien-station par technicien, station et statut actif ;
 * maintenances par technicien, station, statut et date planifiée.
 
 Une migration complémentaire ajoute aussi des index orientés exploitation :

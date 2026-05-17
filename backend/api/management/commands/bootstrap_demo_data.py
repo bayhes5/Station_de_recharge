@@ -4,7 +4,17 @@ from datetime import timedelta
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from api.models import Device, Emplacement, Maintenance, ProfilUtilisateur, Station, Technicien, Utilisateur
+from api.models import (
+    Borne,
+    Device,
+    Emplacement,
+    Maintenance,
+    ProfilUtilisateur,
+    Station,
+    Technicien,
+    TechnicienStation,
+    Utilisateur,
+)
 
 
 class Command(BaseCommand):
@@ -44,11 +54,18 @@ class Command(BaseCommand):
         station.statut = station_status
         station.save()
 
+        borne = Borne.default_for_station(station)
+        borne.nom = os.environ.get("DEMO_BORNE_NAME", "Borne 1")
+        borne.statut = os.environ.get("DEMO_BORNE_STATUS", "active")
+        borne.mqtt_prefix = os.environ.get("DEMO_BORNE_MQTT_PREFIX", "station-demo/borne-1")
+        borne.save(update_fields=["nom", "statut", "mqtt_prefix"])
+
         for numero in range(1, emplacements_count + 1):
             emplacement, _ = Emplacement.objects.get_or_create(
-                station=station,
+                borne=borne,
                 numero=numero,
                 defaults={
+                    "station": station,
                     "statut": "disponible",
                     "lock_state": "verrouille",
                 },
@@ -66,9 +83,10 @@ class Command(BaseCommand):
             )
             device.type_device = "ESP32"
             device.firmware_version = esp32_firmware_version
+            device.slot_id = f"slot{numero}"
             device.mac_address = f"slot{numero}"
             device.status = "provisioned"
-            device.save(update_fields=["type_device", "firmware_version", "mac_address", "status"])
+            device.save(update_fields=["type_device", "firmware_version", "slot_id", "mac_address", "status"])
 
         user = Utilisateur.objects.filter(pseudo=tech_pseudo).first()
         if user is None:
@@ -105,6 +123,15 @@ class Command(BaseCommand):
         technician.telephone = tech_phone
         technician.utilisateur = user
         technician.save()
+
+        TechnicienStation.objects.update_or_create(
+            technicien=technician,
+            station=station,
+            defaults={
+                "role": "referent",
+                "is_active": True,
+            },
+        )
 
         first_emplacement = station.emplacements.order_by("numero").first()
         if first_emplacement:

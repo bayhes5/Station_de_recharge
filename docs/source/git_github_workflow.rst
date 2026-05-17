@@ -133,6 +133,7 @@ Les checks principaux du projet sont :
 
 * ``Backend tests`` ;
 * ``Backend quality`` ;
+* ``Raspberry edge tests`` ;
 * ``Frontend verify`` ;
 * ``Documentation build`` ;
 * ``Analyze (python)`` ;

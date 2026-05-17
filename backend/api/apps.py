@@ -6,3 +6,7 @@ class ApiConfig(AppConfig):
 
     default_auto_field = "django.db.models.BigAutoField"
     name = "api"
+
+    def ready(self):
+        """Register application-specific deployment checks."""
+        from . import checks  # noqa: F401

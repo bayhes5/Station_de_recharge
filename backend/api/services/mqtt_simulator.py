@@ -8,9 +8,15 @@ from typing import Any
 SCENARIOS = ("normal", "intrusion", "cable_removed", "overheat", "overcurrent", "fault", "mixed")
 
 
-def telemetry_topic(base_topic: str, slot_id: str) -> str:
+def telemetry_topic(base_topic: str, slot_id: str, topic_prefix: str = "") -> str:
     """Return the telemetry topic used by one simulated ESP32 slot."""
-    return f"{base_topic}/{slot_id}/telemetry"
+    normalized_base = str(base_topic or "station").strip("/")
+    normalized_prefix = str(topic_prefix or "").strip("/")
+    if normalized_prefix:
+        if normalized_prefix == normalized_base or normalized_prefix.startswith(f"{normalized_base}/"):
+            return f"{normalized_prefix}/{slot_id}/telemetry"
+        return f"{normalized_base}/{normalized_prefix}/{slot_id}/telemetry"
+    return f"{normalized_base}/{slot_id}/telemetry"
 
 
 def build_telemetry_payload(

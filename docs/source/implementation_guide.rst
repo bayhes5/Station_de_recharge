@@ -45,14 +45,15 @@ pseudo comme identifiant principal, tout en gardant les permissions Django grâc
 à ``AbstractBaseUser`` et ``PermissionsMixin``. ``ProfilUtilisateur`` sépare les
 données personnelles du compte d'authentification.
 
-``Station`` et ``Emplacement`` décrivent la structure physique. Une station
-contient plusieurs emplacements ; chaque emplacement porte son état métier et
-son état de serrure.
+``Station``, ``Borne`` et ``Emplacement`` décrivent la structure physique. Une
+station contient plusieurs bornes, et chaque borne contient plusieurs
+emplacements. L'emplacement reste l'objet réservé et piloté électriquement ; il
+porte son état métier et son état de serrure.
 
 ``Reservation`` relie un utilisateur, un emplacement, un moyen
-d'authentification et une fenêtre de temps. La durée choisie dans la version actuelle
-est de 30 minutes pour simplifier l'expérience, le calcul de disponibilité et
-l'expiration des accès temporaires.
+d'authentification et une fenêtre de temps. Les durées proposées sont 30 minutes,
+1 heure, 2 heures et 4 heures, avec 1 heure par défaut. Cette règle garde une
+expérience simple tout en restant réaliste pour une recharge de vélo électrique.
 
 ``Session`` représente la charge réellement ouverte à la borne. Elle est créée
 quand le kiosque valide l'accès. ``SessionTelemetry`` stocke les mesures
@@ -62,9 +63,10 @@ quand le kiosque valide l'accès. ``SessionTelemetry`` stocke les mesures
 code SMS temporaire. Les secrets ne sont pas stockés en clair : ils sont hachés
 ou dérivés depuis un nonce et ``SECRET_KEY``.
 
-``Device``, ``Capteur`` et ``CapteurData`` relient un ESP32 à son emplacement et
-stockent les mesures horodatées. ``Alerte`` stocke les anomalies opérationnelles
-créées depuis la télémétrie.
+``Device``, ``Capteur`` et ``CapteurData`` relient un ESP32 à son emplacement.
+La supervision remonte donc la station, la borne et l'emplacement associés à
+chaque mesure. ``Alerte`` stocke les anomalies opérationnelles créées depuis la
+télémétrie.
 
 Authentification applicative
 ----------------------------
@@ -121,14 +123,29 @@ Le frontend correspondant se trouve dans ``frontend/reservation.html`` et
 ``frontend/js/reservation.js``. La carte utilise Leaflet afin de rester simple,
 lisible et suffisante pour localiser les stations.
 
-L'utilisateur choisit une station et un créneau, mais pas forcément un
-emplacement précis. Le backend centralise la règle de disponibilité dans
+L'utilisateur choisit une station, un début de réservation et une durée de
+recharge, mais pas forcément un emplacement précis. Le backend centralise la règle de disponibilité dans
 ``_available_emplacements`` et ``_reservation_overlaps``. Ce choix évite que deux
 navigateurs prennent des décisions concurrentes côté client.
 
-La fenêtre de réservation est forcée à 30 minutes avec
-``_duration_is_valid``. Les tests associés sont dans
-``backend/api/tests/test_reservations.py``.
+La durée est validée côté backend avec ``_duration_is_valid``. Les durées
+acceptées sont centralisées dans ``backend/api/reservation_rules.py``. Les tests
+associés sont dans ``backend/api/tests/test_reservations.py`` et
+``backend/api/tests/test_serializers.py``.
+
+La validation à la borne utilise deux marges métier : ``RESERVATION_START_GRACE_MINUTES``
+autorise l'arrivée un peu avant le début du créneau et
+``RESERVATION_END_GRACE_MINUTES`` autorise un léger retard après la fin. Par
+défaut, ces valeurs sont de 5 minutes et 10 minutes. Elles sont utilisées par
+les endpoints terminal, les sessions mobiles et le cache offline.
+
+Ces marges ne sont pas prises en compte par ``_available_emplacements`` ni par
+``_reservation_overlaps``. Le backend réserve uniquement la fenêtre payée par
+l'utilisateur afin de maximiser l'utilisation de la station. Deux réservations
+adjacentes, par exemple 13h00-14h00 puis 14h00-15h00, peuvent donc être affectées
+au même emplacement. Au moment de l'ouverture, ``_session_start_conflict_response``
+empêche toutefois de démarrer en avance si l'emplacement est encore couvert par
+le créneau précédent ou par une session de charge active.
 
 QR code et code SMS temporaire
 ------------------------------
@@ -146,7 +163,19 @@ puisse être synchronisé ou caché côté station avant le passage de l'utilisa
 Il n'est toutefois pas affiché dans l'interface : il est envoyé via
 ``POST /api/reservations/<reservation_id>/send-access-code/`` peu avant le
 créneau, ou à la demande avec le bouton d'envoi. Une réservation en mode
-``code`` est refusée si aucun numéro de téléphone n'est renseigné.
+``code`` est refusée si aucun numéro de téléphone n'est renseigné. En mode
+production, ``SMS_REQUIRE_VERIFIED_PHONE`` doit être activé : le numéro doit
+alors être marqué comme vérifié sur le profil avant de pouvoir choisir ou
+recevoir un code SMS.
+
+Le service d'envoi est abstrait dans ``backend/api/services/sms.py``. Le backend
+``console`` sert au développement local et journalise seulement l'envoi. Les
+backends ``twilio`` et ``brevo`` utilisent des variables d'environnement dédiées
+et échouent immédiatement si leurs identifiants sont absents. Le backend
+``ovh`` reste volontairement non actif dans le profil durci, car sa signature
+REST historique repose sur SHA-1. ``SMS_RESEND_COOLDOWN_SECONDS`` limite le
+renvoi manuel du même code pour éviter le spam et les boucles côté interface
+mobile.
 
 L'implantation principale est dans ``backend/api/views.py`` :
 
@@ -157,6 +186,8 @@ L'implantation principale est dans ``backend/api/views.py`` :
 * ``_build_qr_svg`` génère le SVG QR ;
 * ``reservation_access_payload`` expose le QR ou les métadonnées du code SMS ;
 * ``send_reservation_access_code`` envoie le code SMS et journalise l'action.
+  Les métadonnées d'authentification conservent notamment le dernier envoi et
+  l'identifiant retourné par le fournisseur SMS, sans stocker le code clair.
 
 Le choix important est de ne pas stocker le secret clair. L'administration peut
 régénérer ou révoquer l'accès, mais elle ne devient pas le canal de transmission
@@ -307,6 +338,7 @@ Le broker local est Mosquitto. Les services concernés sont :
 * ``mqtt`` : broker de messagerie ;
 * ``mqtt-bridge`` : consommateur abonné aux télémétries ;
 * ``celery`` : traitement asynchrone ;
+* ``celery-beat`` : planification des contrôles récurrents de supervision ;
 * ``redis`` : broker Celery ;
 * ``db`` : stockage final.
 
@@ -320,12 +352,20 @@ Le choix Celery évite de bloquer le consommateur de messages pendant les
 écritures en base.
 Même si le volume actuel reste limité, cette architecture prépare le
 filtrage, l'agrégation et les notifications.
+``celery-beat`` déclenche en complément les contrôles qui ne dépendent pas d'un
+message MQTT entrant, notamment ``api.scan_session_telemetry_gaps`` et
+``api.notify_pending_alerts``.
 
 Stockage des capteurs
 ---------------------
 
 ``ingest_slot_telemetry`` crée ou met à jour le ``Device`` associé à l'emplacement,
 met à jour ``last_seen`` et stocke les mesures numériques dans ``CapteurData``.
+Quand le topic MQTT contient un préfixe structuré
+``station/<station>/<borne>/<slot_id>/telemetry``, le backend utilise la partie
+``<station>/<borne>`` pour retrouver la borne via ``Borne.mqtt_prefix`` avant de
+choisir l'emplacement. Cette règle protège les environnements multi-bornes où
+plusieurs ESP32 peuvent publier un ``slot1``.
 
 Les champs booléens ``door`` et ``cable`` sont convertis en ``1.0`` ou ``0.0``
 pour rester compatibles avec ``CapteurData.valeur`` qui est numérique. L'API de
@@ -347,7 +387,13 @@ actuelles sont :
 * ``cable_removed`` si ``cable`` vaut ``false`` pendant ``charging`` ;
 * ``overheat`` si la température est supérieure ou égale à ``60`` ;
 * ``overcurrent`` si le courant est supérieur ou égal à ``3.0`` ;
-* ``state_error`` si l'état vaut ``error``, ``emergency`` ou ``fault``.
+* ``state_error`` si l'état vaut ``error``, ``emergency`` ou ``fault`` ;
+* ``charge_without_session`` si l'ESP32 remonte une charge avec un ``session_id``
+  inconnu du backend ;
+* ``session_without_telemetry`` si une session active ne reçoit plus de mesure
+  récente, via le contrôle périodique Celery Beat ;
+* ``firmware_outdated`` si ``EXPECTED_ESP32_FIRMWARE_VERSION`` est défini et que
+  la version remontée par l'ESP32 est différente.
 
 Le cycle est automatique :
 
@@ -360,6 +406,31 @@ Le choix d'éviter les doublons rend la supervision plus lisible pendant une
 simulation continue. Les alertes historiques restent en base pour conserver le
 contexte.
 
+``backend/api/services/email_notifications.py`` applique la politique de
+notification. Une alerte doit être ``active`` et avoir persisté suffisamment
+longtemps avant d'être envoyée par email aux techniciens affectés à la station.
+Les délais configurables sont :
+
+* ``ALERT_CRITICAL_NOTIFICATION_MIN_AGE_SECONDS`` : délai minimal des alertes
+  critiques, ``60`` secondes par défaut ;
+* ``ALERT_NOTIFICATION_MIN_AGE_SECONDS`` : délai minimal des autres alertes,
+  ``120`` secondes par défaut ;
+* ``ALERT_RENOTIFY_COOLDOWN_SECONDS`` : délai minimal avant de relancer une
+  notification pour la même alerte, ``1800`` secondes par défaut ;
+* ``ALERT_TECHNICIAN_EMAIL_TYPES`` : familles d'alertes envoyées aux
+  techniciens.
+
+La commande ``python manage.py send_alert_notifications`` traite les alertes en
+attente, et ``python manage.py check_session_telemetry_health`` contrôle les
+sessions sans télémétrie. En fonctionnement Docker, ces commandes sont lancées
+automatiquement par ``celery-beat``. En environnement académique, Django envoie
+les emails vers Mailpit via SMTP ; aucun fournisseur externe n'est nécessaire
+pour démontrer le parcours.
+
+L'alerte ``firmware_outdated`` est volontairement séparée des emails technicien
+par défaut. Elle doit être visible dans la supervision, mais la décision de mise
+à jour firmware appartient à l'administrateur.
+
 Supervision administrateur
 --------------------------
 
@@ -370,13 +441,20 @@ L'endpoint ``GET /api/admin/supervision/`` agrège :
 * les dernières mesures capteurs ;
 * les compteurs de supervision.
 
+L'endpoint ``GET /api/technician/supervision/`` réutilise le même moteur
+d'agrégation, mais avec un périmètre de stations. Pour un technicien non
+administrateur, seules les stations affectées via ``TechnicienStation`` sont
+visibles. Les administrateurs gardent la supervision globale.
+
 Le frontend est dans ``frontend/admin-dashboard.html`` et
-``frontend/js/admin-dashboard.js``. L'onglet supervision rafraîchit les données
-en arrière-plan et fournit un lien direct vers le dashboard Grafana :
+``frontend/js/admin-dashboard.js``. L'onglet supervision reçoit les mises à jour
+via ``/ws/admin/supervision/`` quand Django Channels est disponible, puis garde un
+rafraîchissement HTTP périodique en secours. Il fournit aussi un lien direct vers
+le dashboard Grafana :
 
 .. code-block:: text
 
-   /grafana/d/station-supervision/station-supervision-technique
+   /grafana/d/station-overview/station-vue-globale-supervision
 
 L'interface admin reste orientée exploitation métier : elle présente les alertes
 et les états récents sous forme de tableaux lisibles. Grafana est réservé aux
@@ -387,11 +465,15 @@ Grafana
 
 Grafana est provisionné depuis ``grafana/provisioning/``. La datasource
 PostgreSQL est dans ``grafana/provisioning/datasources/datasource.yml`` et le
-dashboard dans ``grafana/dashboards/station-supervision.json``.
+dashboard d'accueil dans ``grafana/dashboards/station-overview.json``. Le
+dashboard détaillé des séries capteurs reste dans
+``grafana/dashboards/station-supervision.json``.
 
-Le dashboard lit directement les tables Django : ``capteur_data``, ``capteur``,
-``device``, ``emplacement``, ``station`` et ``alerte``. Ce choix évite de créer
-une API dédiée pour Grafana et exploite les capacités SQL de PostgreSQL.
+Les dashboards lisent directement les tables Django : ``charging_session``,
+``session_telemetry``, ``capteur_data``, ``capteur``, ``device``,
+``device_command_log``, ``emplacement``, ``borne``, ``station`` et ``alerte``.
+Ce choix évite de créer une API dédiée pour Grafana et exploite les capacités SQL
+de PostgreSQL.
 
 Administration métier
 ---------------------
@@ -406,7 +488,7 @@ Les principales fonctions sont :
 * gestion des utilisateurs ;
 * gestion des RFID utilisateur ;
 * régénération et révocation des accès de réservation ;
-* gestion des stations et emplacements ;
+* gestion des stations, bornes et emplacements ;
 * gestion des techniciens ;
 * gestion des maintenances ;
 * consultation des réservations et sessions.
@@ -422,6 +504,13 @@ Techniciens et maintenance
 ``Technicien`` représente un intervenant de maintenance, éventuellement lié à un
 compte utilisateur. ``Maintenance`` rattache une intervention à une station, un
 technicien, un statut et des dates.
+
+``TechnicienStation`` rattache un technicien à une station avec un rôle
+opérationnel : ``intervenant``, ``referent`` ou ``observateur``. Cette table sert
+à limiter la supervision visible dans le dashboard technicien et évite de donner
+un accès Grafana large à un intervenant terrain. L'admin peut gérer ces
+affectations depuis l'onglet opérations avec la ressource
+``technician-station``.
 
 L'endpoint ``GET /api/technician/maintenances/`` permet à un technicien connecté
 de consulter ses interventions. L'administration peut créer, modifier et
@@ -535,7 +624,8 @@ local :
   simulations ;
 * MQTT n'est pas authentifié en développement local ;
 * Grafana n'est pas encore protégé par SSO ;
-* les notifications technicien email/SMS ne sont pas encore implémentées ;
+* les notifications technicien par email sont limitées au signalement des
+  nouvelles alertes ; l'acquittement et l'escalade SMS restent à définir ;
 * TimescaleDB est utilisé comme PostgreSQL compatible, sans hypertables dédiées
   pour l'instant ;
 * la gestion de conservation des historiques reste à définir.

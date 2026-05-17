@@ -15,7 +15,7 @@ Backend Django
 Le backend est construit avec Django.
 
 Ce choix est adapté au projet parce que l'application manipule beaucoup de
-données relationnelles : utilisateurs, profils, stations, emplacements,
+données relationnelles : utilisateurs, profils, stations, bornes, emplacements,
 réservations, sessions, devices, capteurs et maintenances. Django fournit une
 base robuste pour les modèles, les migrations, l'administration, la validation
 des mots de passe, les permissions et les commandes de gestion.
@@ -44,8 +44,9 @@ Base PostgreSQL
 La base de données de développement principale est PostgreSQL.
 
 Le projet porte des contraintes relationnelles importantes : unicité des
-comptes, rattachement des emplacements aux stations, réservations par fenêtre de
-temps, sessions de charge et historiques. PostgreSQL est plus proche d'un
+comptes, rattachement des bornes aux stations, rattachement des emplacements aux
+bornes, réservations par fenêtre de temps, sessions de charge et historiques.
+PostgreSQL est plus proche d'un
 environnement de production qu'une base fichier et gère bien les index, les
 contraintes et les données structurées.
 
@@ -169,11 +170,26 @@ Pour un déploiement de production, il faudra valider les conditions
 d'utilisation des tuiles cartographiques et éventuellement héberger ou
 contractualiser un fournisseur de tuiles.
 
+Infrastructure station, borne et emplacement
+--------------------------------------------
+
+Le modèle terrain suit une hiérarchie explicite : une station représente un lieu,
+une borne représente l'équipement physique installé sur ce lieu, et un
+emplacement représente le point de charge réservé et piloté.
+
+Ce découpage évite de confondre la station publique avec le matériel local. Il
+prépare aussi la supervision et MQTT : une station peut contenir plusieurs
+bornes, et chaque borne peut piloter plusieurs emplacements.
+
+Le champ station reste maintenu sur ``Emplacement`` pour les filtres rapides et
+la compatibilité avec les flux existants. Il est aligné automatiquement depuis la
+borne par le modèle backend.
+
 Allocation des emplacements par le backend
 ------------------------------------------
 
-L'utilisateur choisit une station et un créneau, mais pas directement
-l'emplacement.
+L'utilisateur choisit une station, un début de réservation et une durée de
+recharge, mais pas directement l'emplacement.
 
 Le backend attribue automatiquement un emplacement libre sur la fenêtre de
 réservation. Ce choix garde la règle de disponibilité au même endroit que les
@@ -183,17 +199,32 @@ clients prennent une décision concurrente côté navigateur.
 Le compromis est que l'utilisateur a moins de contrôle fin. Pour la version actuelle,
 la simplicité et la cohérence métier sont plus importantes.
 
-Fenêtre de réservation de 30 minutes
-------------------------------------
+Durées de réservation
+---------------------
 
-La durée de réservation est fixée à 30 minutes.
+La durée minimale est de 30 minutes et la durée par défaut est de 1 heure. Les
+durées proposées sont 30 minutes, 1 heure, 2 heures et 4 heures.
 
-Cette règle simplifie le calcul de disponibilité, l'expiration des accès
-temporaires et l'expérience utilisateur. Elle donne aussi une base claire pour
-les tests automatisés.
+Cette règle garde un calcul de disponibilité simple tout en restant réaliste
+pour une recharge de vélo électrique. Les accès temporaires restent valables sur
+la fenêtre réellement réservée.
 
-Si le projet évolue vers des durées configurables, la règle devra passer dans
-une configuration métier ou dans un modèle de tarification.
+La borne applique aussi une tolérance d'accès : l'utilisateur peut démarrer un
+peu avant le début du créneau et conserve une courte marge après la fin. Les
+valeurs par défaut sont 5 minutes avant le début et 10 minutes après la fin.
+Elles sont exposées par le cache offline pour que le Raspberry applique les
+mêmes règles en mode dégradé.
+
+Ces marges ne font pas partie du calcul de disponibilité. Une réservation
+affichée 14h00-15h00 bloque l'emplacement sur cette fenêtre payée uniquement :
+un autre utilisateur peut donc réserver 13h00-14h00 ou 15h00-16h00 sur le même
+emplacement. La tolérance sert seulement au contrôle d'accès à la borne, sans
+créer un trou invisible dans le planning. Si le créneau précédent est encore en
+cours ou si une session de charge est active sur l'emplacement, la borne refuse
+l'ouverture anticipée.
+
+Si le projet évolue vers une tarification, ces durées pourront être déplacées
+dans une configuration métier ou dans un modèle de prix.
 
 Modes d'accès RFID, QR code et code SMS temporaire
 --------------------------------------------------
@@ -227,6 +258,22 @@ consultable dans le dashboard. Le code SMS répond au cas sans application au
 moment de la charge : le secret est créé dès la réservation pour pouvoir être
 synchronisé côté station, mais il n'est envoyé à l'utilisateur que peu avant le
 créneau ou lorsqu'il clique sur ``Recevoir le code SMS``.
+
+Le transport SMS est isolé derrière un service backend. En local, le fournisseur
+``console`` évite tout coût et tout envoi réel. En production, le fournisseur
+doit être choisi explicitement parmi ``twilio`` ou ``brevo`` avec ses
+identifiants dédiés. ``ovh`` n'est pas activé dans le profil durci, car la
+signature REST OVH repose sur SHA-1. Le mode production recommande aussi
+``SMS_REQUIRE_VERIFIED_PHONE=True`` et un délai de renvoi afin de limiter les
+erreurs de numéro, les abus et les boucles de clic sur l'interface mobile.
+
+Pour les emails, le projet retient Mailpit en environnement académique. Django
+envoie via SMTP vers le service ``mailpit`` du ``docker-compose`` et les messages
+sont consultables dans l'interface web locale. Ce choix reste gratuit, open
+source et démontrable sans fournisseur externe. Les emails servent d'abord aux
+notifications technicien sur nouvelle alerte ; les parcours de vérification de
+compte ou de réinitialisation de mot de passe pourront réutiliser la même
+configuration.
 
 La régénération par l'administration remplace la valeur active et ne présente
 plus le QR/code SMS dans une modale de copie. Cette décision évite de transformer
@@ -354,7 +401,7 @@ Commandes de bootstrap
 Le backend initialise les données locales au démarrage Docker.
 
 Ce choix rend la solution immédiatement testable : compte administrateur,
-technicien, station, emplacements, devices et maintenance de référence sont prêts
+technicien, station, borne, emplacements, devices et maintenance de référence sont prêts
 sans manipulation manuelle. Il améliore aussi la reproductibilité des tests
 fonctionnels.
 
@@ -450,7 +497,7 @@ dans Docker. Le premier usage ciblé est le catalogue des stations, car il est l
 souvent par le frontend et change moins fréquemment que les réservations ou les
 données de profil.
 
-Le cache est invalidé lors des modifications de stations ou d'emplacements. Les
+Le cache est invalidé lors des modifications de stations, bornes ou emplacements. Les
 réservations et les accès temporaires restent hors cache, car ils sont dynamiques
 et sensibles à l'utilisateur connecté.
 
@@ -496,7 +543,7 @@ Le bridge d'ingestion backend délègue le traitement des messages à Celery.
 
 Ce choix évite de bloquer le consommateur de messages pendant l'écriture en base ou la
 création d'alertes. Redis sert de broker Celery, ce qui reste cohérent avec le
-cache Django et le futur canal temps réel de Django Channels.
+cache Django et le canal temps réel de Django Channels.
 
 L'ingestion est idempotente pour les anomalies ouvertes : une même anomalie sur
 un même emplacement met à jour l'alerte existante au lieu d'empiler des doublons.
@@ -505,6 +552,20 @@ la supervision exploitable pendant une simulation continue.
 
 Pour trois ESP32, le volume reste faible, mais cette architecture donne déjà une
 base robuste pour filtrer, agréger ou notifier sans modifier le firmware.
+
+Django Channels pour l'administration temps réel
+------------------------------------------------
+
+Django Channels est utilisé pour pousser les mises à jour de supervision vers
+l'interface administrateur. Le backend expose ``/ws/admin/supervision/`` en ASGI,
+protégé par le jeton JWT d'accès et limité aux comptes administrateurs.
+
+À chaque message MQTT ingéré, le backend publie une notification dans le groupe
+Channels ``admin_supervision``. Les navigateurs connectés récupèrent alors une
+nouvelle photographie de supervision sans attendre le polling HTTP. Le polling
+reste activé en secours, ce qui évite de bloquer l'interface si le WebSocket est
+filtré, si le jeton expire ou si un environnement de développement ne route pas
+encore ``/ws/``.
 
 Grafana pour la supervision technique
 -------------------------------------
@@ -519,7 +580,11 @@ Grafana complète cette vue avec des séries temporelles : température, courant
 Ce choix évite de recréer un outil de graphes temps réel de zéro et s'appuie sur
 une solution open source connue. Dans la version actuelle, Grafana est accessible sur
 ``/grafana/`` via le reverse proxy local, avec un lien direct vers le dashboard
-``/grafana/d/station-supervision/station-supervision-technique``.
+``/grafana/d/station-overview/station-vue-globale-supervision``. Ce dashboard
+d'accueil porte les statistiques globales, les sessions en cours et les filtres
+station/borne/emplacement ; il renvoie ensuite vers le dashboard technique
+``/grafana/d/station-supervision/station-supervision-technique`` pour les séries
+capteurs détaillées.
 
 Reverse proxy Nginx
 -------------------

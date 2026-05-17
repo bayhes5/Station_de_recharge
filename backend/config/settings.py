@@ -49,9 +49,12 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "drf_spectacular",
-    "api",
+    "api.apps.ApiConfig",
     "corsheaders",
 ]
+
+if find_spec("daphne"):
+    INSTALLED_APPS.insert(0, "daphne")
 
 if find_spec("channels"):
     INSTALLED_APPS.append("channels")
@@ -116,6 +119,17 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': env_int("API_DEFAULT_PAGE_SIZE", 50),
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': os.environ.get("API_THROTTLE_ANON", "120/minute"),
+        'user': os.environ.get("API_THROTTLE_USER", "600/minute"),
+        'login': os.environ.get("API_THROTTLE_LOGIN", "10/minute"),
+        'register': os.environ.get("API_THROTTLE_REGISTER", "5/hour"),
+        'token_refresh': os.environ.get("API_THROTTLE_TOKEN_REFRESH", "30/minute"),
+        'auth_factor': os.environ.get("API_THROTTLE_AUTH_FACTOR", "20/minute"),
+        'sms': os.environ.get("API_THROTTLE_SMS", "3/minute"),
+        'terminal': os.environ.get("API_THROTTLE_TERMINAL", "120/minute"),
+        'mobile_session': os.environ.get("API_THROTTLE_MOBILE_SESSION", "60/minute"),
+    },
 }
 
 SPECTACULAR_SETTINGS = {
@@ -126,6 +140,21 @@ SPECTACULAR_SETTINGS = {
     "COMPONENT_SPLIT_REQUEST": True,
     "SWAGGER_UI_SETTINGS": {
         "persistAuthorization": False,
+    },
+    "ENUM_NAME_OVERRIDES": {
+        "UserStatusEnum": "api.models.UserStatus",
+        "ConsentStatusEnum": "api.models.ConsentStatus",
+        "SecurityLogStatusEnum": "api.models.SecurityLogStatus",
+        "OperationalStatusEnum": "api.models.StationStatus",
+        "EmplacementStatusEnum": "api.models.EmplacementStatus",
+        "LockStateEnum": "api.models.LockState",
+        "ReservationAuthChoiceEnum": "api.models.ReservationAuthChoice",
+        "ReservationStatusEnum": "api.models.ReservationStatus",
+        "DeviceStatusEnum": "api.models.DeviceStatus",
+        "AlertSeverityEnum": "api.models.AlertSeverity",
+        "AlertStatusEnum": "api.models.AlertStatus",
+        "MaintenanceStatusEnum": "api.models.MaintenanceStatus",
+        "TechnicianStationRoleEnum": "api.models.TechnicianStationRole",
     },
 }
 
@@ -166,10 +195,52 @@ API_MAX_PAGE_SIZE = env_int("API_MAX_PAGE_SIZE", 200)
 STATIONS_CATALOG_CACHE_SECONDS = env_int("STATIONS_CATALOG_CACHE_SECONDS", 60)
 SMS_BACKEND = os.environ.get("SMS_BACKEND", "console")
 SMS_SENDER_NAME = os.environ.get("SMS_SENDER_NAME", "Station")
+SMS_RESEND_COOLDOWN_SECONDS = env_int("SMS_RESEND_COOLDOWN_SECONDS", 60)
+SMS_REQUIRE_VERIFIED_PHONE = env_bool("SMS_REQUIRE_VERIFIED_PHONE", False)
+SMS_HTTP_TIMEOUT_SECONDS = env_int("SMS_HTTP_TIMEOUT_SECONDS", 10)
+SMS_TWILIO_ACCOUNT_SID = os.environ.get("SMS_TWILIO_ACCOUNT_SID", "")
+SMS_TWILIO_AUTH_TOKEN = os.environ.get("SMS_TWILIO_AUTH_TOKEN", "")
+SMS_TWILIO_FROM = os.environ.get("SMS_TWILIO_FROM", "")
+SMS_BREVO_API_KEY = os.environ.get("SMS_BREVO_API_KEY", "")
+SMS_OVH_APPLICATION_KEY = os.environ.get("SMS_OVH_APPLICATION_KEY", "")
+SMS_OVH_APPLICATION_SECRET = os.environ.get("SMS_OVH_APPLICATION_SECRET", "")
+SMS_OVH_CONSUMER_KEY = os.environ.get("SMS_OVH_CONSUMER_KEY", "")
+SMS_OVH_SERVICE_NAME = os.environ.get("SMS_OVH_SERVICE_NAME", "")
+SMS_OVH_ENDPOINT = os.environ.get("SMS_OVH_ENDPOINT", "https://eu.api.ovh.com/1.0")
 TERMINAL_API_SECRET = os.environ.get("TERMINAL_API_SECRET", "").strip()
 MOBILE_SESSION_TTL_SECONDS = env_int("MOBILE_SESSION_TTL_SECONDS", 10 * 60)
 REDIS_URL = os.environ.get("REDIS_URL", os.environ.get("CACHE_URL", "redis://redis:6379/1"))
 CACHE_URL = os.environ.get("CACHE_URL", "")
+
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.console.EmailBackend" if DEBUG else "django.core.mail.backends.smtp.EmailBackend",
+)
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "mailpit")
+EMAIL_PORT = env_int("EMAIL_PORT", 1025)
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", False)
+EMAIL_USE_SSL = env_bool("EMAIL_USE_SSL", False)
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Station <no-reply@station.local>")
+ALERT_EMAIL_NOTIFICATIONS_ENABLED = env_bool("ALERT_EMAIL_NOTIFICATIONS_ENABLED", True)
+ALERT_NOTIFICATION_MIN_AGE_SECONDS = env_int("ALERT_NOTIFICATION_MIN_AGE_SECONDS", 120)
+ALERT_CRITICAL_NOTIFICATION_MIN_AGE_SECONDS = env_int("ALERT_CRITICAL_NOTIFICATION_MIN_AGE_SECONDS", 60)
+ALERT_RENOTIFY_COOLDOWN_SECONDS = env_int("ALERT_RENOTIFY_COOLDOWN_SECONDS", 1800)
+ALERT_TECHNICIAN_EMAIL_TYPES = env_list(
+    "ALERT_TECHNICIAN_EMAIL_TYPES",
+    [
+        "intrusion",
+        "cable_removed",
+        "overheat",
+        "overcurrent",
+        "state_error",
+        "charge_without_session",
+        "session_without_telemetry",
+    ],
+)
+SESSION_TELEMETRY_STALE_MINUTES = env_int("SESSION_TELEMETRY_STALE_MINUTES", 2)
+EXPECTED_ESP32_FIRMWARE_VERSION = os.environ.get("EXPECTED_ESP32_FIRMWARE_VERSION", "").strip()
 
 if CACHE_URL:
     CACHES = {
@@ -193,7 +264,25 @@ CELERY_TASK_IGNORE_RESULT = env_bool("CELERY_TASK_IGNORE_RESULT", True)
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
-CELERY_TIMEZONE = TIME_ZONE if "TIME_ZONE" in globals() else "Europe/Paris"
+CELERY_TIMEZONE = os.environ.get("CELERY_TIMEZONE", "Europe/Paris")
+CELERY_BEAT_SESSION_TELEMETRY_HEALTH_SECONDS = env_int(
+    "CELERY_BEAT_SESSION_TELEMETRY_HEALTH_SECONDS",
+    60,
+)
+CELERY_BEAT_ALERT_NOTIFICATIONS_SECONDS = env_int(
+    "CELERY_BEAT_ALERT_NOTIFICATIONS_SECONDS",
+    60,
+)
+CELERY_BEAT_SCHEDULE = {
+    "scan-session-telemetry-gaps": {
+        "task": "api.scan_session_telemetry_gaps",
+        "schedule": CELERY_BEAT_SESSION_TELEMETRY_HEALTH_SECONDS,
+    },
+    "send-pending-alert-notifications": {
+        "task": "api.notify_pending_alerts",
+        "schedule": CELERY_BEAT_ALERT_NOTIFICATIONS_SECONDS,
+    },
+}
 
 if find_spec("channels_redis"):
     CHANNEL_LAYERS = {
@@ -218,6 +307,10 @@ MQTT_USERNAME = os.environ.get("MQTT_USERNAME", "")
 MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD", "")
 MQTT_TLS_ENABLED = env_bool("MQTT_TLS_ENABLED", False)
 MQTT_QOS = env_int("MQTT_QOS", 1)
+MQTT_ACK_REQUIRED = env_bool("MQTT_ACK_REQUIRED", False)
+MQTT_BRIDGE_HEARTBEAT_FILE = os.environ.get("MQTT_BRIDGE_HEARTBEAT_FILE", "/tmp/mqtt_bridge_heartbeat")
+MQTT_BRIDGE_HEARTBEAT_INTERVAL_SECONDS = env_int("MQTT_BRIDGE_HEARTBEAT_INTERVAL_SECONDS", 10)
+MQTT_BRIDGE_HEARTBEAT_MAX_AGE_SECONDS = env_int("MQTT_BRIDGE_HEARTBEAT_MAX_AGE_SECONDS", 30)
 
 # DATABASES = {
 #     "default": {

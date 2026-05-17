@@ -3,9 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Espace technicien Métropole Verte pour suivre les maintenances et interventions de la station de recharge.">
     <meta name="theme-color" content="#1f8f55">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icons/pwa-icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icons/pwa-icon-192.png">
     <title>Technicien | M&eacute;tropole Verte</title>
     <meta http-equiv="Cache-Control" content="no-store">
     <link rel="stylesheet" href="/css/auth.css">
@@ -32,6 +34,51 @@
             <section class="dashboard-panel section-block">
                 <p class="panel-title">Mes maintenances</p>
                 <div id="maintenances-list" class="stacked-list"></div>
+            </section>
+
+            <section class="dashboard-panel section-block">
+                <div class="panel-heading">
+                    <div>
+                        <p class="panel-title">Supervision de mes stations</p>
+                        <p class="table-caption">Vue filtr&eacute;e selon les stations affect&eacute;es par un administrateur.</p>
+                    </div>
+                    <div class="table-toolbar-actions">
+                        <span id="tech-realtime-status" class="realtime-status" aria-live="polite">Temps r&eacute;el en attente</span>
+                    </div>
+                </div>
+                <div class="dashboard-kpis admin-kpis">
+                    <div class="summary-stat">
+                        <span id="tech-stat-online" class="summary-value">-</span>
+                        <span class="summary-label">ESP32 en ligne</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span id="tech-stat-offline" class="summary-value">-</span>
+                        <span class="summary-label">ESP32 hors ligne</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span id="tech-stat-alerts" class="summary-value">-</span>
+                        <span class="summary-label">Alertes actives</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span id="tech-stat-telemetry" class="summary-value">-</span>
+                        <span class="summary-label">Mesures sur 24 h</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="dashboard-panel table-panel admin-table-panel">
+                <p class="panel-title">ESP32 et emplacements</p>
+                <div id="tech-devices-list" class="table-host"></div>
+            </section>
+
+            <section class="dashboard-panel table-panel admin-table-panel">
+                <p class="panel-title">Alertes r&eacute;centes</p>
+                <div id="tech-alerts-list" class="table-host"></div>
+            </section>
+
+            <section class="dashboard-panel table-panel admin-table-panel">
+                <p class="panel-title">Commandes ESP32 r&eacute;centes</p>
+                <div id="tech-commands-list" class="table-host"></div>
             </section>
         </section>
     </main>

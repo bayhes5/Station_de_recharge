@@ -9,10 +9,13 @@ from rest_framework import status
 from api.models import (
     Alerte,
     Authentification,
+    Borne,
     Capteur,
     CapteurData,
     Device,
+    DeviceCommandLog,
     Emplacement,
+    FirmwareUpdateStatus,
     JournalSecurite,
     Maintenance,
     ProfilUtilisateur,
@@ -20,6 +23,7 @@ from api.models import (
     Session,
     Station,
     Technicien,
+    TechnicienStation,
     TypeAuth,
 )
 
@@ -43,6 +47,7 @@ def test_admin_overview_returns_counts(admin_client, station, emplacements):
 
     assert response.status_code == status.HTTP_200_OK
     assert response.data["stats"]["stations_total"] == 1
+    assert response.data["stats"]["bornes_total"] == 1
     assert response.data["stats"]["emplacements_total"] == 3
 
 
@@ -105,13 +110,14 @@ def test_admin_supervision_returns_devices_alerts_and_measurements(admin_client,
     assert response.data["stats"]["devices_online"] == 1
     assert response.data["stats"]["active_alerts"] == 1
     assert response.data["devices"][0]["slot_id"] == "slot1"
-    assert response.data["devices"][0]["slot_label"] == "Station Centre - emplacement 1"
+    assert response.data["devices"][0]["slot_label"] == "Station Centre - Borne 1 - emplacement 1"
+    assert response.data["devices"][0]["borne_nom"] == "Borne 1"
     assert response.data["devices"][0]["status_display"] == "Charge en cours"
     assert response.data["alerts"][0]["type"] == "overheat"
     assert response.data["alerts"][0]["station_nom"] == "Station Centre"
     assert response.data["alerts"][0]["emplacement_numero"] == 1
     assert response.data["measurements"][0]["type"] == "temperature"
-    assert response.data["measurements"][0]["slot_label"] == "Station Centre - emplacement 1"
+    assert response.data["measurements"][0]["slot_label"] == "Station Centre - Borne 1 - emplacement 1"
 
 
 @pytest.mark.django_db
@@ -161,8 +167,8 @@ def test_admin_supervision_formats_boolean_sensor_measurements(admin_client, emp
 
     assert response.status_code == status.HTTP_200_OK
     display_values = {measurement["type"]: measurement["display_value"] for measurement in response.data["measurements"]}
-    assert display_values["door"] == "Boitier ouvert"
-    assert display_values["cable"] == "Cable present"
+    assert display_values["door"] == "Boîtier ouvert"
+    assert display_values["cable"] == "Câble présent"
 
 
 @pytest.mark.django_db
@@ -204,6 +210,218 @@ def test_admin_supervision_marks_never_seen_devices_waiting_for_telemetry(admin_
     assert response.data["stats"]["devices_offline"] == 1
     assert response.data["devices"][0]["health"] == "offline"
     assert response.data["devices"][0]["status_display"] == "Aucune télémétrie reçue"
+
+
+@pytest.mark.django_db
+def test_admin_devices_requires_staff(authenticated_client):
+    response = authenticated_client.get(reverse("api-admin-devices"))
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.django_db
+def test_admin_devices_exposes_firmware_policy(admin_client, emplacements):
+    device = Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="1.0.0",
+        expected_firmware_version="1.1.0",
+        firmware_update_status=FirmwareUpdateStatus.UPDATE_REQUIRED,
+        mac_address="slot1",
+        status="offline",
+    )
+
+    response = admin_client.get(reverse("api-admin-devices"))
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["results"][0]["id_device"] == str(device.id_device)
+    assert response.data["results"][0]["firmware_version"] == "1.0.0"
+    assert response.data["results"][0]["effective_expected_firmware_version"] == "1.1.0"
+    assert response.data["results"][0]["firmware_update_required"] is True
+
+
+@pytest.mark.django_db
+def test_admin_can_schedule_ota_update(admin_client, emplacements):
+    device = Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="1.0.0",
+        mac_address="slot1",
+        status="offline",
+    )
+
+    response = admin_client.post(
+        reverse("api-admin-device-schedule-ota", kwargs={"device_id": device.id_device}),
+        {
+            "target_version": "1.2.0",
+            "update_url": "https://updates.example.local/esp32-1.2.0.bin",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["expected_firmware_version"] == "1.2.0"
+    assert response.data["ota_target_version"] == "1.2.0"
+    assert response.data["firmware_update_status"] == FirmwareUpdateStatus.UPDATE_SCHEDULED
+    device.refresh_from_db()
+    assert device.ota_requested_at is not None
+
+
+@pytest.mark.django_db
+def test_admin_device_patch_updates_firmware_compliance_status(admin_client, emplacements):
+    device = Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="1.0.0",
+        mac_address="slot1",
+        status="offline",
+    )
+
+    response = admin_client.patch(
+        reverse("api-admin-device-detail", kwargs={"device_id": device.id_device}),
+        {"expected_firmware_version": "1.0.0"},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["firmware_update_status"] == FirmwareUpdateStatus.UP_TO_DATE
+
+
+@pytest.mark.django_db
+def test_admin_can_assign_station_to_technician(admin_client, admin_user, station):
+    technicien = Technicien.objects.create(
+        utilisateur=admin_user,
+        nom="Tech Centre",
+        email="tech-centre@example.com",
+        telephone="0600000000",
+    )
+
+    response = admin_client.post(
+        reverse("api-admin-technician-station-assignments"),
+        {
+            "technicien": str(technicien.id_technicien),
+            "station": str(station.id_station),
+            "role": "referent",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.data["station_nom"] == "Station Centre"
+    assert response.data["technicien_nom"] == "Tech Centre"
+    assert response.data["role"] == "referent"
+    assert TechnicienStation.objects.filter(technicien=technicien, station=station, is_active=True).exists()
+
+
+@pytest.mark.django_db
+def test_admin_rejects_duplicate_technician_station_assignment(admin_client, admin_user, station):
+    technicien = Technicien.objects.create(
+        utilisateur=admin_user,
+        nom="Tech Duplicate",
+        email="tech-duplicate@example.com",
+        telephone="",
+    )
+    TechnicienStation.objects.create(technicien=technicien, station=station)
+
+    response = admin_client.post(
+        reverse("api-admin-technician-station-assignments"),
+        {
+            "technicien": str(technicien.id_technicien),
+            "station": str(station.id_station),
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "non_field_errors" in response.data
+
+
+@pytest.mark.django_db
+def test_technician_supervision_is_limited_to_assigned_stations(api_client, user, station, borne, emplacements):
+    technicien = Technicien.objects.create(
+        utilisateur=user,
+        nom="Tech Scope",
+        email="tech-scope@example.com",
+        telephone="",
+    )
+    TechnicienStation.objects.create(technicien=technicien, station=station)
+    other_station = Station.objects.create(
+        nom="Station Nord",
+        localisation_text="Quartier Nord",
+        statut="active",
+    )
+    other_borne = Borne.objects.create(
+        station=other_station,
+        numero=1,
+        nom="Borne Nord",
+        statut="active",
+    )
+    other_emplacement = Emplacement.objects.create(
+        station=other_station,
+        borne=other_borne,
+        numero=1,
+        statut="disponible",
+        lock_state="verrouille",
+    )
+    assigned_device = Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="1.0.0",
+        mac_address="slot-assigned",
+        last_seen=timezone.now(),
+        status="charging",
+    )
+    other_device = Device.objects.create(
+        emplacement=other_emplacement,
+        type_device="ESP32",
+        firmware_version="1.0.0",
+        mac_address="slot-other",
+        last_seen=timezone.now(),
+        status="charging",
+    )
+    assigned_capteur = Capteur.objects.create(device=assigned_device, type="temperature", unite="C")
+    other_capteur = Capteur.objects.create(device=other_device, type="temperature", unite="C")
+    assigned_data = CapteurData.objects.create(capteur=assigned_capteur, valeur=31)
+    CapteurData.objects.create(capteur=other_capteur, valeur=38)
+    Alerte.objects.create(
+        data=assigned_data,
+        type="overheat",
+        message="Temperature elevee",
+        niveau_severite="haute",
+        status="active",
+    )
+    DeviceCommandLog.objects.create(
+        device=assigned_device,
+        command_id="cmd-assigned",
+        action="START",
+        status="accepted",
+        source="esp32",
+    )
+    DeviceCommandLog.objects.create(
+        device=other_device,
+        command_id="cmd-other",
+        action="START",
+        status="accepted",
+        source="esp32",
+    )
+    api_client.force_authenticate(user=user)
+
+    response = api_client.get(reverse("api-technician-supervision"))
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["scope"]["restricted"] is True
+    assert response.data["stats"]["devices_total"] == 1
+    assert response.data["devices"][0]["slot_id"] == "slot-assigned"
+    assert response.data["measurements"][0]["slot_id"] == "slot-assigned"
+    assert response.data["commands"][0]["command_id"] == "cmd-assigned"
+    assert {row["station_nom"] for row in response.data["devices"]} == {"Station Centre"}
+
+
+@pytest.mark.django_db
+def test_technician_supervision_requires_technician_profile(authenticated_client):
+    response = authenticated_client.get(reverse("api-technician-supervision"))
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 @pytest.mark.django_db
@@ -257,19 +475,89 @@ def test_admin_user_create_rejects_invalid_status(admin_client):
 
 
 @pytest.mark.django_db
+def test_staff_admin_cannot_create_privileged_user(admin_client):
+    response = admin_client.post(
+        reverse("api-admin-users"),
+        {
+            "pseudo": "privileged",
+            "email": "privileged@example.com",
+            "password": "PrivilegedPass123!",
+            "is_superuser": True,
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert not get_user_model().objects.filter(pseudo="privileged").exists()
+
+
+@pytest.mark.django_db
 def test_admin_can_patch_user(admin_client, user):
     ProfilUtilisateur.objects.create(utilisateur=user, nom="Old", telephone="")
 
     response = admin_client.patch(
         reverse("api-admin-user-detail", kwargs={"user_id": user.id_user}),
-        {"nom": "Updated User", "is_staff": True},
+        {"nom": "Updated User"},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    user.refresh_from_db()
+    assert user.is_staff is False
+    assert user.profil.nom == "Updated User"
+
+
+@pytest.mark.django_db
+def test_staff_admin_cannot_grant_privileged_roles(admin_client, user):
+    response = admin_client.patch(
+        reverse("api-admin-user-detail", kwargs={"user_id": user.id_user}),
+        {"is_staff": True},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    user.refresh_from_db()
+    assert user.is_staff is False
+
+
+@pytest.mark.django_db
+def test_superadmin_can_grant_privileged_roles(api_client, user):
+    superadmin = get_user_model().objects.create_superuser(
+        pseudo="superadmin",
+        email="superadmin@example.com",
+        password="SuperAdminPass123!",
+    )
+    api_client.force_authenticate(user=superadmin)
+
+    response = api_client.patch(
+        reverse("api-admin-user-detail", kwargs={"user_id": user.id_user}),
+        {"is_staff": True},
         format="json",
     )
 
     assert response.status_code == status.HTTP_200_OK
     user.refresh_from_db()
     assert user.is_staff is True
-    assert user.profil.nom == "Updated User"
+
+
+@pytest.mark.django_db
+def test_admin_can_mark_phone_number_as_verified(admin_client, user):
+    ProfilUtilisateur.objects.create(
+        utilisateur=user,
+        nom="User",
+        telephone="+33600000000",
+        telephone_verifie=False,
+    )
+
+    response = admin_client.patch(
+        reverse("api-admin-user-detail", kwargs={"user_id": user.id_user}),
+        {"telephone_verifie": True},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    user.profil.refresh_from_db()
+    assert user.profil.telephone_verifie is True
 
 
 @pytest.mark.django_db
@@ -409,6 +697,39 @@ def test_admin_can_crud_station(admin_client):
 
 
 @pytest.mark.django_db
+def test_admin_can_crud_borne(admin_client, station):
+    create_response = admin_client.post(
+        reverse("api-admin-bornes"),
+        {
+            "station": str(station.id_station),
+            "numero": 2,
+            "nom": "Borne rapide",
+            "mqtt_prefix": "station-centre/borne-2",
+            "statut": "active",
+        },
+        format="json",
+    )
+
+    assert create_response.status_code == status.HTTP_201_CREATED
+    borne_id = create_response.data["id_borne"]
+    assert create_response.data["station_nom"] == "Station Centre"
+
+    patch_response = admin_client.patch(
+        reverse("api-admin-borne-detail", kwargs={"borne_id": borne_id}),
+        {"statut": "maintenance"},
+        format="json",
+    )
+
+    assert patch_response.status_code == status.HTTP_200_OK
+    assert patch_response.data["statut"] == "maintenance"
+
+    delete_response = admin_client.delete(reverse("api-admin-borne-detail", kwargs={"borne_id": borne_id}))
+
+    assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+    assert not Borne.objects.filter(id_borne=borne_id).exists()
+
+
+@pytest.mark.django_db
 def test_admin_station_create_rejects_invalid_status(admin_client):
     response = admin_client.post(
         reverse("api-admin-stations"),
@@ -427,11 +748,12 @@ def test_admin_station_create_rejects_invalid_status(admin_client):
 
 
 @pytest.mark.django_db
-def test_admin_can_crud_emplacement(admin_client, station):
+def test_admin_can_crud_emplacement(admin_client, station, borne):
     create_response = admin_client.post(
         reverse("api-admin-emplacements"),
         {
             "station": str(station.id_station),
+            "borne": str(borne.id_borne),
             "numero": 1,
             "statut": "disponible",
             "lock_state": "verrouille",
@@ -441,6 +763,7 @@ def test_admin_can_crud_emplacement(admin_client, station):
 
     assert create_response.status_code == status.HTTP_201_CREATED
     emplacement_id = create_response.data["id_emplacement"]
+    assert create_response.data["borne_nom"] == "Borne 1"
 
     patch_response = admin_client.patch(
         reverse("api-admin-emplacement-detail", kwargs={"emplacement_id": emplacement_id}),

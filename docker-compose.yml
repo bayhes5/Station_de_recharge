@@ -104,9 +104,23 @@ services:
       timeout: 3s
       retries: 5
 
+  mailpit:
+    image: axllent/mailpit:v1.30.0
+    container_name: mailpit
+    environment:
+      MP_MAX_MESSAGES: 5000
+      MP_DATABASE: /data/mailpit.db
+    volumes:
+      - mailpit_data:/data
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+
   mqtt:
     image: eclipse-mosquitto:2
     container_name: mqtt_broker
+    env_file:
+      - .env
     volumes:
       - ./mosquitto/config:/mosquitto/config:ro
       - mqtt_data:/mosquitto/data
@@ -114,7 +128,11 @@ services:
     ports:
       - "1883:1883"
     healthcheck:
-      test: ["CMD-SHELL", "mosquitto_sub -h localhost -t '$$SYS/#' -C 1 -W 3 >/dev/null 2>&1 || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "AUTH=''; if [ -n \"$$MQTT_USERNAME\" ]; then AUTH=\"-u $$MQTT_USERNAME -P $$MQTT_PASSWORD\"; fi; mosquitto_pub -h localhost $$AUTH -t 'station/health' -m 'ok' >/dev/null 2>&1 || exit 1"
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -127,6 +145,13 @@ services:
     env_file:
       - .env
     environment:
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
+      EMAIL_HOST: ${EMAIL_HOST:-mailpit}
+      EMAIL_PORT: ${EMAIL_PORT:-1025}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-false}
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Station <no-reply@station.local>}
+      ALERT_EMAIL_NOTIFICATIONS_ENABLED: ${ALERT_EMAIL_NOTIFICATIONS_ENABLED:-true}
       TERMINAL_API_SECRET: ${TERMINAL_API_SECRET:-dev-terminal-secret}
     volumes:
       - ./backend:/app
@@ -139,6 +164,20 @@ services:
         condition: service_healthy
       mqtt:
         condition: service_healthy
+      mailpit:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health/ready/', timeout=3).read()"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     command: sh /app/docker-entrypoint.sh
 
   celery:
@@ -148,6 +187,14 @@ services:
     container_name: celery_worker
     env_file:
       - .env
+    environment:
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
+      EMAIL_HOST: ${EMAIL_HOST:-mailpit}
+      EMAIL_PORT: ${EMAIL_PORT:-1025}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-false}
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Station <no-reply@station.local>}
+      ALERT_EMAIL_NOTIFICATIONS_ENABLED: ${ALERT_EMAIL_NOTIFICATIONS_ENABLED:-true}
     volumes:
       - ./backend:/app
     depends_on:
@@ -155,7 +202,41 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      mailpit:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config inspect ping --timeout=3 >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 8s
+      retries: 5
+      start_period: 20s
     command: celery -A config worker -l info
+
+  celery-beat:
+    build:
+      context: ./backend
+      target: dev
+    container_name: celery_beat
+    env_file:
+      - .env
+    environment:
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
+      EMAIL_HOST: ${EMAIL_HOST:-mailpit}
+      EMAIL_PORT: ${EMAIL_PORT:-1025}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-false}
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Station <no-reply@station.local>}
+      ALERT_EMAIL_NOTIFICATIONS_ENABLED: ${ALERT_EMAIL_NOTIFICATIONS_ENABLED:-true}
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    command: celery -A config beat -l info --schedule /tmp/celerybeat-schedule
 
   mqtt-bridge:
     build:
@@ -164,6 +245,14 @@ services:
     container_name: mqtt_bridge
     env_file:
       - .env
+    environment:
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
+      EMAIL_HOST: ${EMAIL_HOST:-mailpit}
+      EMAIL_PORT: ${EMAIL_PORT:-1025}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-false}
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Station <no-reply@station.local>}
+      ALERT_EMAIL_NOTIFICATIONS_ENABLED: ${ALERT_EMAIL_NOTIFICATIONS_ENABLED:-true}
     volumes:
       - ./backend:/app
     depends_on:
@@ -173,6 +262,12 @@ services:
         condition: service_healthy
       mqtt:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "manage.py", "check_mqtt_bridge_health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     command: python manage.py run_mqtt_bridge
 
   mqtt-simulator:
@@ -245,11 +340,12 @@ services:
       - backend
 
   raspberry:
-    image: python:3.11-slim
+    build:
+      context: ./raspberry
     container_name: raspberry_kiosk
     working_dir: /app
     volumes:
-      - ./raspberry/app:/app
+      - ./raspberry/app:/app:ro
     ports:
       - "9000:9000"
     environment:
@@ -261,7 +357,10 @@ services:
       MQTT_ACK_REQUIRED: ${MQTT_ACK_REQUIRED:-false}
       BACKEND_API_BASE_URL: http://backend:8000/api
       TERMINAL_API_SECRET: ${TERMINAL_API_SECRET:-dev-terminal-secret}
-    command: sh -c "pip install --no-cache-dir -r requirements.txt && python main.py"
+      TERMINAL_STATION_ID: ${TERMINAL_STATION_ID:-}
+      TERMINAL_BORNE_ID: ${TERMINAL_BORNE_ID:-}
+      OFFLINE_DB_PATH: /tmp/offline_cache.sqlite3
+      CHARGE_STATE_DB_PATH: /tmp/charge_state.sqlite3
     depends_on:
       - backend
       - mqtt
@@ -285,6 +384,7 @@ services:
 volumes:
   frontend_node_modules:
   grafana_data:
+  mailpit_data:
   mqtt_data:
   mqtt_log:
   postgres_data:  # Volume pour persister les données de PostgreSQL

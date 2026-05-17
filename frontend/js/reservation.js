@@ -1,4 +1,10 @@
-const RESERVATION_WINDOW_MINUTES = 30;
+const RESERVATION_DURATIONS = [
+    { minutes: 30, label: "30 min" },
+    { minutes: 60, label: "1 h" },
+    { minutes: 120, label: "2 h" },
+    { minutes: 240, label: "4 h" },
+];
+const DEFAULT_RESERVATION_DURATION_MINUTES = 60;
 const AUTH_OPTIONS = {
     rfid: "Badge RFID",
     qr: "QR code temporaire",
@@ -167,7 +173,7 @@ function renderStationAvailability(container, station, availability) {
 
     const meta = document.createElement("p");
     meta.textContent = totalCount
-        ? `${station.nom} dispose de ${totalCount} emplacement${totalCount > 1 ? "s" : ""}. L'application attribuera automatiquement une place libre.`
+        ? `${station.nom} dispose de ${totalCount} emplacement${totalCount > 1 ? "s" : ""}. L'application attribuera automatiquement une place libre pour la durée choisie.`
         : "L'application attribuera automatiquement une place libre.";
 
     item.appendChild(title);
@@ -197,9 +203,7 @@ function appendAccessPayload(container, result) {
 
         const qrFrame = document.createElement("div");
         qrFrame.className = "qr-frame";
-        if (access.qr_svg) {
-            qrFrame.innerHTML = access.qr_svg;
-        } else {
+        if (!window.AuthAPI.renderQrSvg(qrFrame, access.qr_svg)) {
             qrFrame.textContent = "QR indisponible. Installez la dépendance backend qrcode[pil].";
         }
 
@@ -235,6 +239,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const selectedStationName = document.getElementById("selected-station-name");
     const selectedStationLocation = document.getElementById("selected-station-location");
     const startInput = document.getElementById("reservation-start");
+    const durationSelect = document.getElementById("reservation-duration");
     const endDisplay = document.getElementById("reservation-end-display");
     const authModeSelect = document.getElementById("reservation-auth-mode");
     const authValueField = document.getElementById("reservation-auth-value-field");
@@ -278,9 +283,16 @@ document.addEventListener("DOMContentLoaded", async () => {
         return localToDate(startInput.value);
     }
 
+    function getSelectedDurationMinutes() {
+        const selected = Number(durationSelect.value || DEFAULT_RESERVATION_DURATION_MINUTES);
+        return RESERVATION_DURATIONS.some((duration) => duration.minutes === selected)
+            ? selected
+            : DEFAULT_RESERVATION_DURATION_MINUTES;
+    }
+
     function getEndDate() {
         const start = getStartDate();
-        return start ? addMinutes(start, RESERVATION_WINDOW_MINUTES) : null;
+        return start ? addMinutes(start, getSelectedDurationMinutes()) : null;
     }
 
     function updateEndDisplay() {
@@ -293,6 +305,17 @@ document.addEventListener("DOMContentLoaded", async () => {
         option.value = value;
         option.textContent = AUTH_OPTIONS[value];
         authModeSelect.appendChild(option);
+    }
+
+    function configureDurationOptions() {
+        durationSelect.innerHTML = "";
+        RESERVATION_DURATIONS.forEach((duration) => {
+            const option = document.createElement("option");
+            option.value = String(duration.minutes);
+            option.textContent = duration.label;
+            durationSelect.appendChild(option);
+        });
+        durationSelect.value = String(DEFAULT_RESERVATION_DURATION_MINUTES);
     }
 
     function configureAuthOptions() {
@@ -350,7 +373,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         selectedStation = station;
         stationInput.value = station?.id_station || "";
         selectedStationName.textContent = station?.nom || "Aucune station";
-        selectedStationLocation.textContent = station?.localisation_text || "SÃ©lectionnez une station sur la carte.";
+        selectedStationLocation.textContent = station?.localisation_text || "Sélectionnez une station sur la carte.";
         renderStationPicker();
         refreshAvailability();
     }
@@ -396,9 +419,16 @@ document.addEventListener("DOMContentLoaded", async () => {
         clearLeafletMarkers();
         const bounds = [];
         stationsWithCoordinates.forEach(({ station, coordinates }) => {
+            const popup = document.createElement("div");
+            const name = document.createElement("strong");
+            const location = document.createElement("span");
+            name.textContent = station.nom;
+            location.textContent = station.localisation_text || "";
+            popup.append(name, document.createElement("br"), location);
+
             const marker = window.L.marker(coordinates)
                 .addTo(leafletMap)
-                .bindPopup(`<strong>${station.nom}</strong><br>${station.localisation_text || ""}`);
+                .bindPopup(popup);
             marker.on("click", () => selectStation(station));
             leafletMarkers.push(marker);
             bounds.push(coordinates);
@@ -443,7 +473,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         if (!filteredStations.length) {
             stationResults.className = "empty-state";
-            stationResults.textContent = "Aucune station ne correspond Ã  la recherche.";
+            stationResults.textContent = "Aucune station ne correspond à la recherche.";
             return;
         }
 
@@ -457,7 +487,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             pin.className = `station-pin${isSelected ? " active" : ""}`;
             pin.style.left = `${getMapPosition(station, "x", index)}%`;
             pin.style.top = `${getMapPosition(station, "y", index)}%`;
-            pin.setAttribute("aria-label", `SÃ©lectionner ${station.nom}`);
+            pin.setAttribute("aria-label", `Sélectionner ${station.nom}`);
             pin.textContent = String(index + 1);
             pin.addEventListener("click", () => selectStation(station));
             stationMap.appendChild(pin);
@@ -480,7 +510,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     async function cancelReservation(reservation) {
-        if (!window.confirm(`Annuler la réservation ${reservation.reference_code || ""} ?`)) return;
+        const confirmed = await window.AuthAPI.confirmAction(
+            `Annuler la réservation ${reservation.reference_code || ""} ?`,
+            {
+                title: "Annuler la réservation",
+                confirmLabel: "Annuler la réservation",
+                danger: true,
+            }
+        );
+        if (!confirmed) return;
 
         try {
             await window.AuthAPI.cancelReservation(reservation.id_reservation);
@@ -537,7 +575,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 triggerButton.textContent = "- Masquer le QR";
             }
             status.classList.remove("error");
-            status.textContent = "QR code affiché.";
+            status.textContent = "";
         } catch (error) {
             status.classList.add("error");
             status.textContent = error.message || "Impossible d'afficher l'accès temporaire.";
@@ -615,6 +653,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     try {
+        configureDurationOptions();
         await Promise.all([loadStations(), loadReservations(), loadSavedRfid()]);
         startInput.value = toLocalInputValue(new Date());
         updateEndDisplay();
@@ -633,6 +672,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     stationSearch.addEventListener("input", renderStationPicker);
     startInput.addEventListener("change", refreshAvailability);
+    durationSelect.addEventListener("change", refreshAvailability);
     authModeSelect.addEventListener("change", updateAuthFieldVisibility);
 
     form.addEventListener("submit", async (event) => {
@@ -668,6 +708,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             station: stationInput.value,
             date_debut: dateToIso(start),
             date_fin: dateToIso(end),
+            duration_minutes: getSelectedDurationMinutes(),
             auth_mode: authModeSelect.value,
             auth_value: authModeSelect.value === "rfid" ? savedRfidValue : "",
         };
@@ -678,6 +719,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             form.reset();
             stationInput.value = selectedStation?.id_station || "";
             startInput.value = toLocalInputValue(new Date());
+            durationSelect.value = String(DEFAULT_RESERVATION_DURATION_MINUTES);
             configureAuthOptions();
             updateEndDisplay();
             await loadReservations();

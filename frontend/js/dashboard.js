@@ -61,9 +61,7 @@ function appendAccessPayload(container, result) {
 
         const qrFrame = document.createElement("div");
         qrFrame.className = "qr-frame";
-        if (access.qr_svg) {
-            qrFrame.innerHTML = access.qr_svg;
-        } else {
+        if (!window.AuthAPI.renderQrSvg(qrFrame, access.qr_svg)) {
             qrFrame.textContent = "QR indisponible. Vérifiez la dépendance backend qrcode[pil].";
         }
 
@@ -192,7 +190,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
 
     async function cancelUserReservation(reservation) {
-        if (!window.confirm(`Annuler la réservation ${reservation.reference_code || ""} ?`)) return;
+        const confirmed = await window.AuthAPI.confirmAction(
+            `Annuler la réservation ${reservation.reference_code || ""} ?`,
+            {
+                title: "Annuler la réservation",
+                confirmLabel: "Annuler la réservation",
+                danger: true,
+            }
+        );
+        if (!confirmed) return;
 
         try {
             await window.AuthAPI.cancelReservation(reservation.id_reservation);
@@ -245,7 +251,6 @@ document.addEventListener("DOMContentLoaded", async () => {
             if (triggerButton) {
                 triggerButton.textContent = "- Masquer le QR";
             }
-            setStatus("QR code affiché.");
             setActiveTab("reservations");
         } catch (error) {
             setStatus(error.message || "Impossible d'afficher l'accès temporaire.", true);
@@ -349,7 +354,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     try {
         await loadDashboard();
-        setStatus("Données chargées.");
+        setStatus("");
         const initialTab = (window.location.hash || "#overview").replace("#", "");
         setActiveTab(["overview", "reservations", "sessions"].includes(initialTab) ? initialTab : "overview");
         window.setInterval(refreshVisibleAccesses, 15000);

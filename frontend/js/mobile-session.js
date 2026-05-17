@@ -29,6 +29,7 @@ function setExpiredState() {
 function renderReservation(reservation, session, onAuthorize) {
     const item = document.createElement("article");
     item.className = "mobile-reservation-card";
+    const compatible = reservation.compatible_terminal ?? reservation.compatible_station;
 
     const heading = document.createElement("div");
     heading.className = "mobile-reservation-heading";
@@ -37,16 +38,17 @@ function renderReservation(reservation, session, onAuthorize) {
     title.textContent = reservation.station_nom || reservation.station || "Station";
 
     const state = document.createElement("span");
-    state.className = reservation.compatible_station ? "session-pill" : "session-pill muted-pill";
-    state.textContent = reservation.compatible_station ? "Compatible" : "Autre station";
+    state.className = compatible ? "session-pill" : "session-pill muted-pill";
+    state.textContent = compatible ? "Compatible" : "Autre borne";
 
     heading.append(title, state);
 
     const details = document.createElement("dl");
     details.className = "mobile-reservation-details";
     [
+        ["Borne", reservation.borne_nom || reservation.borne || "-"],
         ["Emplacement", reservation.emplacement_numero || reservation.emplacement || "-"],
-        ["Debut", formatDateTime(reservation.date_debut)],
+        ["Début", formatDateTime(reservation.date_debut)],
         ["Fin", formatDateTime(reservation.date_fin)],
         ["Code", reservation.reference_code || "-"],
     ].forEach(([label, value]) => {
@@ -61,7 +63,7 @@ function renderReservation(reservation, session, onAuthorize) {
     button.className = "btn btn-primary full-width";
     button.type = "button";
     button.textContent = "Demarrer sur cette borne";
-    button.disabled = !reservation.compatible_station || session.status === "authorized" || session.status === "consumed";
+    button.disabled = !compatible || session.status === "authorized" || session.status === "consumed";
     button.addEventListener("click", () => onAuthorize(reservation, button));
 
     item.append(heading, details, button);
@@ -75,7 +77,7 @@ function renderReservations(reservations, session, onAuthorize) {
     if (!reservations.length) {
         const empty = document.createElement("div");
         empty.className = "empty-state";
-        empty.textContent = "Aucune reservation active ou proche du debut pour ce compte.";
+        empty.textContent = "Aucune réservation active ou proche du début pour ce compte.";
         container.appendChild(empty);
         return;
     }
@@ -90,7 +92,7 @@ function updateSessionHeader(session) {
     const countdown = document.getElementById("mobile-session-countdown");
 
     context.textContent = session.station_nom
-        ? `Borne ${session.station_nom}`
+        ? `${session.station_nom}${session.borne_nom ? ` - ${session.borne_nom}` : ""}`
         : "Borne en attente d'autorisation";
     countdown.textContent = session.expires_in > 0
         ? window.AuthAPI.formatDuration(session.expires_in)
@@ -122,7 +124,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             document.getElementById("mobile-session-reservations-panel").hidden = true;
             document.getElementById("mobile-session-authorized").hidden = false;
             document.getElementById("mobile-session-authorized-detail").textContent =
-                `${reservation.station_nom || reservation.station} - emplacement ${reservation.emplacement_numero || reservation.emplacement}.`;
+                `${reservation.station_nom || reservation.station} - ${reservation.borne_nom || reservation.borne || "borne"} - emplacement ${reservation.emplacement_numero || reservation.emplacement}.`;
             setStatus("Autorisation confirmee. Regardez l'ecran de la borne.");
         } catch (error) {
             button.disabled = false;
