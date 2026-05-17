@@ -15,6 +15,7 @@ https://bayhes5.github.io/Station_de_recharge/
    user_scenarios
    implementation_guide
    raspberry_kiosk
+   raspberry_esp32_contract
    esp32_firmware
    database_mcd
    data_model

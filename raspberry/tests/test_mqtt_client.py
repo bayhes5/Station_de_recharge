@@ -122,6 +122,36 @@ def test_publish_slot_command_uses_structured_borne_prefix(monkeypatch):
     assert result["ack_topic"] == "station/station-centre/borne-1/slot1/ack"
 
 
+@pytest.mark.parametrize("action", ["START", "STOP"])
+def test_publish_slot_command_payload_contract(monkeypatch, action):
+    install_fake_paho(monkeypatch)
+    mqtt_client = load_mqtt_client(monkeypatch, ack_required="false")
+
+    result = mqtt_client.publish_slot_command(
+        "slot1",
+        action,
+        topic_prefix="station-demo/borne-1",
+        command_id=f"cmd-{action.lower()}",
+        session_id="session-1",
+        station="Station Demo",
+        borne="Borne 1",
+        emplacement="1",
+        source="raspberry",
+    )
+
+    payload = result["command"]
+    assert result["topic"] == "station/station-demo/borne-1/slot1/cmd"
+    assert result["ack_topic"] == "station/station-demo/borne-1/slot1/ack"
+    assert payload["command_id"] == f"cmd-{action.lower()}"
+    assert payload["action"] == action
+    assert payload["session_id"] == "session-1"
+    assert payload["station"] == "Station Demo"
+    assert payload["borne"] == "Borne 1"
+    assert payload["emplacement"] == "1"
+    assert payload["source"] == "raspberry"
+    assert "issued_at" in payload
+
+
 def test_publish_slot_command_does_not_duplicate_prefix_already_in_base(monkeypatch):
     install_fake_paho(monkeypatch)
     mqtt_client = load_mqtt_client(
