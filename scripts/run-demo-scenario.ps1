@@ -85,6 +85,7 @@ Write-Host "Reservation: $($reservation.reference_code)"
 Write-Host "Utilisateur: $($user.pseudo) / $($user.password)"
 Write-Host "Station: $($terminal.station) / Borne: $($terminal.borne) / Emplacement: $($terminal.emplacement)"
 Write-Host "Slot MQTT: $($terminal.slot_id)"
+Write-Host "Prefix MQTT: $($terminal.mqtt_prefix)"
 
 Write-Step "Creation de la session mobile cote kiosk"
 $mobileSessionResponse = Invoke-JsonPost `

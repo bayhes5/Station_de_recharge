@@ -12,6 +12,14 @@ from api.services.mqtt_simulator import build_telemetry_payload, telemetry_topic
 def test_telemetry_topic_uses_project_topic_shape():
     """Build the same topic shape as ESP32 firmware telemetry."""
     assert telemetry_topic("station", "slot1") == "station/slot1/telemetry"
+    assert (
+        telemetry_topic("station", "slot1", "station-centre/borne-1")
+        == "station/station-centre/borne-1/slot1/telemetry"
+    )
+    assert (
+        telemetry_topic("station", "slot1", "station/station-centre/borne-1")
+        == "station/station-centre/borne-1/slot1/telemetry"
+    )
 
 
 def test_build_telemetry_payload_contains_expected_sensor_fields():
@@ -59,6 +67,9 @@ def test_build_telemetry_payload_rejects_unknown_scenario():
 @pytest.mark.django_db
 def test_simulator_can_target_latest_active_session(user, emplacements):
     """Publish dry-run telemetry only for the slot assigned to the active session."""
+    borne = emplacements[1].borne
+    borne.mqtt_prefix = "station-centre/borne-1"
+    borne.save(update_fields=["mqtt_prefix"])
     reservation = Reservation.objects.create(
         utilisateur=user,
         emplacement=emplacements[1],
@@ -92,6 +103,6 @@ def test_simulator_can_target_latest_active_session(user, emplacements):
     )
 
     output = stdout.getvalue()
-    assert "station/slot2/telemetry" in output
+    assert "station/station-centre/borne-1/slot2/telemetry" in output
     assert str(session.id_session) in output
     assert "station/slot1/telemetry" not in output

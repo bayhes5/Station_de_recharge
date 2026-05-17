@@ -57,7 +57,7 @@ class Command(BaseCommand):
         borne = Borne.default_for_station(station)
         borne.nom = os.environ.get("DEMO_BORNE_NAME", "Borne 1")
         borne.statut = os.environ.get("DEMO_BORNE_STATUS", "active")
-        borne.mqtt_prefix = os.environ.get("DEMO_BORNE_MQTT_PREFIX", "")
+        borne.mqtt_prefix = os.environ.get("DEMO_BORNE_MQTT_PREFIX", "station-demo/borne-1")
         borne.save(update_fields=["nom", "statut", "mqtt_prefix"])
 
         for numero in range(1, emplacements_count + 1):

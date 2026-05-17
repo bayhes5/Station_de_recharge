@@ -22,10 +22,12 @@ from api.tasks import process_mqtt_message
 
 @pytest.fixture(autouse=True)
 def clear_mobile_session_cache():
+    """Clear cached mobile sessions before each end-to-end scenario."""
     cache.clear()
 
 
 def create_slot_devices(emplacements):
+    """Create one ESP32 device for every demo emplacement."""
     return [
         Device.objects.create(
             emplacement=emplacement,
@@ -39,6 +41,7 @@ def create_slot_devices(emplacements):
 
 
 def mqtt_payload(**overrides):
+    """Build a realistic ESP32 telemetry payload for the active session."""
     payload = {
         "state": "charging",
         "current": 1.2,
@@ -64,6 +67,7 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
     borne,
     emplacements,
 ):
+    """Validate the full QR mobile kiosk charge flow up to Grafana data tables."""
     borne.mqtt_prefix = "station-centre/borne-1"
     borne.save(update_fields=["mqtt_prefix"])
     create_slot_devices(emplacements)
@@ -138,6 +142,7 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
     assert consume_response.data["session"]["slot_id"] == "slot1"
     assert consume_response.data["session"]["mqtt_prefix"] == "station-centre/borne-1"
     assert consume_response.data["session"]["emplacement"] == 1
+    mqtt_prefix = consume_response.data["session"]["mqtt_prefix"]
 
     session = Session.objects.get(reservation=reservation)
     reservation.refresh_from_db()
@@ -145,7 +150,7 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
     assert session.end_time is None
 
     start_ack = process_mqtt_message(
-        "station/slot1/ack",
+        f"station/{mqtt_prefix}/slot1/ack",
         json.dumps(
             {
                 "command_id": "cmd-start-e2e",
@@ -159,16 +164,18 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
     )
 
     assert start_ack["message_type"] == "ack"
+    assert start_ack["topic_prefix"] == mqtt_prefix
     assert start_ack["command_status"] == "accepted"
 
     for index in range(3):
         telemetry_result = process_mqtt_message(
-            "station/slot1/telemetry",
+            f"station/{mqtt_prefix}/slot1/telemetry",
             mqtt_payload(
                 session_id=str(session.id_session),
                 energy_kwh=0.02 + index * 0.01,
             ),
         )
+        assert telemetry_result["topic_prefix"] == mqtt_prefix
         assert telemetry_result["session_telemetry_created"] is True
 
     assert SessionTelemetry.objects.filter(session=session).count() == 3
@@ -180,7 +187,7 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
     ).exists()
 
     stop_ack = process_mqtt_message(
-        "station/slot1/ack",
+        f"station/{mqtt_prefix}/slot1/ack",
         json.dumps(
             {
                 "command_id": "cmd-stop-e2e",
@@ -194,6 +201,7 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
     )
 
     assert stop_ack["message_type"] == "ack"
+    assert stop_ack["topic_prefix"] == mqtt_prefix
     assert stop_ack["command_status"] == "stopped"
 
     stop_response = api_client.post(
@@ -215,7 +223,7 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
     assert Session.objects.filter(end_time__isnull=True).count() == 0
 
     process_mqtt_message(
-        "station/slot1/status",
+        f"station/{mqtt_prefix}/slot1/status",
         json.dumps(
             {
                 "state": "stopped",

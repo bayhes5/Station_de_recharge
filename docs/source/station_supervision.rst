@@ -385,8 +385,11 @@ sur les mêmes canaux que les ESP32 :
    cd backend
    ..\.venv\Scripts\python.exe manage.py simulate_mqtt_telemetry --slots slot1 slot2 slot3 --scenario mixed --interval 2
 
-La commande publie sur ``station/<slot_id>/telemetry`` et utilise les variables
-``MQTT_HOST``, ``MQTT_PORT`` et ``MQTT_BASE_TOPIC``. Le scénario ``mixed`` alterne
+La commande publie par défaut sur ``station/<slot_id>/telemetry`` et utilise les
+variables ``MQTT_HOST``, ``MQTT_PORT`` et ``MQTT_BASE_TOPIC``. Avec
+``--topic-prefix station-centre/borne-1``, elle publie sur
+``station/station-centre/borne-1/<slot_id>/telemetry`` pour reproduire le routage
+de production station/borne/emplacement. Le scénario ``mixed`` alterne
 des mesures normales et des anomalies pour tester la chaîne d'alertes :
 
 * intrusion : boîtier ouvert pendant une charge ;
@@ -398,7 +401,8 @@ des mesures normales et des anomalies pour tester la chaîne d'alertes :
 Pour un test de bout en bout depuis le kiosk, préférer le mode lié à la session
 active. Après validation QR et ouverture de la session de charge, cette commande
 retrouve l'emplacement réellement attribué à la réservation, reprend le
-``session_id`` backend et ne publie que sur le ``slot_id`` de cet emplacement :
+``session_id`` backend, reprend le ``mqtt_prefix`` de la borne si celui-ci est
+renseigné et ne publie que sur le ``slot_id`` de cet emplacement :
 
 .. code-block:: powershell
 

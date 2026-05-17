@@ -50,6 +50,7 @@ class Command(BaseCommand):
                 "station": reservation.emplacement.station.nom,
                 "borne_id": str(reservation.emplacement.borne_id),
                 "borne": reservation.emplacement.borne.nom,
+                "mqtt_prefix": reservation.emplacement.borne.mqtt_prefix,
                 "emplacement": reservation.emplacement.numero,
                 "slot_id": device.mac_address if device and device.mac_address else f"slot{reservation.emplacement.numero}",
             },

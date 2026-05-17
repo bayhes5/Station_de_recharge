@@ -101,6 +101,11 @@ bout en bout sans ESP32 physique :
 9. clôture de session backend ;
 10. résumé final reservation/session/device.
 
+Lorsque la borne possède un ``mqtt_prefix``, le script et le simulateur utilisent
+le topic structuré ``station/<mqtt_prefix>/<slot_id>/telemetry``. Cela valide le
+routage production station/borne/emplacement au lieu de publier sur un simple
+``station/<slot_id>/telemetry``.
+
 Commande :
 
 .. code-block:: powershell

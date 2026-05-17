@@ -53,6 +53,11 @@ class Command(BaseCommand):
             default="",
             help="Restrict --active-session to one reservation reference code.",
         )
+        parser.add_argument(
+            "--topic-prefix",
+            default="",
+            help="Optional station/borne MQTT prefix, for example station-centre/borne-1.",
+        )
         parser.add_argument("--dry-run", action="store_true")
 
     def handle(self, *args, **options):
@@ -70,6 +75,8 @@ class Command(BaseCommand):
             slot_id = self._slot_id_for_session(session)
             options["slots"] = [slot_id]
             options["session_id"] = str(session.id_session)
+            if not options["topic_prefix"]:
+                options["topic_prefix"] = session.emplacement.borne.mqtt_prefix
             self.stdout.write(
                 self.style.SUCCESS(
                     "Simulation liee a la session active: "
@@ -124,6 +131,7 @@ class Command(BaseCommand):
         queryset = Session.objects.select_related(
             "reservation",
             "emplacement",
+            "emplacement__borne",
             "emplacement__device",
         ).filter(end_time__isnull=True)
         if reservation_code:
@@ -151,7 +159,11 @@ class Command(BaseCommand):
                 session_id=options["session_id"],
                 started_at=started_at,
             )
-            topic = telemetry_topic(settings.MQTT_BASE_TOPIC, slot_id)
+            topic = telemetry_topic(
+                settings.MQTT_BASE_TOPIC,
+                slot_id,
+                options["topic_prefix"],
+            )
             payload_text = json.dumps(payload)
 
             if client is None:

@@ -116,9 +116,9 @@ class Command(BaseCommand):
                 "borne_id": str(emplacement.borne_id),
                 "borne": emplacement.borne.nom,
                 "borne_numero": emplacement.borne.numero,
+                "mqtt_prefix": emplacement.borne.mqtt_prefix,
                 "emplacement": emplacement.numero,
                 "slot_id": device.mac_address if device and device.mac_address else f"slot{emplacement.numero}",
             },
         }
         self.stdout.write(json.dumps(result, ensure_ascii=False))
-

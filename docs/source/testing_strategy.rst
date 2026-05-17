@@ -52,6 +52,8 @@ Tests couverts actuellement :
 * administration utilisateurs/réservations ;
 * génération et révocation QR/code SMS/RFID ;
 * authentification terminal QR/code SMS/RFID ;
+* parcours A à Z réservation QR -> session mobile -> kiosque -> START MQTT ->
+  télémétrie de l'emplacement réservé -> STOP -> clôture de session ;
 * ingestion des télémétries vers capteurs/alertes ;
 * performance de requêtes ciblées.
 
@@ -191,7 +193,9 @@ Test complet QR -> kiosk -> télémétrie -> Grafana sans ESP32 :
    .\scripts\run-demo-scenario.ps1 -Reference DEMOQR1 -Emplacement 1 -TelemetryCount 5
 
 Le script vérifie que la télémétrie simulée se limite à l'emplacement autorisé
-par la réservation et que la session est clôturée proprement après ``STOP``.
+par la réservation et que la session est clôturée proprement après ``STOP``. Si
+la borne possède un ``mqtt_prefix``, le simulateur publie sur
+``station/<mqtt_prefix>/<slot_id>/telemetry`` pour tester le routage production.
 
 Contrôle rapide des mesures en base :
 
