@@ -571,6 +571,8 @@ Les conditions de résolution automatique sont :
 * ``state_error`` : l'état n'est plus ``error``, ``emergency`` ou ``fault``.
 * ``charge_without_session`` : l'ESP32 ne remonte plus un état de charge ou la
   télémétrie porte de nouveau un ``session_id`` ouvert côté backend.
+* ``session_without_telemetry`` : une nouvelle mesure ``SessionTelemetry`` est
+  reçue pour la session active ou la session est clôturée.
 
 Le firmware est traité séparément. Si ``EXPECTED_ESP32_FIRMWARE_VERSION`` est
 défini et que l'ESP32 remonte une version différente, le backend crée une alerte
@@ -578,6 +580,24 @@ défini et que l'ESP32 remonte une version différente, le backend crée une ale
 l'équipement remonte la version attendue. Par défaut, cette alerte n'est pas
 envoyée aux techniciens terrain : elle relève plutôt de l'administrateur ou du
 responsable qui prépare les mises à jour firmware.
+
+Contrôle applicatif des sessions sans télémétrie
+------------------------------------------------
+
+Grafana surveille le symptôme en temps réel, mais le backend porte aussi une
+alerte métier persistée pour lier l'incident à une session et déclencher la
+notification technicien. La commande suivante doit être exécutée périodiquement
+par cron, Celery Beat ou un job de supervision :
+
+.. code-block:: bash
+
+   python manage.py check_session_telemetry_health
+
+Elle scanne les sessions ouvertes plus anciennes que
+``SESSION_TELEMETRY_STALE_MINUTES`` minutes, ``2`` par défaut. Si aucune mesure
+``SessionTelemetry`` récente n'existe, le backend crée ou maintient une alerte
+``session_without_telemetry``. L'alerte est résolue automatiquement dès que la
+télémétrie revient ou lorsque la session se termine.
 
 Accès technicien
 ----------------

@@ -229,8 +229,17 @@ ALERT_CRITICAL_NOTIFICATION_MIN_AGE_SECONDS = env_int("ALERT_CRITICAL_NOTIFICATI
 ALERT_RENOTIFY_COOLDOWN_SECONDS = env_int("ALERT_RENOTIFY_COOLDOWN_SECONDS", 1800)
 ALERT_TECHNICIAN_EMAIL_TYPES = env_list(
     "ALERT_TECHNICIAN_EMAIL_TYPES",
-    ["intrusion", "cable_removed", "overheat", "overcurrent", "state_error", "charge_without_session"],
+    [
+        "intrusion",
+        "cable_removed",
+        "overheat",
+        "overcurrent",
+        "state_error",
+        "charge_without_session",
+        "session_without_telemetry",
+    ],
 )
+SESSION_TELEMETRY_STALE_MINUTES = env_int("SESSION_TELEMETRY_STALE_MINUTES", 2)
 EXPECTED_ESP32_FIRMWARE_VERSION = os.environ.get("EXPECTED_ESP32_FIRMWARE_VERSION", "").strip()
 
 if CACHE_URL:

@@ -419,6 +419,17 @@ Traiter les notifications en attente :
 
    docker compose exec backend python manage.py send_alert_notifications
 
+Contrôler les sessions actives sans télémétrie :
+
+.. code-block:: bash
+
+   docker compose exec backend python manage.py check_session_telemetry_health
+
+Ce contrôle crée une alerte ``session_without_telemetry`` si une session ouverte
+ne reçoit plus de mesure depuis ``SESSION_TELEMETRY_STALE_MINUTES`` minutes,
+``2`` par défaut. L'alerte se résout automatiquement quand la télémétrie revient
+ou quand la session est clôturée.
+
 L'alerte ``firmware_outdated`` est levée si ``EXPECTED_ESP32_FIRMWARE_VERSION``
 est défini et si un ESP32 remonte une version différente. Elle se résout lorsque
 la version remontée redevient conforme. Elle ne doit pas déclencher d'email
