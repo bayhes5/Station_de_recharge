@@ -533,11 +533,28 @@ mise à jour au statut ``active`` au lieu de créer un doublon. Quand une
 télémétrie normale confirme que la condition a disparu, l'alerte passe
 automatiquement au statut ``resolue``.
 
-Lorsqu'une nouvelle alerte est créée, le backend envoie aussi un email aux
-techniciens actifs affectés à la station concernée. En environnement académique,
-ces emails sont capturés par Mailpit et consultables sur ``http://localhost:8025``.
-Ce mécanisme complète l'API de supervision : le technicien reçoit un signal,
-puis consulte son tableau de bord restreint pour traiter l'incident.
+L'email technicien n'est pas envoyé au premier signal. La notification part
+uniquement si l'alerte est ``active``, si son type fait partie de
+``ALERT_TECHNICIAN_EMAIL_TYPES`` et si elle persiste au-delà du délai configuré :
+
+* ``ALERT_CRITICAL_NOTIFICATION_MIN_AGE_SECONDS`` pour les alertes critiques,
+  ``60`` secondes par défaut ;
+* ``ALERT_NOTIFICATION_MIN_AGE_SECONDS`` pour les autres alertes terrain,
+  ``120`` secondes par défaut ;
+* ``ALERT_RENOTIFY_COOLDOWN_SECONDS`` pour éviter les répétitions, ``1800``
+  secondes par défaut.
+
+La commande suivante permet d'envoyer les notifications en attente, par exemple
+depuis une tâche planifiée :
+
+.. code-block:: bash
+
+   python manage.py send_alert_notifications
+
+En environnement académique, ces emails sont capturés par Mailpit et
+consultables sur ``http://localhost:8025``. Ce mécanisme complète l'API de
+supervision : le technicien reçoit un signal, puis consulte son tableau de bord
+restreint pour traiter l'incident.
 
 Les conditions de résolution automatique sont :
 
@@ -547,6 +564,13 @@ Les conditions de résolution automatique sont :
 * ``overheat`` : la température repasse sous ``60 C`` ;
 * ``overcurrent`` : le courant repasse sous ``3.0 A`` ;
 * ``state_error`` : l'état n'est plus ``error``, ``emergency`` ou ``fault``.
+
+Le firmware est traité séparément. Si ``EXPECTED_ESP32_FIRMWARE_VERSION`` est
+défini et que l'ESP32 remonte une version différente, le backend crée une alerte
+``firmware_outdated`` de sévérité moyenne. Elle est levée automatiquement lorsque
+l'équipement remonte la version attendue. Par défaut, cette alerte n'est pas
+envoyée aux techniciens terrain : elle relève plutôt de l'administrateur ou du
+responsable qui prépare les mises à jour firmware.
 
 Accès technicien
 ----------------

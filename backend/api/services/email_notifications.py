@@ -4,11 +4,14 @@ import logging
 
 from django.conf import settings
 from django.core.mail import send_mail
+from django.utils import timezone
 
 from api.models import Alerte, TechnicienStation
 
 
 logger = logging.getLogger(__name__)
+NOTIFIABLE_ALERT_STATUSES = {"active"}
+CRITICAL_SEVERITIES = {"critique", "critical"}
 
 
 def _alert_location(alert):
@@ -33,6 +36,45 @@ def _technician_recipients(station):
         .distinct()
     )
     return sorted({email.strip() for email in recipients if email and email.strip()})
+
+
+def _technician_email_alert_types():
+    """Return alert types that should be escalated to technicians by email."""
+    configured = getattr(settings, "ALERT_TECHNICIAN_EMAIL_TYPES", [])
+    return {str(alert_type).strip() for alert_type in configured if str(alert_type).strip()}
+
+
+def _notification_delay_seconds(alert):
+    """Return the persistence delay required before notifying technicians."""
+    if str(alert.niveau_severite).lower() in CRITICAL_SEVERITIES:
+        return getattr(settings, "ALERT_CRITICAL_NOTIFICATION_MIN_AGE_SECONDS", 60)
+    return getattr(settings, "ALERT_NOTIFICATION_MIN_AGE_SECONDS", 120)
+
+
+def _renotify_cooldown_seconds():
+    """Return the minimum delay between two notifications for the same alert."""
+    return getattr(settings, "ALERT_RENOTIFY_COOLDOWN_SECONDS", 1800)
+
+
+def alert_is_ready_for_notification(alert, now=None):
+    """Return whether an alert has persisted long enough to notify technicians."""
+    if not getattr(settings, "ALERT_EMAIL_NOTIFICATIONS_ENABLED", True):
+        return False
+    if alert.type not in _technician_email_alert_types():
+        return False
+    if alert.status not in NOTIFIABLE_ALERT_STATUSES:
+        return False
+
+    now = now or timezone.now()
+    first_seen = alert.first_seen or alert.timestamp
+    if (now - first_seen).total_seconds() < _notification_delay_seconds(alert):
+        return False
+
+    if alert.notified_at:
+        cooldown = _renotify_cooldown_seconds()
+        if cooldown > 0 and (now - alert.notified_at).total_seconds() < cooldown:
+            return False
+    return True
 
 
 def _alert_email_content(alert):
@@ -61,11 +103,8 @@ def _alert_email_content(alert):
     return subject, body
 
 
-def notify_technicians_for_alert(alert_id):
+def notify_technicians_for_alert(alert_id, *, force=False):
     """Send one operational alert notification to assigned technicians."""
-    if not getattr(settings, "ALERT_EMAIL_NOTIFICATIONS_ENABLED", True):
-        return 0
-
     try:
         alert = (
             Alerte.objects.select_related(
@@ -78,6 +117,10 @@ def notify_technicians_for_alert(alert_id):
         )
     except Alerte.DoesNotExist:
         logger.warning("Alert email skipped: alert %s no longer exists", alert_id)
+        return 0
+
+    if not force and not alert_is_ready_for_notification(alert):
+        logger.debug("Alert email skipped: alert %s does not match notification policy", alert_id)
         return 0
 
     station, _borne, _emplacement = _alert_location(alert)
@@ -94,5 +137,25 @@ def notify_technicians_for_alert(alert_id):
         recipients,
         fail_silently=False,
     )
+    alert.notified_at = timezone.now()
+    alert.notification_count += 1
+    alert.save(update_fields=["notified_at", "notification_count"])
     logger.info("Alert email sent alert=%s recipients=%s", alert_id, len(recipients))
     return len(recipients)
+
+
+def notify_pending_alerts():
+    """Notify all active alerts that currently match the notification policy."""
+    alert_ids = (
+        Alerte.objects.filter(status__in=NOTIFIABLE_ALERT_STATUSES)
+        .exclude(type="firmware_outdated")
+        .values_list("id_alerte", flat=True)
+    )
+    sent_count = 0
+    alert_count = 0
+    for alert_id in alert_ids:
+        recipient_count = notify_technicians_for_alert(alert_id)
+        if recipient_count:
+            sent_count += recipient_count
+            alert_count += 1
+    return {"alerts_notified": alert_count, "emails_sent": sent_count}

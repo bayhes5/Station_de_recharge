@@ -381,7 +381,9 @@ actuelles sont :
 * ``cable_removed`` si ``cable`` vaut ``false`` pendant ``charging`` ;
 * ``overheat`` si la température est supérieure ou égale à ``60`` ;
 * ``overcurrent`` si le courant est supérieur ou égal à ``3.0`` ;
-* ``state_error`` si l'état vaut ``error``, ``emergency`` ou ``fault``.
+* ``state_error`` si l'état vaut ``error``, ``emergency`` ou ``fault`` ;
+* ``firmware_outdated`` si ``EXPECTED_ESP32_FIRMWARE_VERSION`` est défini et que
+  la version remontée par l'ESP32 est différente.
 
 Le cycle est automatique :
 
@@ -394,10 +396,27 @@ Le choix d'éviter les doublons rend la supervision plus lisible pendant une
 simulation continue. Les alertes historiques restent en base pour conserver le
 contexte.
 
-À la création d'une nouvelle alerte, ``backend/api/services/email_notifications.py``
-notifie les techniciens actifs affectés à la station concernée. En environnement
-académique, Django envoie ces emails vers Mailpit via SMTP ; aucun fournisseur
-externe n'est nécessaire pour démontrer le parcours.
+``backend/api/services/email_notifications.py`` applique la politique de
+notification. Une alerte doit être ``active`` et avoir persisté suffisamment
+longtemps avant d'être envoyée par email aux techniciens affectés à la station.
+Les délais configurables sont :
+
+* ``ALERT_CRITICAL_NOTIFICATION_MIN_AGE_SECONDS`` : délai minimal des alertes
+  critiques, ``60`` secondes par défaut ;
+* ``ALERT_NOTIFICATION_MIN_AGE_SECONDS`` : délai minimal des autres alertes,
+  ``120`` secondes par défaut ;
+* ``ALERT_RENOTIFY_COOLDOWN_SECONDS`` : délai minimal avant de relancer une
+  notification pour la même alerte, ``1800`` secondes par défaut ;
+* ``ALERT_TECHNICIAN_EMAIL_TYPES`` : familles d'alertes envoyées aux
+  techniciens.
+
+La commande ``python manage.py send_alert_notifications`` traite les alertes en
+attente. En environnement académique, Django envoie ces emails vers Mailpit via
+SMTP ; aucun fournisseur externe n'est nécessaire pour démontrer le parcours.
+
+L'alerte ``firmware_outdated`` est volontairement séparée des emails technicien
+par défaut. Elle doit être visible dans la supervision, mais la décision de mise
+à jour firmware appartient à l'administrateur.
 
 Supervision administrateur
 --------------------------

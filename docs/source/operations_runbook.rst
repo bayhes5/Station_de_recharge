@@ -386,13 +386,44 @@ Configuration locale attendue :
 
 Les emails utiles au projet académique sont envoyés vers Mailpit :
 
-* notification des techniciens assignés lorsqu'une nouvelle alerte terrain est
-  créée ;
+* notification des techniciens assignés lorsqu'une alerte terrain active dépasse
+  le délai de persistance configuré ;
 * futurs emails de vérification de compte ou de réinitialisation de mot de
   passe si ces parcours sont activés.
 
 Mailpit n'est pas un fournisseur d'envoi de production : il capture les messages
 pour les tests et la soutenance.
+
+Politique d'alertes
+-------------------
+
+Le backend distingue les alertes courtes des incidents qui persistent. Une
+alerte terrain suit le cycle suivant :
+
+* ``nouvelle`` : premier signal reçu, aucune notification immédiate ;
+* ``active`` : même anomalie observée à nouveau ;
+* ``resolue`` : retour à une télémétrie normale.
+
+Les notifications email sont envoyées uniquement aux techniciens actifs affectés
+à la station concernée, et seulement pour les types listés dans
+``ALERT_TECHNICIAN_EMAIL_TYPES``. Les délais recommandés sont ceux du fichier
+``.env.example`` :
+
+* ``60`` secondes pour une alerte critique ;
+* ``120`` secondes pour une alerte haute ou moyenne ;
+* ``1800`` secondes de délai de relance si l'alerte reste active.
+
+Traiter les notifications en attente :
+
+.. code-block:: bash
+
+   docker compose exec backend python manage.py send_alert_notifications
+
+L'alerte ``firmware_outdated`` est levée si ``EXPECTED_ESP32_FIRMWARE_VERSION``
+est défini et si un ESP32 remonte une version différente. Elle se résout lorsque
+la version remontée redevient conforme. Elle ne doit pas déclencher d'email
+technicien par défaut : seul l'administrateur ou le responsable technique décide
+de planifier et appliquer une mise à jour firmware.
 
 SMS de production
 -----------------

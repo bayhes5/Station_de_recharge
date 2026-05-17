@@ -276,8 +276,12 @@ Alertes
 ``CapteurData`` et ``Session`` sont en ``SET_NULL``. Cela permet de garder une
 alerte historique même si la mesure ou la session associée n’est plus disponible.
 
-Le champ ``timestamp`` est stocke dans la colonne SQL ``date`` pour rester proche
+Le champ ``timestamp`` est stocké dans la colonne SQL ``date`` pour rester proche
 du MCD tout en gardant un nom Django plus explicite.
+
+Les champs ``first_seen`` et ``last_seen`` encadrent la durée de l'anomalie. Les
+champs ``notified_at`` et ``notification_count`` permettent de tracer les emails
+envoyés et d'appliquer un délai de relance sans dupliquer les alertes.
 
 Le cycle actuel est géré côté application :
 

@@ -6,6 +6,7 @@ import re
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -127,6 +128,23 @@ def _device_status(value: Any) -> str:
     normalized = str(value or DeviceStatus.ONLINE).strip().lower()
     aliased = DEVICE_STATUS_ALIASES.get(normalized, normalized)
     return aliased if aliased in DeviceStatus.values else DeviceStatus.ERROR
+
+
+def _reported_firmware(payload: dict[str, Any]) -> str:
+    """Return the firmware version reported by a device payload."""
+    return str(payload.get("firmware_version") or payload.get("firmware") or "").strip()
+
+
+def _save_device_report(device: Device, timestamp, status_value: Any, payload: dict[str, Any]):
+    """Persist the latest runtime state reported by an ESP32."""
+    update_fields = ["last_seen", "status"]
+    device.last_seen = timestamp
+    device.status = _device_status(status_value)
+    firmware_version = _reported_firmware(payload)
+    if firmware_version and firmware_version != device.firmware_version:
+        device.firmware_version = firmware_version
+        update_fields.append("firmware_version")
+    device.save(update_fields=update_fields)
 
 
 def _sensor_value(sensor_type: str, value: Any):
@@ -269,6 +287,11 @@ def _open_alerts_for_device(device: Device, alert_type: str):
     queryset = Alerte.objects.filter(type=alert_type).exclude(status__in=RESOLVED_ALERT_STATUSES)
     if alert_type == "state_error":
         return queryset.filter(Q(session__emplacement=device.emplacement) | Q(message__contains=device.mac_address))
+    if alert_type == "firmware_outdated":
+        return queryset.filter(
+            Q(session__emplacement=device.emplacement)
+            | Q(message__contains=device.mac_address)
+        )
     return queryset.filter(Q(data__capteur__device=device) | Q(session__emplacement=device.emplacement))
 
 
@@ -289,12 +312,23 @@ def _upsert_active_alert(
         existing.message = message
         existing.niveau_severite = severity
         existing.timestamp = timestamp
+        existing.last_seen = timestamp
         existing.status = "active"
         if data:
             existing.data = data
         if session:
             existing.session = session
-        existing.save(update_fields=["message", "niveau_severite", "timestamp", "status", "data", "session"])
+        existing.save(
+            update_fields=[
+                "message",
+                "niveau_severite",
+                "timestamp",
+                "last_seen",
+                "status",
+                "data",
+                "session",
+            ]
+        )
         return existing, False
     return (
         Alerte.objects.create(
@@ -305,6 +339,8 @@ def _upsert_active_alert(
             niveau_severite=severity,
             status="nouvelle",
             timestamp=timestamp,
+            first_seen=timestamp,
+            last_seen=timestamp,
         ),
         True,
     )
@@ -312,7 +348,7 @@ def _upsert_active_alert(
 
 def _resolve_alerts_for_device(device: Device, alert_type: str, timestamp):
     """Mark unresolved alerts as resolved when telemetry returns to normal."""
-    return _open_alerts_for_device(device, alert_type).update(status="resolue", timestamp=timestamp)
+    return _open_alerts_for_device(device, alert_type).update(status="resolue", timestamp=timestamp, last_seen=timestamp)
 
 
 def _alert_resolution_candidates(payload: dict[str, Any]):
@@ -339,7 +375,14 @@ def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp, 
     triggered_alerts = []
     state = str(payload.get("state") or "").lower()
     if state in {"error", "emergency", "fault"}:
-        triggered_alerts.append(("state_error", f"Etat critique remonte par {device.mac_address}: {state}", "critique", None))
+        triggered_alerts.append(
+            (
+                "state_error",
+                f"Etat critique remonte par {device.mac_address}: {state}",
+                "critique",
+                None,
+            )
+        )
     if payload.get("door") is False and state == "charging":
         triggered_alerts.append(("intrusion", "Boitier ouvert pendant une charge active.", "critique", "door"))
     if payload.get("cable") is False and state == "charging":
@@ -373,10 +416,36 @@ def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp, 
         )
         if was_created:
             created.append(alert)
-            transaction.on_commit(
-                lambda alert_id=alert.id_alerte: notify_technicians_for_alert(alert_id)
-            )
+        transaction.on_commit(
+            lambda alert_id=alert.id_alerte: notify_technicians_for_alert(alert_id)
+        )
     return created
+
+
+def _check_firmware_alert(device: Device, timestamp):
+    """Create or resolve firmware compliance alerts for one device."""
+    expected = getattr(settings, "EXPECTED_ESP32_FIRMWARE_VERSION", "")
+    expected = str(expected or "").strip()
+    current = str(device.firmware_version or "").strip()
+    if not expected or not current:
+        return None
+
+    if current == expected:
+        _resolve_alerts_for_device(device, "firmware_outdated", timestamp)
+        return None
+
+    message = f"Firmware ESP32 non conforme sur {device.mac_address}: {current}, attendu {expected}."
+    alert, _was_created = _upsert_active_alert(
+        device,
+        "firmware_outdated",
+        message,
+        "moyenne",
+        None,
+        timestamp,
+        _get_active_session(device.emplacement, None),
+        {},
+    )
+    return alert
 
 
 @transaction.atomic
@@ -388,9 +457,8 @@ def ingest_slot_status(slot_id: str, payload: dict[str, Any], topic_prefix: str 
     timestamp = _parse_timestamp(payload.get("timestamp"))
     status_value = payload.get("state") or payload.get("status") or payload.get("event")
     device = _get_device(slot_id, topic_prefix=topic_prefix)
-    device.last_seen = timestamp
-    device.status = _device_status(status_value)
-    device.save(update_fields=["last_seen", "status"])
+    _save_device_report(device, timestamp, status_value, payload)
+    _check_firmware_alert(device, timestamp)
     return DeviceStatusResult(device=device)
 
 
@@ -449,9 +517,8 @@ def ingest_slot_telemetry(slot_id: str, payload: dict[str, Any], topic_prefix: s
 
     timestamp = _parse_timestamp(payload.get("timestamp"))
     device = _get_device(slot_id, topic_prefix=topic_prefix)
-    device.last_seen = timestamp
-    device.status = _device_status(payload.get("state"))
-    device.save(update_fields=["last_seen", "status"])
+    _save_device_report(device, timestamp, payload.get("state"), payload)
+    _check_firmware_alert(device, timestamp)
 
     capteur_records = []
     sensor_records = {}

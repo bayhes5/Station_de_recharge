@@ -3,6 +3,8 @@ from datetime import timedelta
 
 import pytest
 from django.core import mail
+from django.core.management import call_command
+from django.test import override_settings
 from django.utils import timezone
 
 from api.models import (
@@ -19,6 +21,7 @@ from api.models import (
     Technicien,
     TechnicienStation,
 )
+from api.services.email_notifications import notify_pending_alerts
 from api.services.mqtt_commands import build_slot_command_topic
 from api.tasks import process_mqtt_message
 
@@ -425,11 +428,15 @@ def test_process_mqtt_message_creates_alert_for_open_door(emplacements):
 
 
 @pytest.mark.django_db
+@override_settings(
+    ALERT_CRITICAL_NOTIFICATION_MIN_AGE_SECONDS=60,
+    ALERT_RENOTIFY_COOLDOWN_SECONDS=3600,
+)
 def test_process_mqtt_message_sends_alert_email_to_assigned_technicians(
     emplacements,
     django_capture_on_commit_callbacks,
 ):
-    """Notify station technicians when a new operational alert is created."""
+    """Notify station technicians only after an alert persists long enough."""
     station = emplacements[0].station
     technician = Technicien.objects.create(
         nom="Technicien Centre",
@@ -444,14 +451,38 @@ def test_process_mqtt_message_sends_alert_email_to_assigned_technicians(
         mac_address="slot1",
         status="offline",
     )
+    first_seen = timezone.now() - timedelta(minutes=2)
 
     with django_capture_on_commit_callbacks(execute=True):
-        result = process_mqtt_message(
+        first_result = process_mqtt_message(
             "station/slot1/telemetry",
-            json.dumps({"state": "charging", "door": False, "cable": True}),
+            json.dumps(
+                {
+                    "state": "charging",
+                    "door": False,
+                    "cable": True,
+                    "timestamp": first_seen.isoformat(),
+                }
+            ),
         )
 
-    assert result["alert_count"] == 1
+    assert first_result["alert_count"] == 1
+    assert mail.outbox == []
+
+    with django_capture_on_commit_callbacks(execute=True):
+        second_result = process_mqtt_message(
+            "station/slot1/telemetry",
+            json.dumps(
+                {
+                    "state": "charging",
+                    "door": False,
+                    "cable": True,
+                    "timestamp": timezone.now().isoformat(),
+                }
+            ),
+        )
+
+    assert second_result["alert_count"] == 0
     assert len(mail.outbox) == 1
     message = mail.outbox[0]
     assert message.to == ["tech-centre@example.com"]
@@ -459,6 +490,127 @@ def test_process_mqtt_message_sends_alert_email_to_assigned_technicians(
     assert "intrusion" in message.body
     assert "Borne 1" in message.body
     assert "Emplacement 1" in message.body
+    alert = Alerte.objects.get(type="intrusion")
+    assert alert.status == "active"
+    assert alert.notification_count == 1
+    assert alert.notified_at is not None
+
+
+@pytest.mark.django_db
+@override_settings(ALERT_NOTIFICATION_MIN_AGE_SECONDS=60)
+def test_send_alert_notifications_command_processes_pending_alerts(emplacements):
+    """Send delayed emails for active alerts that were not notified yet."""
+    station = emplacements[0].station
+    technician = Technicien.objects.create(
+        nom="Technicien Centre",
+        email="tech-centre@example.com",
+        telephone="",
+    )
+    TechnicienStation.objects.create(technicien=technician, station=station)
+    device = Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="demo",
+        mac_address="slot1",
+        status="offline",
+    )
+    capteur = device.capteurs.create(type="current", unite="A")
+    data = CapteurData.objects.create(
+        capteur=capteur,
+        valeur=3.5,
+        timestamp=timezone.now() - timedelta(minutes=3),
+    )
+    Alerte.objects.create(
+        data=data,
+        type="overcurrent",
+        message="Surconsommation detectee: 3.50 A.",
+        niveau_severite="haute",
+        status="active",
+        timestamp=timezone.now() - timedelta(minutes=3),
+        first_seen=timezone.now() - timedelta(minutes=3),
+        last_seen=timezone.now() - timedelta(minutes=1),
+    )
+
+    call_command("send_alert_notifications")
+
+    assert len(mail.outbox) == 1
+    assert mail.outbox[0].to == ["tech-centre@example.com"]
+    alert = Alerte.objects.get(type="overcurrent")
+    assert alert.notification_count == 1
+
+
+@pytest.mark.django_db
+@override_settings(ALERT_NOTIFICATION_MIN_AGE_SECONDS=60)
+def test_notify_pending_alerts_respects_policy_delay(emplacements):
+    """Keep short-lived active alerts silent until their persistence delay expires."""
+    station = emplacements[0].station
+    technician = Technicien.objects.create(
+        nom="Technicien Centre",
+        email="tech-centre@example.com",
+        telephone="",
+    )
+    TechnicienStation.objects.create(technicien=technician, station=station)
+    device = Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="demo",
+        mac_address="slot1",
+        status="offline",
+    )
+    capteur = device.capteurs.create(type="current", unite="A")
+    data = CapteurData.objects.create(
+        capteur=capteur,
+        valeur=3.5,
+        timestamp=timezone.now(),
+    )
+    Alerte.objects.create(
+        data=data,
+        type="overcurrent",
+        message="Surconsommation detectee: 3.50 A.",
+        niveau_severite="haute",
+        status="active",
+        timestamp=timezone.now(),
+        first_seen=timezone.now(),
+        last_seen=timezone.now(),
+    )
+
+    result = notify_pending_alerts()
+
+    assert result == {"alerts_notified": 0, "emails_sent": 0}
+    assert mail.outbox == []
+
+
+@pytest.mark.django_db
+@override_settings(EXPECTED_ESP32_FIRMWARE_VERSION="2.0.0")
+def test_process_mqtt_status_creates_and_resolves_firmware_alert(emplacements):
+    """Raise firmware alerts for admins and resolve them when the ESP32 is updated."""
+    Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="1.0.0",
+        mac_address="slot1",
+        status="offline",
+    )
+
+    process_mqtt_message(
+        "station/slot1/status",
+        json.dumps({"state": "idle", "firmware_version": "1.0.0"}),
+    )
+
+    alert = Alerte.objects.get(type="firmware_outdated")
+    assert alert.status == "nouvelle"
+    assert alert.niveau_severite == "moyenne"
+    assert "attendu 2.0.0" in alert.message
+    assert mail.outbox == []
+
+    process_mqtt_message(
+        "station/slot1/status",
+        json.dumps({"state": "idle", "firmware_version": "2.0.0"}),
+    )
+
+    alert.refresh_from_db()
+    assert alert.status == "resolue"
+    assert Device.objects.get(mac_address="slot1").firmware_version == "2.0.0"
 
 
 @pytest.mark.django_db

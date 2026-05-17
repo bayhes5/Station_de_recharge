@@ -808,6 +808,10 @@ class Alerte(models.Model):
     niveau_severite = models.CharField(max_length=50, choices=AlertSeverity.choices)
     status = models.CharField(max_length=50, choices=AlertStatus.choices)
     timestamp = models.DateTimeField(default=timezone.now, db_column="date")
+    first_seen = models.DateTimeField(default=timezone.now)
+    last_seen = models.DateTimeField(default=timezone.now)
+    notified_at = models.DateTimeField(null=True, blank=True)
+    notification_count = models.PositiveIntegerField(default=0)
 
     class Meta:
         db_table = "alerte"

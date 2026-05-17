@@ -194,6 +194,10 @@ Table alerte {
   niveau_severite varchar(50) [not null]
   status varchar(50) [not null]
   date timestamp [not null]
+  first_seen timestamp [not null]
+  last_seen timestamp [not null]
+  notified_at timestamp
+  notification_count int [not null, default: 0]
 }
 
 Table technicien {

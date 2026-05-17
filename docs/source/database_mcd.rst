@@ -349,7 +349,11 @@ faire évoluer la base.
        message TEXT NOT NULL,
        niveau_severite VARCHAR(50) NOT NULL,
        status VARCHAR(50) NOT NULL,
-       date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+       date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       notified_at TIMESTAMP,
+       notification_count INTEGER NOT NULL DEFAULT 0
    );
 
    CREATE TABLE technicien (
@@ -734,6 +738,12 @@ Incident opérationnel issu d’une mesure capteur ou d’une session.
 * ``status`` : cycle de vie. Valeurs fermées côté application : ``nouvelle``,
   ``active``, ``resolue``, ``closed``, ``fermee``.
 * ``date`` : date de création ou de dernière mise à jour.
+* ``first_seen`` : premier signal de l'anomalie.
+* ``last_seen`` : dernière observation de la même anomalie.
+* ``notified_at`` : date du dernier email envoyé, si une notification a été
+  déclenchée.
+* ``notification_count`` : nombre de notifications envoyées pour limiter les
+  relances.
 
 ``technicien``
 ~~~~~~~~~~~~~~
