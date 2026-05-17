@@ -31,6 +31,7 @@ def store(request):
         try:
             state_dir.rmdir()
         except OSError:
+            # Another store fixture may still be using the shared temp dir.
             pass
 
     request.addfinalizer(cleanup)

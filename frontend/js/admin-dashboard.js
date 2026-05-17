@@ -21,7 +21,7 @@ function createActionButton(label, onClick, variant = "") {
 }
 
 function createDataTable(container, columns, rows, emptyMessage) {
-    container.innerHTML = "";
+    container.replaceChildren();
 
     if (!rows.length) {
         const empty = document.createElement("div");
@@ -53,10 +53,10 @@ function createDataTable(container, columns, rows, emptyMessage) {
         columns.forEach((column) => {
             const td = document.createElement("td");
             if (column.className) td.className = column.className;
-            const value = column.render ? column.render(row) : row[column.key];
-            if (value instanceof Node) {
-                td.appendChild(value);
+            if (column.renderNode) {
+                td.appendChild(column.renderNode(row));
             } else {
+                const value = column.render ? column.render(row) : row[column.key];
                 td.textContent = value ?? "-";
             }
             tr.appendChild(td);
@@ -719,7 +719,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 {
                     label: "Actions",
                     className: "actions-column",
-                    render: (user) => renderActions({
+                    renderNode: (user) => renderActions({
                         resource: "user",
                         id: user.id_user,
                         label: user.pseudo,
@@ -980,7 +980,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 {
                     label: "Actions",
                     className: "actions-column",
-                    render: (technician) => renderActions({
+                    renderNode: (technician) => renderActions({
                         resource: "technician",
                         id: technician.id_technicien,
                         label: technician.nom,
@@ -1007,7 +1007,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "R\u00f4le", render: (assignment) => assignment.role_display || assignment.role || "-" },
                 {
                     label: "Statut",
-                    render: (assignment) => createStatusBadge(
+                    renderNode: (assignment) => createStatusBadge(
                         assignment.is_active ? "Actif" : "Inactif",
                         assignment.is_active ? "success" : "warning"
                     ),
@@ -1015,7 +1015,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 {
                     label: "Actions",
                     className: "actions-column",
-                    render: (assignment) => renderActions({
+                    renderNode: (assignment) => renderActions({
                         resource: "technician-station",
                         id: assignment.id_assignment,
                         label: `${assignment.technicien_nom} - ${assignment.station_nom}`,
@@ -1045,7 +1045,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 {
                     label: "Actions",
                     className: "actions-column",
-                    render: (maintenance) => renderActions({
+                    renderNode: (maintenance) => renderActions({
                         resource: "maintenance",
                         id: maintenance.id_maintenance,
                         label: maintenance.type,
@@ -1074,12 +1074,12 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Début", render: (reservation) => formatDateTime(reservation.date_debut) },
                 { label: "Fin", render: (reservation) => formatDateTime(reservation.date_fin) },
                 { label: "Mode", render: (reservation) => reservation.auth_mode || "-" },
-                { label: "Accès", className: "access-column", render: renderAccessSummary },
+                { label: "Accès", className: "access-column", renderNode: renderAccessSummary },
                 { label: "Statut", render: (reservation) => reservation.statut || "-" },
                 {
                     label: "Actions",
                     className: "actions-column reservation-actions-column",
-                    render: renderReservationActions,
+                    renderNode: renderReservationActions,
                 },
             ],
             filterRows(searchKey, rows),
@@ -1118,7 +1118,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             document.getElementById("admin-devices-list"),
             [
                 { label: "Emplacement", render: (device) => device.slot_label || device.slot_id || "-" },
-                { label: "Connexion", render: (device) => createStatusBadge(device.online ? "En ligne" : "Hors ligne", device.online ? "success" : "danger") },
+                { label: "Connexion", renderNode: (device) => createStatusBadge(device.online ? "En ligne" : "Hors ligne", device.online ? "success" : "danger") },
                 { label: "Dernier état reçu", render: (device) => device.status_display || device.status || "-" },
                 { label: "Dernier ACK", render: formatCommandAck },
                 { label: "Station", render: (device) => device.station_nom || "-" },
@@ -1144,7 +1144,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Date", render: (command) => formatDateTime(command.timestamp) },
                 { label: "Emplacement", render: (command) => command.slot_label || command.slot_id || "-" },
                 { label: "Action", render: (command) => command.action || "-" },
-                { label: "Statut", render: (command) => createStatusBadge(command.status || "-", ["accepted", "stopped", "locked", "unlocked"].includes(command.status) ? "success" : "warning") },
+                { label: "Statut", renderNode: (command) => createStatusBadge(command.status || "-", ["accepted", "stopped", "locked", "unlocked"].includes(command.status) ? "success" : "warning") },
                 { label: "Message", render: (command) => command.message || "-" },
                 { label: "Source", render: (command) => command.source || "-" },
                 { label: "Session", render: (command) => command.session_id || "-" },
@@ -1160,7 +1160,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             [
                 { label: "Date", render: (alert) => formatDateTime(alert.timestamp) },
                 { label: "Type", render: (alert) => alert.type || "-" },
-                { label: "Sévérité", render: (alert) => createStatusBadge(alert.niveau_severite || "-", ["critical", "critique"].includes(alert.niveau_severite) ? "danger" : "warning") },
+                { label: "Sévérité", renderNode: (alert) => createStatusBadge(alert.niveau_severite || "-", ["critical", "critique"].includes(alert.niveau_severite) ? "danger" : "warning") },
                 { label: "Statut", render: (alert) => alert.status || "-" },
                 { label: "Station", render: (alert) => alert.station_nom || "-" },
                 { label: "Borne", render: (alert) => alert.borne_nom || "-" },

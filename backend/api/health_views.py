@@ -28,8 +28,8 @@ def _check_database_health():
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1")
             cursor.fetchone()
-    except Exception as error:  # noqa: BLE001 - health endpoint must report diagnostics.
-        return _health_result(False, str(error), engine=connection.vendor)
+    except Exception:  # noqa: BLE001 - health endpoint must not expose stack details.
+        return _health_result(False, "database unavailable", engine=connection.vendor)
     return _health_result(True, engine=connection.vendor)
 
 
@@ -41,8 +41,8 @@ def _check_cache_health():
         cache.set(key, value, timeout=15)
         cached = cache.get(key)
         cache.delete(key)
-    except Exception as error:  # noqa: BLE001 - health endpoint must report diagnostics.
-        return _health_result(False, str(error))
+    except Exception:  # noqa: BLE001 - health endpoint must not expose stack details.
+        return _health_result(False, "cache unavailable")
     if cached != value:
         return _health_result(False, "cache round-trip mismatch")
     return _health_result(True)

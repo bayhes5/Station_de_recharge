@@ -103,8 +103,7 @@ function renderQrSvg(container, svgText) {
     svg.querySelectorAll("*").forEach((element) => {
         [...element.attributes].forEach((attribute) => {
             const name = attribute.name.toLowerCase();
-            const value = attribute.value.trim().toLowerCase();
-            if (name.startsWith("on") || ((name === "href" || name === "xlink:href") && value.startsWith("javascript:"))) {
+            if (name.startsWith("on") || ((name === "href" || name === "xlink:href") && !isSafeSvgReference(attribute.value))) {
                 element.removeAttribute(attribute.name);
             }
         });
@@ -112,6 +111,22 @@ function renderQrSvg(container, svgText) {
 
     container.appendChild(document.importNode(svg, true));
     return true;
+}
+
+function isSafeSvgReference(value) {
+    const trimmed = String(value || "").trim();
+    if (!trimmed) {
+        return false;
+    }
+    if (trimmed.startsWith("#")) {
+        return true;
+    }
+    try {
+        const url = new URL(trimmed, window.location.origin);
+        return url.protocol === "https:" || url.protocol === "http:";
+    } catch (_error) {
+        return false;
+    }
 }
 
 function confirmAction(message, options = {}) {

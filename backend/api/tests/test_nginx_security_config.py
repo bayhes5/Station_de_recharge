@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 NGINX_STATION_CONF = REPO_ROOT / "nginx" / "conf.d" / "station.conf"
@@ -7,6 +9,8 @@ NGINX_STATION_CONF = REPO_ROOT / "nginx" / "conf.d" / "station.conf"
 
 def _read_station_conf() -> str:
     """Read the reverse-proxy server configuration."""
+    if not NGINX_STATION_CONF.exists():
+        pytest.skip(f"{NGINX_STATION_CONF} is not available in this isolated backend image.")
     return NGINX_STATION_CONF.read_text(encoding="utf-8")
 
 

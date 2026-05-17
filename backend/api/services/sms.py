@@ -136,7 +136,9 @@ def _ovh_signature(values, method, url, body, timestamp):
             str(timestamp),
         ]
     )
-    digest = hashlib.sha1(material.encode("utf-8")).hexdigest()
+    # OVH requires this legacy "$1$" SHA-1 signature format for API request
+    # authentication. It is not used for password storage or local hashing.
+    digest = hashlib.new("sha1", material.encode("utf-8"), usedforsecurity=False).hexdigest()
     return f"$1${digest}"
 
 

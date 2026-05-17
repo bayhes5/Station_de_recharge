@@ -19,6 +19,7 @@ def heartbeat_file(request):
         try:
             state_dir.rmdir()
         except OSError:
+            # Another heartbeat fixture may still be using the shared temp dir.
             pass
 
     request.addfinalizer(cleanup)

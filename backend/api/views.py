@@ -1942,10 +1942,10 @@ def admin_user_auth_methods(request, user_id):
     auth_value = (request.data.get("auth_value") or request.data.get("value") or "").strip()
     try:
         auth_method = _ensure_rfid_auth(user, auth_value)
-    except RfidCredentialConflict as error:
-        return Response({"auth_value": str(error)}, status=status.HTTP_409_CONFLICT)
-    except ValueError as error:
-        return Response({"auth_value": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+    except RfidCredentialConflict:
+        return Response({"auth_value": "Ce badge RFID est deja associe a un autre compte."}, status=status.HTTP_409_CONFLICT)
+    except ValueError:
+        return Response({"auth_value": "Badge RFID invalide."}, status=status.HTTP_400_BAD_REQUEST)
 
     now = timezone.now()
     Authentification.objects.filter(
@@ -2212,8 +2212,8 @@ def admin_device_schedule_ota(request, device_id):
             target_version=request.data.get("target_version"),
             update_url=request.data.get("update_url", ""),
         )
-    except ValueError as error:
-        return Response({"target_version": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+    except ValueError:
+        return Response({"target_version": "La version cible du firmware est obligatoire."}, status=status.HTTP_400_BAD_REQUEST)
 
     device = _device_queryset().get(id_device=device_id)
     return Response(DeviceAdminSerializer(device).data)
@@ -2253,10 +2253,10 @@ def create_auth_method(request):
 
     try:
         auth_method = _ensure_rfid_auth(request.user, auth_value)
-    except RfidCredentialConflict as error:
-        return Response({"auth_value": str(error)}, status=status.HTTP_409_CONFLICT)
-    except ValueError as error:
-        return Response({"auth_value": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+    except RfidCredentialConflict:
+        return Response({"auth_value": "Ce badge RFID est deja associe a un autre compte."}, status=status.HTTP_409_CONFLICT)
+    except ValueError:
+        return Response({"auth_value": "Badge RFID invalide."}, status=status.HTTP_400_BAD_REQUEST)
 
     return Response(
         {
@@ -3114,8 +3114,8 @@ def terminal_link_rfid(request):
 
     try:
         auth_method = _ensure_rfid_auth(user, uid)
-    except RfidCredentialConflict as error:
-        return Response({"detail": str(error)}, status=status.HTTP_409_CONFLICT)
+    except RfidCredentialConflict:
+        return Response({"detail": "Ce badge RFID est deja associe a un autre compte."}, status=status.HTTP_409_CONFLICT)
     now = timezone.now()
     Authentification.objects.filter(
         utilisateur=user,

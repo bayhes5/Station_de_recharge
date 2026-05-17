@@ -24,6 +24,22 @@ function terminalApiUrl(path) {
     throw new Error("Chemin API locale refusé.");
 }
 
+function isSafeSvgReference(value) {
+    const trimmed = String(value || "").trim();
+    if (!trimmed) {
+        return false;
+    }
+    if (trimmed.startsWith("#")) {
+        return true;
+    }
+    try {
+        const url = new URL(trimmed, window.location.origin);
+        return url.protocol === "https:" || url.protocol === "http:";
+    } catch (_error) {
+        return false;
+    }
+}
+
 function renderQrSvg(container, svgText) {
     container.replaceChildren();
 
@@ -42,10 +58,9 @@ function renderQrSvg(container, svgText) {
     svg.querySelectorAll("*").forEach((element) => {
         [...element.attributes].forEach((attribute) => {
             const name = attribute.name.toLowerCase();
-            const value = attribute.value.trim().toLowerCase();
             if (
                 name.startsWith("on")
-                || ((name === "href" || name === "xlink:href") && value.startsWith("javascript:"))
+                || ((name === "href" || name === "xlink:href") && !isSafeSvgReference(attribute.value))
             ) {
                 element.removeAttribute(attribute.name);
             }

@@ -11,7 +11,7 @@ function createStatusBadge(label, variant = "") {
 }
 
 function createDataTable(container, columns, rows, emptyMessage) {
-    container.innerHTML = "";
+    container.replaceChildren();
 
     if (!rows.length) {
         const empty = document.createElement("div");
@@ -37,15 +37,15 @@ function createDataTable(container, columns, rows, emptyMessage) {
 
     const tbody = document.createElement("tbody");
     rows.forEach((row) => {
-        const tr = document.createElement("tr");
-        columns.forEach((column) => {
-            const td = document.createElement("td");
-            const value = column.render ? column.render(row) : row[column.key];
-            if (value instanceof Node) {
-                td.appendChild(value);
-            } else {
-                td.textContent = value ?? "-";
-            }
+            const tr = document.createElement("tr");
+            columns.forEach((column) => {
+                const td = document.createElement("td");
+                if (column.renderNode) {
+                    td.appendChild(column.renderNode(row));
+                } else {
+                    const value = column.render ? column.render(row) : row[column.key];
+                    td.textContent = value ?? "-";
+                }
             tr.appendChild(td);
         });
         tbody.appendChild(tr);
@@ -101,7 +101,7 @@ function renderSupervision(supervision) {
             { label: "Emplacement", render: (device) => device.slot_label || device.slot_id || "-" },
             {
                 label: "Connexion",
-                render: (device) => createStatusBadge(
+                renderNode: (device) => createStatusBadge(
                     device.online ? "En ligne" : "Hors ligne",
                     device.online ? "success" : "danger"
                 ),
@@ -123,7 +123,7 @@ function renderSupervision(supervision) {
             { label: "Type", render: (alert) => alert.type || "-" },
             {
                 label: "Sévérité",
-                render: (alert) => createStatusBadge(
+                renderNode: (alert) => createStatusBadge(
                     alert.niveau_severite || "-",
                     ["critical", "critique"].includes(alert.niveau_severite) ? "danger" : "warning"
                 ),
