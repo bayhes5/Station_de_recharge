@@ -103,7 +103,22 @@ def test_publish_slot_command_allows_missing_ack_when_not_required(monkeypatch):
     assert result["ack_topic"] == "station/slot1/ack"
     assert result["ack_required"] is False
     assert result["ack_received"] is False
+    assert result["command_confirmed"] is False
     assert result["command"]["session_id"] == "session-1"
+
+
+def test_publish_slot_command_rejects_negative_ack_even_when_not_required(monkeypatch):
+    install_fake_paho(monkeypatch)
+    mqtt_client = load_mqtt_client(monkeypatch, ack_required="false")
+    FakeMqttClient.ack_payload = {
+        "command_id": "cmd-denied",
+        "action": "START",
+        "status": "error",
+        "message": "Relais indisponible.",
+    }
+
+    with pytest.raises(RuntimeError, match="refusee par ESP32"):
+        mqtt_client.publish_slot_command("slot1", "START", command_id="cmd-denied")
 
 
 def test_publish_slot_command_rejects_missing_ack_when_required(monkeypatch):
@@ -112,6 +127,32 @@ def test_publish_slot_command_rejects_missing_ack_when_required(monkeypatch):
 
     with pytest.raises(RuntimeError, match="sans confirmation ESP32"):
         mqtt_client.publish_slot_command("slot1", "START")
+
+
+def test_publish_slot_command_rejects_non_confirming_ack_when_required(monkeypatch):
+    install_fake_paho(monkeypatch)
+    mqtt_client = load_mqtt_client(monkeypatch, ack_required="true")
+    FakeMqttClient.ack_payload = {
+        "command_id": "cmd-1",
+        "action": "START",
+        "status": "stopped",
+    }
+
+    with pytest.raises(RuntimeError, match="ACK ESP32 non confirmant"):
+        mqtt_client.publish_slot_command("slot1", "START", command_id="cmd-1")
+
+
+def test_publish_slot_command_ignores_ack_for_other_action(monkeypatch):
+    install_fake_paho(monkeypatch)
+    mqtt_client = load_mqtt_client(monkeypatch, ack_required="true")
+    FakeMqttClient.ack_payload = {
+        "command_id": "cmd-1",
+        "action": "STOP",
+        "status": "stopped",
+    }
+
+    with pytest.raises(RuntimeError, match="sans confirmation ESP32"):
+        mqtt_client.publish_slot_command("slot1", "START", command_id="cmd-1")
 
 
 def test_publish_slot_command_accepts_matching_ack_when_required(monkeypatch):
@@ -126,6 +167,7 @@ def test_publish_slot_command_accepts_matching_ack_when_required(monkeypatch):
     result = mqtt_client.publish_slot_command("slot1", "START", command_id="cmd-1")
 
     assert result["ack_received"] is True
+    assert result["ack_status"] == "accepted"
+    assert result["command_confirmed"] is True
     assert result["ack"]["topic"] == "station/slot1/ack"
     assert result["ack"]["payload"]["status"] == "accepted"
-

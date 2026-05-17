@@ -235,6 +235,16 @@ En développement, ``MQTT_ACK_REQUIRED=False`` permet de tester l'interface sans
 ESP32. Sur une borne réelle, ``MQTT_ACK_REQUIRED=True`` doit être utilisé afin
 de refuser le démarrage si l'emplacement ne confirme pas la commande.
 
+Le kiosk distingue deux notions :
+
+* ``ack_received`` : un message a bien été reçu sur le canal ``ack`` ;
+* ``command_confirmed`` : cet ACK confirme réellement l'action demandée.
+
+Un ACK ``error``, ``rejected``, ``denied``, ``failed`` ou ``fault`` est toujours
+traité comme un échec. En production, un ACK reçu mais non confirmant, par
+exemple ``status=stopped`` pour une commande ``START``, bloque aussi la suite du
+parcours quand ``MQTT_ACK_REQUIRED=True``.
+
 Contrôles avant démonstration
 -----------------------------
 

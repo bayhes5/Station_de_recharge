@@ -11,6 +11,15 @@ from datetime import datetime, timezone
 from typing import Any
 
 
+CONFIRMED_ACK_STATUSES = {
+    "START": {"accepted", "reserved", "ready", "charging", "charging_started"},
+    "STOP": {"accepted", "stopped", "idle"},
+    "LOCK": {"accepted", "locked"},
+    "UNLOCK": {"accepted", "unlocked"},
+}
+REJECTED_ACK_STATUSES = {"denied", "error", "failed", "fault", "rejected"}
+
+
 @dataclass(frozen=True)
 class MqttSettings:
     """Runtime MQTT settings for the local Raspberry edge client."""
@@ -58,10 +67,32 @@ def _decode_ack(raw_payload: bytes) -> dict[str, Any]:
 def _ack_matches(ack_payload: dict[str, Any], command_id: str, action: str) -> bool:
     """Return whether an ACK corresponds to the command just published."""
     ack_command_id = str(ack_payload.get("command_id") or "").strip()
-    if ack_command_id:
-        return ack_command_id == command_id
     ack_action = str(ack_payload.get("action") or "").strip().upper()
+    if ack_command_id:
+        return ack_command_id == command_id and (not ack_action or ack_action == action.upper())
     return bool(ack_action and ack_action == action.upper())
+
+
+def _ack_status(ack_payload: dict[str, Any] | None) -> str:
+    """Return the normalized status carried by an ESP32 ACK."""
+    if not ack_payload:
+        return ""
+    return str(ack_payload.get("status") or ack_payload.get("state") or "").strip().lower()
+
+
+def _ack_message(ack_payload: dict[str, Any] | None) -> str:
+    """Return a readable diagnostic message from an ESP32 ACK."""
+    if not ack_payload:
+        return ""
+    return str(ack_payload.get("message") or "").strip()
+
+
+def _ack_confirms_command(ack_payload: dict[str, Any] | None, action: str) -> bool:
+    """Return whether an ACK is an operational confirmation."""
+    status = _ack_status(ack_payload)
+    if not status or status in REJECTED_ACK_STATUSES:
+        return False
+    return status in CONFIRMED_ACK_STATUSES.get(action.upper(), {"accepted"})
 
 
 def publish_slot_command(slot_id: str, action: str, **metadata: Any) -> dict[str, Any]:
@@ -123,14 +154,30 @@ def publish_slot_command(slot_id: str, action: str, **metadata: Any) -> dict[str
     client.loop_stop()
     client.disconnect()
 
+    ack_status = _ack_status(ack_payload["payload"] if ack_payload else None)
+    ack_message = _ack_message(ack_payload["payload"] if ack_payload else None)
+    command_confirmed = _ack_confirms_command(
+        ack_payload["payload"] if ack_payload else None,
+        action=action,
+    )
+
+    if ack_status in REJECTED_ACK_STATUSES:
+        detail = f": {ack_message}" if ack_message else ""
+        raise RuntimeError(f"Commande MQTT {action} refusee par ESP32 sur {ack_topic}{detail}.")
+
     if settings.ack_required and ack_payload is None:
         raise RuntimeError(f"Commande MQTT publiee sans confirmation ESP32 sur {ack_topic}.")
+    if settings.ack_required and not command_confirmed:
+        detail = f" status={ack_status}" if ack_status else ""
+        raise RuntimeError(f"ACK ESP32 non confirmant pour {action} sur {ack_topic}{detail}.")
 
     return {
         "topic": command_topic,
         "ack_topic": ack_topic,
         "ack_required": settings.ack_required,
         "ack_received": ack_payload is not None,
+        "ack_status": ack_status,
+        "command_confirmed": command_confirmed,
         "ack_timeout_seconds": settings.ack_timeout_seconds,
         "command": payload,
         "ack": ack_payload,

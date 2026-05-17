@@ -314,7 +314,21 @@ class KioskHandler(SimpleHTTPRequestHandler):
             self._send_json({"detail": f"Broker MQTT indisponible: {error}"}, status=503)
             return
 
-        message = "Commande MQTT confirmee par ESP32." if command_result.get("ack_received") else "Commande MQTT envoyee."
+        if command_result.get("ack_received") and not command_result.get("command_confirmed"):
+            self._send_json(
+                {
+                    "detail": "ACK ESP32 recu mais non confirmant.",
+                    "mqtt": command_result,
+                },
+                status=409,
+            )
+            return
+
+        message = (
+            "Commande MQTT confirmee par ESP32."
+            if command_result.get("command_confirmed")
+            else "Commande MQTT envoyee."
+        )
         self._send_json({"message": message, "mqtt": command_result})
 
     def do_GET(self):

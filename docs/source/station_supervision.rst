@@ -248,6 +248,15 @@ En développement, ``MQTT_ACK_REQUIRED=False`` laisse la commande réussir sans
 ESP32 branché. En production, ``MQTT_ACK_REQUIRED=True`` permet de refuser le
 démarrage si le relais ne confirme pas.
 
+Le Raspberry ne considère pas tout ACK comme une validation. Le champ
+``ack_received`` indique seulement qu'une réponse est arrivée. Le champ
+``command_confirmed`` vaut ``true`` uniquement si le statut reçu correspond à
+l'action envoyée : ``accepted``, ``reserved``, ``ready``, ``charging`` ou
+``charging_started`` pour ``START``, ``stopped`` ou ``idle`` pour ``STOP``,
+``locked`` pour ``LOCK`` et ``unlocked`` pour ``UNLOCK``. Les statuts ``error``,
+``rejected``, ``denied``, ``failed`` et ``fault`` provoquent un refus immédiat,
+même si les ACK ne sont pas obligatoires en développement.
+
 Le bridge backend consomme aussi ces ACK. Il met à jour le device avec
 ``last_command_id``, ``last_command_action``, ``last_command_status``,
 ``last_command_message`` et ``last_command_at``. L'onglet administrateur

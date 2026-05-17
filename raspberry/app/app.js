@@ -348,7 +348,8 @@ function mqttDetails(result) {
     const ackPayload = mqtt.ack?.payload || {};
     const status = ackPayload.status || ackPayload.state || "confirme";
     const message = ackPayload.message ? ` - ${ackPayload.message}` : "";
-    return `ESP32 ${status}${message}`;
+    const prefix = mqtt.command_confirmed === false ? "ESP32 non confirmé" : "ESP32";
+    return `${prefix} ${status}${message}`;
 }
 
 async function readLatestRfidScan() {

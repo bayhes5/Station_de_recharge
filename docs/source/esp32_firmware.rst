@@ -154,6 +154,20 @@ Le Raspberry utilise cet ACK pour confirmer que l'ESP32 a bien reçu et appliqu�
 la commande. En production, une commande sans ACK doit être traitée comme un
 échec opérationnel.
 
+Un ACK doit reprendre le ``command_id`` et, si le champ ``action`` est présent,
+il doit correspondre à l'action demandée. Côté Raspberry, un ACK reçu n'est
+accepté comme confirmation que si son ``status`` est cohérent avec la commande :
+
+* ``START`` : ``accepted``, ``reserved``, ``ready``, ``charging`` ou
+  ``charging_started`` ;
+* ``STOP`` : ``accepted``, ``stopped`` ou ``idle`` ;
+* ``LOCK`` : ``accepted`` ou ``locked`` ;
+* ``UNLOCK`` : ``accepted`` ou ``unlocked``.
+
+Les statuts ``error``, ``rejected``, ``denied``, ``failed`` et ``fault`` doivent
+être réservés aux refus explicites. Ils bloquent le parcours kiosk même en mode
+développement.
+
 Le backend ingère également les ACK via le bridge MQTT. Le dernier
 acquittement connu est conservé sur le ``Device`` pour la supervision :
 identifiant de commande, action, statut, message lisible et horodatage. Cette
