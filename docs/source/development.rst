@@ -274,8 +274,9 @@ Les tests pytest sont exécutés automatiquement pendant le build de l'image
 backend. Si un test échoue, ``docker compose up -d --build`` s'arrête avant de
 lancer les services.
 
-Le workflow GitHub Actions ``CI`` relance aussi les tests backend, la qualité
-des docstrings backend, la validation frontend avec ``npm run verify`` et la
+Le workflow GitHub Actions ``CI`` relance aussi les tests backend, Ruff, la
+qualité des docstrings backend, la validation du schéma OpenAPI, les contrôles
+de déploiement Django, la validation frontend avec ``npm run verify`` et la
 génération de la documentation HTML sur chaque push et pull request.
 
 Automatisations DevSecOps

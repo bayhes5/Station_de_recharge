@@ -4,6 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 import re
 
@@ -317,7 +318,7 @@ class BorneSerializer(serializers.ModelSerializer):
             "mqtt_prefix": {"required": False, "allow_blank": True},
         }
 
-    def get_emplacements_count(self, obj):
+    def get_emplacements_count(self, obj) -> int:
         """Return the number of charging bays attached to the cabinet."""
         return obj.emplacements.count()
 
@@ -501,7 +502,7 @@ class TechnicianMaintenanceSerializer(serializers.ModelSerializer):
             "technicien": {"read_only": True},
         }
 
-    def get_emplacement_count(self, obj):
+    def get_emplacement_count(self, obj) -> int:
         """Return the number of charging bays at the maintenance station."""
         return obj.station.emplacements.count()
 
@@ -534,7 +535,7 @@ class TechnicianStationAssignmentSerializer(serializers.ModelSerializer):
             "assigned_at": {"read_only": True},
         }
 
-    def get_role_display(self, obj):
+    def get_role_display(self, obj) -> str:
         """Return the localized role label."""
         return obj.get_role_display()
 
@@ -577,6 +578,7 @@ class TechnicianSerializer(serializers.ModelSerializer):
             "utilisateur": {"required": False, "allow_null": True},
         }
 
+    @extend_schema_field(TechnicianStationAssignmentSerializer(many=True))
     def get_assigned_stations(self, obj):
         """Return active station assignments without broadening technician scope."""
         assignments = getattr(obj, "prefetched_active_station_assignments", None)

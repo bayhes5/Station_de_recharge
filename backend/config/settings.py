@@ -130,6 +130,21 @@ SPECTACULAR_SETTINGS = {
     "SWAGGER_UI_SETTINGS": {
         "persistAuthorization": False,
     },
+    "ENUM_NAME_OVERRIDES": {
+        "UserStatusEnum": "api.models.UserStatus",
+        "ConsentStatusEnum": "api.models.ConsentStatus",
+        "SecurityLogStatusEnum": "api.models.SecurityLogStatus",
+        "OperationalStatusEnum": "api.models.StationStatus",
+        "EmplacementStatusEnum": "api.models.EmplacementStatus",
+        "LockStateEnum": "api.models.LockState",
+        "ReservationAuthChoiceEnum": "api.models.ReservationAuthChoice",
+        "ReservationStatusEnum": "api.models.ReservationStatus",
+        "DeviceStatusEnum": "api.models.DeviceStatus",
+        "AlertSeverityEnum": "api.models.AlertSeverity",
+        "AlertStatusEnum": "api.models.AlertStatus",
+        "MaintenanceStatusEnum": "api.models.MaintenanceStatus",
+        "TechnicianStationRoleEnum": "api.models.TechnicianStationRole",
+    },
 }
 
 SIMPLE_JWT = {

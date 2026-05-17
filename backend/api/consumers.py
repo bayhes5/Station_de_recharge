@@ -15,6 +15,7 @@ from api.services.supervision import build_admin_supervision_payload
 
 @database_sync_to_async
 def _get_active_user(token_value: str | None):
+    """Return the active user authenticated by a JWT access token."""
     if not token_value:
         return None
 
@@ -58,6 +59,7 @@ def _station_ids_for_user(user):
 
 @database_sync_to_async
 def _supervision_snapshot(station_ids=None):
+    """Build a supervision payload for all stations or a scoped subset."""
     return build_admin_supervision_payload(station_ids=station_ids)
 
 
@@ -93,6 +95,7 @@ class AdminSupervisionConsumer(AsyncJsonWebsocketConsumer):
         await self._send_snapshot(reason=event.get("reason", "update"), summary=event.get("summary") or {})
 
     async def _send_snapshot(self, reason: str, summary: dict | None = None):
+        """Send the current supervision snapshot to the connected client."""
         await self.send_json(
             {
                 "type": "supervision.snapshot",

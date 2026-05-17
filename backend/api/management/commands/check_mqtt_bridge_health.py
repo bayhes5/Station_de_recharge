@@ -11,6 +11,7 @@ class Command(BaseCommand):
     help = "Fail when the MQTT bridge heartbeat is missing or stale."
 
     def handle(self, *args, **options):
+        """Validate that the MQTT bridge heartbeat file is fresh enough."""
         heartbeat_path = Path(settings.MQTT_BRIDGE_HEARTBEAT_FILE)
         max_age = settings.MQTT_BRIDGE_HEARTBEAT_MAX_AGE_SECONDS
 

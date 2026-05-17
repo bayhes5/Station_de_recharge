@@ -3473,7 +3473,11 @@ def _terminal_mobile_session_status_response(token):
     return Response(response)
 
 
-@_schema("Consommer une autorisation mobile depuis le terminal", tags=["Terminal"])
+@_schema(
+    "Consommer une autorisation mobile depuis le terminal",
+    tags=["Terminal"],
+    operation_id="terminal_mobile_session_consume_by_token",
+)
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def terminal_consume_mobile_session(request, token):
@@ -3485,7 +3489,12 @@ def terminal_consume_mobile_session(request, token):
     return _terminal_consume_mobile_session_response(request, token)
 
 
-@_schema("Consommer une autorisation mobile depuis le terminal", request=OpenApiTypes.OBJECT, tags=["Terminal"])
+@_schema(
+    "Consommer une autorisation mobile depuis le terminal",
+    request=OpenApiTypes.OBJECT,
+    tags=["Terminal"],
+    operation_id="terminal_mobile_session_consume_from_body",
+)
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def terminal_consume_mobile_session_from_body(request):
