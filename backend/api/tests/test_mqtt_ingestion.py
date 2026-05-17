@@ -92,6 +92,42 @@ def test_process_mqtt_status_maps_charging_started(emplacements):
 
 
 @pytest.mark.django_db
+def test_process_mqtt_ack_tracks_last_command(emplacements):
+    """Store ESP32 command acknowledgements for supervision traceability."""
+    Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="demo",
+        mac_address="slot1",
+        status="offline",
+    )
+
+    result = process_mqtt_message(
+        "station/slot1/ack",
+        json.dumps(
+            {
+                "command_id": "cmd-123",
+                "action": "START",
+                "status": "accepted",
+                "message": "Emplacement reserve.",
+            }
+        ),
+    )
+
+    device = Device.objects.get(mac_address="slot1")
+    assert result["message_type"] == "ack"
+    assert result["command_id"] == "cmd-123"
+    assert result["command_action"] == "START"
+    assert result["command_status"] == "accepted"
+    assert device.status == "online"
+    assert device.last_command_id == "cmd-123"
+    assert device.last_command_action == "START"
+    assert device.last_command_status == "accepted"
+    assert device.last_command_message == "Emplacement reserve."
+    assert device.last_command_at is not None
+
+
+@pytest.mark.django_db
 def test_process_mqtt_alert_topic_creates_operational_alert(emplacements):
     """Ingest explicit ESP32 alert topics from the local broker."""
     Device.objects.create(

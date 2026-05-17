@@ -35,6 +35,18 @@ def device_status_display(device):
     return DEVICE_STATUS_DISPLAY.get(raw_status.lower(), raw_status or "-")
 
 
+def device_last_command_display(device):
+    """Return the last ESP32 command acknowledgement in a compact form."""
+    parts = [
+        (device.last_command_action or "").strip(),
+        (device.last_command_status or "").strip(),
+    ]
+    label = " ".join(part for part in parts if part)
+    if device.last_command_message:
+        label = f"{label} - {device.last_command_message}" if label else device.last_command_message
+    return label or "-"
+
+
 def serialize_device_supervision(device, now=None):
     """Return one ESP32 state row for the admin supervision screen."""
     online = device_is_online(device, now=now)
@@ -53,6 +65,12 @@ def serialize_device_supervision(device, now=None):
         "last_seen": device.last_seen.isoformat() if device.last_seen else None,
         "online": online,
         "health": "online" if online else "offline",
+        "last_command_id": device.last_command_id,
+        "last_command_action": device.last_command_action,
+        "last_command_status": device.last_command_status,
+        "last_command_message": device.last_command_message,
+        "last_command_at": device.last_command_at.isoformat() if device.last_command_at else None,
+        "last_command_display": device_last_command_display(device),
         "station_nom": station.nom,
         "borne_nom": borne.nom,
         "borne_numero": borne.numero,

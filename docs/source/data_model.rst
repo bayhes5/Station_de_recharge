@@ -67,6 +67,11 @@ Les types de capteurs, types d'alertes et types d'intervention restent plus
 ouverts. Ils dépendent du matériel, du firmware et de l'exploitation terrain ;
 les figer trop tôt rendrait l'intégration ESP32 moins souple.
 
+Les champs ``Device.last_command_*`` conservent le dernier ACK MQTT reçu pour un
+ESP32 : identifiant de commande, action, statut, message et horodatage. Ils
+servent à l'exploitation et à la supervision, sans remplacer ``Device.status``
+ni ``Device.last_seen``.
+
 UUID
 ~~~~
 

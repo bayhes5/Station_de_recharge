@@ -28,6 +28,7 @@ def run_mqtt_bridge():
     topics = [
         (f"{settings.MQTT_BASE_TOPIC}/+/telemetry", settings.MQTT_QOS),
         (f"{settings.MQTT_BASE_TOPIC}/+/status", settings.MQTT_QOS),
+        (f"{settings.MQTT_BASE_TOPIC}/+/ack", settings.MQTT_QOS),
         (f"{settings.MQTT_BASE_TOPIC}/+/alert", settings.MQTT_QOS),
     ]
     topic_label = ", ".join(topic for topic, _qos in topics)

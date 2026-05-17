@@ -35,11 +35,16 @@ SENSOR_FIELDS = {
 
 RESOLVED_ALERT_STATUSES = ["resolved", "resolue", "closed", "fermee"]
 DEVICE_STATUS_ALIASES = {
+    "accepted": DeviceStatus.ONLINE,
     "available": DeviceStatus.ONLINE,
     "boot": DeviceStatus.ONLINE,
+    "denied": DeviceStatus.ERROR,
+    "error": DeviceStatus.ERROR,
     "locked": DeviceStatus.ONLINE,
     "reserved": DeviceStatus.ONLINE,
     "ready": DeviceStatus.ONLINE,
+    "rejected": DeviceStatus.ERROR,
+    "stopped": DeviceStatus.ONLINE,
     "unlocked": DeviceStatus.ONLINE,
     "waiting_cable": DeviceStatus.ONLINE,
     "waiting_lock": DeviceStatus.ONLINE,
@@ -65,6 +70,16 @@ class DeviceStatusResult:
     """Summarize the state update created from one ESP32 status payload."""
 
     device: Device
+
+
+@dataclass(frozen=True)
+class DeviceAckResult:
+    """Summarize one command acknowledgement received from an ESP32."""
+
+    device: Device
+    command_id: str
+    action: str
+    status: str
 
 
 def _parse_timestamp(value: Any):
@@ -312,6 +327,40 @@ def ingest_slot_status(slot_id: str, payload: dict[str, Any]) -> DeviceStatusRes
     device.status = _device_status(status_value)
     device.save(update_fields=["last_seen", "status"])
     return DeviceStatusResult(device=device)
+
+
+@transaction.atomic
+def ingest_slot_ack(slot_id: str, payload: dict[str, Any]) -> DeviceAckResult:
+    """Persist one ESP32 command acknowledgement for operational traceability."""
+    if not slot_id:
+        raise ValueError("slot_id est obligatoire.")
+
+    timestamp = _parse_timestamp(payload.get("timestamp"))
+    command_id = str(payload.get("command_id") or "").strip()
+    action = str(payload.get("action") or "").strip().upper()
+    ack_status = str(payload.get("status") or payload.get("state") or "").strip().lower()
+    message = str(payload.get("message") or "").strip()[:255]
+    device = _get_device(slot_id)
+    device.last_seen = timestamp
+    device.last_command_id = command_id
+    device.last_command_action = action
+    device.last_command_status = ack_status
+    device.last_command_message = message
+    device.last_command_at = timestamp
+    if ack_status:
+        device.status = _device_status(ack_status)
+    device.save(
+        update_fields=[
+            "last_seen",
+            "last_command_id",
+            "last_command_action",
+            "last_command_status",
+            "last_command_message",
+            "last_command_at",
+            "status",
+        ]
+    )
+    return DeviceAckResult(device=device, command_id=command_id, action=action, status=ack_status)
 
 
 @transaction.atomic

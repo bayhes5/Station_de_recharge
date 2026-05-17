@@ -6,7 +6,7 @@ import logging
 from django.conf import settings
 
 from api.realtime import broadcast_supervision_update
-from api.services.telemetry import ingest_slot_status, ingest_slot_telemetry
+from api.services.telemetry import ingest_slot_ack, ingest_slot_status, ingest_slot_telemetry
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,30 @@ def process_mqtt_message(topic: str, payload: str | bytes):
 
     slot_id = str(data.pop("slot_id", "") or _extract_slot_id(topic))
     message_kind = _extract_message_kind(topic)
+    if message_kind == "ack":
+        result = ingest_slot_ack(slot_id=slot_id, payload=data)
+        logger.info(
+            "MQTT ACK ingere slot=%s action=%s status=%s command_id=%s",
+            slot_id,
+            result.action,
+            result.status,
+            result.command_id,
+        )
+        response = {
+            "slot_id": slot_id,
+            "message_type": "ack",
+            "device_status": result.device.status,
+            "last_seen": result.device.last_seen.isoformat() if result.device.last_seen else None,
+            "command_id": result.command_id,
+            "command_action": result.action,
+            "command_status": result.status,
+            "capteur_count": 0,
+            "alert_count": 0,
+            "session_telemetry_created": False,
+        }
+        broadcast_supervision_update("mqtt-ack", response)
+        return response
+
     if message_kind == "status":
         result = ingest_slot_status(slot_id=slot_id, payload=data)
         logger.info("MQTT status ingere slot=%s status=%s", slot_id, result.device.status)

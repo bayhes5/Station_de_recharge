@@ -670,6 +670,11 @@ class Device(models.Model):
     mac_address = models.CharField(max_length=50, blank=True)
     last_seen = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=50, choices=DeviceStatus.choices)
+    last_command_id = models.CharField(max_length=100, blank=True, default="")
+    last_command_action = models.CharField(max_length=20, blank=True, default="")
+    last_command_status = models.CharField(max_length=50, blank=True, default="")
+    last_command_message = models.CharField(max_length=255, blank=True, default="")
+    last_command_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "device"
@@ -686,6 +691,7 @@ class Device(models.Model):
         indexes = [
             models.Index(fields=["last_seen"], name="idx_device_last_seen"),
             models.Index(fields=["status", "last_seen"], name="idx_device_status_seen"),
+            models.Index(fields=["last_command_at"], name="idx_device_last_cmd_at"),
         ]
 
 

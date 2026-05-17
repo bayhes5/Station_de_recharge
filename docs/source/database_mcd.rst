@@ -607,6 +607,14 @@ Point de charge numéroté dans une borne.
   ``offline`` pour un état explicitement remonté hors ligne et ``error`` pour
   une anomalie embarquée. La disponibilité réelle ne doit pas être déduite de ce
   champ seul : elle dépend de la fraîcheur de ``last_seen``.
+* ``last_command_id`` : identifiant de la dernière commande acquittée par
+  l'ESP32.
+* ``last_command_action`` : action de la dernière commande. Exemple :
+  ``START`` ou ``STOP``.
+* ``last_command_status`` : statut de l'ACK reçu. Exemple : ``accepted`` ou
+  ``stopped``.
+* ``last_command_message`` : message lisible renvoyé par le firmware.
+* ``last_command_at`` : horodatage du dernier ACK reçu.
 
 ``capteur``
 ~~~~~~~~~~~

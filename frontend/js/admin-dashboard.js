@@ -242,6 +242,19 @@ document.addEventListener("DOMContentLoaded", async () => {
         return `${formatted} ${row.unite || ""}`.trim();
     }
 
+    function formatCommandAck(device) {
+        if (!device.last_command_action && !device.last_command_status && !device.last_command_message) {
+            return "-";
+        }
+        const parts = [
+            device.last_command_action,
+            device.last_command_status,
+            device.last_command_message,
+            device.last_command_at ? formatDateTime(device.last_command_at) : "",
+        ].filter(Boolean);
+        return parts.join(" - ");
+    }
+
     function buildGrafanaDashboardUrl(baseUrl) {
         const cleaned = String(baseUrl || "").trim().replace(/\/+$/, "");
         if (!cleaned) return GRAFANA_DASHBOARD_SUBPATH;
@@ -1052,6 +1065,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Emplacement", render: (device) => device.slot_label || device.slot_id || "-" },
                 { label: "Connexion", render: (device) => createStatusBadge(device.online ? "En ligne" : "Hors ligne", device.online ? "success" : "danger") },
                 { label: "Dernier état reçu", render: (device) => device.status_display || device.status || "-" },
+                { label: "Dernier ACK", render: formatCommandAck },
                 { label: "Station", render: (device) => device.station_nom || "-" },
                 { label: "Borne", render: (device) => device.borne_nom || "-" },
                 { label: "Emplacement", render: (device) => device.emplacement_numero ?? "-" },

@@ -83,7 +83,7 @@ La stack locale contient les services de supervision suivants :
 * ``mqtt`` : broker Mosquitto local, exposé sur le port ``1883`` ;
 * ``redis`` : cache, broker Celery et bus temps réel de Django Channels ;
 * ``celery`` : worker de traitement asynchrone ;
-* ``mqtt-bridge`` : consommateur backend abonné aux télémétries, statuts et alertes ESP32 ;
+* ``mqtt-bridge`` : consommateur backend abonné aux télémétries, statuts, ACK et alertes ESP32 ;
 * ``grafana`` : supervision technique exposée sur ``http://localhost:3000`` ;
 * ``db`` : TimescaleDB/PostgreSQL, compatible avec les modèles Django existants.
 
@@ -136,6 +136,12 @@ Ils publient enfin leurs alertes locales immédiates sur :
 .. code-block:: text
 
    station/<slot_id>/alert
+
+Ils publient aussi les accusés de réception de commandes sur :
+
+.. code-block:: text
+
+   station/<slot_id>/ack
 
 Ces événements servent de heartbeat opérationnel. Un ESP32 qui vient d'accepter
 une commande ``START`` peut donc être vu comme connecté dès le message
@@ -204,6 +210,13 @@ L'accusé de réception attendu reprend le ``command_id`` :
 En développement, ``MQTT_ACK_REQUIRED=False`` laisse la commande réussir sans
 ESP32 branché. En production, ``MQTT_ACK_REQUIRED=True`` permet de refuser le
 démarrage si le relais ne confirme pas.
+
+Le bridge backend consomme aussi ces ACK. Il met à jour le device avec
+``last_command_id``, ``last_command_action``, ``last_command_status``,
+``last_command_message`` et ``last_command_at``. L'onglet administrateur
+``Supervision`` affiche ainsi le dernier acquittement reçu pour chaque ESP32 :
+cela permet de distinguer une commande publiée, une commande confirmée et une
+charge réellement active remontée ensuite par le statut ou la télémétrie.
 
 Commandes utiles
 ----------------

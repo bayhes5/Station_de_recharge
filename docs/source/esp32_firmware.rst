@@ -147,6 +147,13 @@ Le Raspberry utilise cet ACK pour confirmer que l'ESP32 a bien reçu et appliqu�
 la commande. En production, une commande sans ACK doit être traitée comme un
 échec opérationnel.
 
+Le backend ingère également les ACK via le bridge MQTT. Le dernier
+acquittement connu est conservé sur le ``Device`` pour la supervision :
+identifiant de commande, action, statut, message lisible et horodatage. Cette
+trace ne remplace pas les statuts ``reserved`` ou ``charging_started`` ; elle
+sert à prouver que l'ordre ``START``, ``STOP``, ``LOCK`` ou ``UNLOCK`` a été reçu
+par l'ESP32.
+
 Machine d'état
 --------------
 

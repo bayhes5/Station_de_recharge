@@ -122,6 +122,11 @@ Table device {
   mac_address varchar(50) [not null, default: ""]
   last_seen timestamp
   status varchar(50) [not null]
+  last_command_id varchar(100) [not null, default: ""]
+  last_command_action varchar(20) [not null, default: ""]
+  last_command_status varchar(50) [not null, default: ""]
+  last_command_message varchar(255) [not null, default: ""]
+  last_command_at timestamp
 }
 
 Table capteur {
