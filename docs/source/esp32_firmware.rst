@@ -178,7 +178,8 @@ par l'ESP32.
 Machine d'état
 --------------
 
-Les états embarqués restent volontairement simples :
+Les états embarqués restent volontairement simples. Ils décrivent uniquement
+l'état physique de l'emplacement, pas la décision métier de réservation :
 
 .. code-block:: text
 
@@ -191,6 +192,12 @@ Transitions principales :
 * ``START`` fait passer de ``idle`` à ``reserved`` ;
 * câble présent et boîtier fermé font passer de ``reserved`` à ``charging`` ;
 * ``STOP`` ou une anomalie font revenir à ``idle``.
+
+Le Raspberry maintient en parallèle une machine d'état locale plus explicite
+(``reserved``, ``waiting_cable``, ``charging``, ``stopping``, ``stopped``,
+``error``). Elle évite les doubles commandes et signale les états douteux côté
+kiosk. L'ESP32 reste responsable des sécurités immédiates : relais, serrure,
+câble, boîtier, courant et température.
 
 Sécurités locales
 -----------------

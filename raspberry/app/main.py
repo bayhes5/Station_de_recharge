@@ -9,12 +9,14 @@ from urllib.parse import parse_qs, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from charge_state import ChargeStateError, ChargeStateStore
 from mqtt_client import publish_slot_command
 from offline_store import OfflineStore
 from rfid_reader import build_rfid_runtime
 
 RFID_SCAN_STORE, RFID_RUNTIME = build_rfid_runtime()
 OFFLINE_STORE = OfflineStore()
+CHARGE_STATE_STORE = ChargeStateStore()
 BACKEND_API_BASE_URL = os.environ.get("BACKEND_API_BASE_URL", "http://backend:8000/api").rstrip("/")
 TERMINAL_API_SECRET = os.environ.get("TERMINAL_API_SECRET", "").strip()
 TERMINAL_STATION_ID = os.environ.get("TERMINAL_STATION_ID", "").strip()
@@ -282,6 +284,35 @@ class KioskHandler(SimpleHTTPRequestHandler):
             self._send_json(result.to_payload())
             return
 
+        if parsed_path.path == "/charge/state/reset":
+            technician_secret = self.headers.get("X-Terminal-Secret", "").strip()
+            if TERMINAL_API_SECRET and technician_secret != TERMINAL_API_SECRET:
+                self._send_json({"detail": "Operation technicien refusee."}, status=403)
+                return
+            try:
+                payload = self._read_json()
+                slot_id = str(payload.get("slot_id") or "").strip()
+                if not slot_id:
+                    self._send_json({"detail": "slot_id obligatoire."}, status=400)
+                    return
+                snapshot = CHARGE_STATE_STORE.reset_slot(
+                    slot_id=slot_id,
+                    detail="Etat local reinitialise par un technicien.",
+                )
+            except json.JSONDecodeError:
+                self._send_json({"detail": "JSON invalide."}, status=400)
+                return
+            except ChargeStateError as error:
+                self._send_json({"detail": str(error)}, status=400)
+                return
+            self._send_json(
+                {
+                    "message": "Etat local de charge reinitialise.",
+                    "charge_state": snapshot.to_dict(),
+                }
+            )
+            return
+
         if parsed_path.path != "/mqtt/command":
             self._send_json({"detail": "Endpoint introuvable."}, status=404)
             return
@@ -293,43 +324,108 @@ class KioskHandler(SimpleHTTPRequestHandler):
             if not slot_id or action not in {"START", "STOP", "LOCK", "UNLOCK"}:
                 self._send_json({"detail": "slot_id et action MQTT valide sont obligatoires."}, status=400)
                 return
+            session_id = str(payload.get("session_id") or "").strip()
+        except json.JSONDecodeError:
+            self._send_json({"detail": "JSON invalide."}, status=400)
+            return
 
+        tracked_charge_command = action in {"START", "STOP"}
+        if tracked_charge_command:
+            try:
+                if action == "START":
+                    CHARGE_STATE_STORE.start_requested(
+                        slot_id=slot_id,
+                        session_id=session_id,
+                        station=payload.get("station") or "",
+                        borne=payload.get("borne") or "",
+                        emplacement=payload.get("emplacement") or "",
+                    )
+                else:
+                    CHARGE_STATE_STORE.stop_requested(
+                        slot_id=slot_id,
+                        session_id=session_id,
+                    )
+            except ChargeStateError as error:
+                self._send_json(
+                    {
+                        "detail": str(error),
+                        "charge_state": CHARGE_STATE_STORE.snapshot(slot_id).to_dict(),
+                    },
+                    status=409,
+                )
+                return
+
+        try:
             command_result = publish_slot_command(
                 slot_id,
                 action,
                 command_id=payload.get("command_id") or "",
-                session_id=payload.get("session_id") or "",
+                session_id=session_id,
                 station=payload.get("station") or "",
                 borne=payload.get("borne") or "",
                 emplacement=payload.get("emplacement") or "",
                 source="raspberry",
             )
-        except json.JSONDecodeError:
-            self._send_json({"detail": "JSON invalide."}, status=400)
-            return
         except RuntimeError as error:
-            self._send_json({"detail": str(error)}, status=503)
+            response = {"detail": str(error)}
+            if tracked_charge_command:
+                response["charge_state"] = CHARGE_STATE_STORE.mark_error(
+                    slot_id=slot_id,
+                    session_id=session_id,
+                    detail=f"Commande MQTT {action} en erreur: {error}",
+                ).to_dict()
+            self._send_json(response, status=503)
             return
         except OSError as error:
-            self._send_json({"detail": f"Broker MQTT indisponible: {error}"}, status=503)
+            response = {"detail": f"Broker MQTT indisponible: {error}"}
+            if tracked_charge_command:
+                response["charge_state"] = CHARGE_STATE_STORE.mark_error(
+                    slot_id=slot_id,
+                    session_id=session_id,
+                    detail=f"Broker MQTT indisponible pendant {action}: {error}",
+                ).to_dict()
+            self._send_json(response, status=503)
             return
 
+        charge_state = None
         if command_result.get("ack_received") and not command_result.get("command_confirmed"):
+            if tracked_charge_command:
+                charge_state = CHARGE_STATE_STORE.mark_error(
+                    slot_id=slot_id,
+                    session_id=session_id,
+                    detail="ACK ESP32 recu mais non confirmant.",
+                    payload=command_result,
+                ).to_dict()
             self._send_json(
                 {
                     "detail": "ACK ESP32 recu mais non confirmant.",
                     "mqtt": command_result,
+                    "charge_state": charge_state,
                 },
                 status=409,
             )
             return
+
+        if tracked_charge_command:
+            charge_state = CHARGE_STATE_STORE.command_recorded(
+                slot_id=slot_id,
+                action=action,
+                session_id=session_id,
+                mqtt_result=command_result,
+            ).to_dict()
 
         message = (
             "Commande MQTT confirmee par ESP32."
             if command_result.get("command_confirmed")
             else "Commande MQTT envoyee."
         )
-        self._send_json({"message": message, "mqtt": command_result})
+        self._send_json(
+            {
+                "message": message,
+                "mqtt": command_result,
+                "charge_state": charge_state,
+            }
+        )
 
     def do_GET(self):
         """Expose local Raspberry status endpoints and static files."""
@@ -351,6 +447,22 @@ class KioskHandler(SimpleHTTPRequestHandler):
                     "station_id": TERMINAL_STATION_ID,
                     "borne_id": TERMINAL_BORNE_ID,
                     **OFFLINE_STORE.stats(),
+                }
+            )
+            return
+
+        if parsed_path.path == "/charge/state":
+            query = parse_qs(parsed_path.query)
+            slot_id = str((query.get("slot_id") or [""])[0] or "").strip()
+            if slot_id:
+                self._send_json({"result": CHARGE_STATE_STORE.snapshot(slot_id).to_dict()})
+                return
+            self._send_json(
+                {
+                    "results": [
+                        snapshot.to_dict()
+                        for snapshot in CHARGE_STATE_STORE.all_snapshots()
+                    ]
                 }
             )
             return

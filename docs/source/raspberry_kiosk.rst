@@ -42,6 +42,11 @@ Fichiers principaux
    Client MQTT local. Il publie les commandes sur ``station/<slot_id>/cmd`` et
    attend un ACK sur ``station/<slot_id>/ack``.
 
+``raspberry/app/charge_state.py``
+   Machine d'état locale persistée en SQLite. Elle empêche les doubles
+   commandes ``START`` / ``STOP`` sur un même emplacement et rend visible l'état
+   opérationnel courant côté Raspberry.
+
 ``raspberry/app/offline_store.py``
    Cache SQLite local utilisé uniquement lorsque le backend est indisponible.
 
@@ -60,6 +65,7 @@ Les variables minimales pour tester sur un Raspberry physique sont :
    export TERMINAL_API_SECRET=<même-secret-que-le-backend>
    export TERMINAL_STATION_ID=<id-station>
    export TERMINAL_BORNE_ID=<id-borne>
+   export CHARGE_STATE_DB_PATH=charge_state.sqlite3
    export RFID_READER_BACKEND=acr122u
 
 Pour un réseau de production, ``MQTT_BASE_TOPIC`` peut intégrer la station et la
@@ -244,6 +250,40 @@ Un ACK ``error``, ``rejected``, ``denied``, ``failed`` ou ``fault`` est toujours
 traité comme un échec. En production, un ACK reçu mais non confirmant, par
 exemple ``status=stopped`` pour une commande ``START``, bloque aussi la suite du
 parcours quand ``MQTT_ACK_REQUIRED=True``.
+
+Machine d'état locale
+---------------------
+
+Le Raspberry conserve aussi un état local par emplacement dans
+``CHARGE_STATE_DB_PATH``. Cette couche ne remplace pas le backend et ne crée
+aucun droit d'accès ; elle sert uniquement à protéger l'exécution physique
+locale.
+
+États utilisés :
+
+.. code-block:: text
+
+   idle          : aucun ordre local en cours
+   reserved      : START accepté côté kiosk, commande publiée ou en cours
+   waiting_cable : START confirmé par l'ESP32, attente câble + boîtier fermé
+   charging      : charge confirmée active
+   stopping      : STOP demandé, attente confirmation ou clôture
+   stopped       : session arrêtée localement
+   error         : état incohérent ou commande non confirmée
+
+Règles principales :
+
+* un ``START`` est refusé si l'emplacement est déjà ``reserved``,
+  ``waiting_cable``, ``charging`` ou ``stopping`` ;
+* un ``STOP`` doit porter le même ``session_id`` que la session locale active ;
+* un ACK ESP32 non confirmant fait passer l'emplacement en ``error`` ;
+* l'état ``error`` impose une vérification technicien avant de relancer une
+  charge, car l'état physique réel peut être incertain ;
+* ``GET /charge/state`` permet de consulter les états locaux depuis le
+  Raspberry ;
+* ``POST /charge/state/reset`` réinitialise un emplacement après intervention
+  technicien. Si ``TERMINAL_API_SECRET`` est configuré, l'appel doit fournir le
+  même secret dans l'en-tête ``X-Terminal-Secret``.
 
 Contrôles avant démonstration
 -----------------------------

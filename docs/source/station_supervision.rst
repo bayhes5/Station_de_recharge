@@ -265,6 +265,12 @@ l'historique récent des commandes acquittées. Cela permet de distinguer une
 commande publiée, une commande confirmée et une charge réellement active
 remontée ensuite par le statut ou la télémétrie.
 
+Le Raspberry conserve en parallèle un état local par emplacement. Cet état
+protège la borne contre les doubles ``START`` / ``STOP`` pendant qu'une session
+est en cours. Il ne remplace pas Grafana : Grafana observe la télémétrie et les
+états publiés par les ESP32, tandis que l'état local du Raspberry décrit la
+dernière décision opérationnelle prise par le kiosk.
+
 Commandes utiles
 ----------------
 

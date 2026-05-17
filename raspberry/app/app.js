@@ -352,6 +352,22 @@ function mqttDetails(result) {
     return `${prefix} ${status}${message}`;
 }
 
+function chargeStateDetails(result) {
+    const state = result?.charge_state?.state || "";
+    if (!state) {
+        return "";
+    }
+    const labels = {
+        reserved: "ordre START enregistré",
+        waiting_cable: "en attente du câble et du boîtier fermé",
+        charging: "charge confirmée",
+        stopping: "arrêt en cours",
+        stopped: "charge arrêtée",
+        error: "état local en erreur",
+    };
+    return `Raspberry: ${labels[state] || state}`;
+}
+
 async function readLatestRfidScan() {
     let response;
     try {
@@ -542,7 +558,11 @@ async function startSlotFromSession(result) {
 }
 
 function accessDetails(sessionResult, mqttResult) {
-    return [sessionDetails(sessionResult), mqttDetails(mqttResult)].filter(Boolean).join(" | ");
+    return [
+        sessionDetails(sessionResult),
+        mqttDetails(mqttResult),
+        chargeStateDetails(mqttResult),
+    ].filter(Boolean).join(" | ");
 }
 
 function showChargeReady(result, message, details = "") {
@@ -566,6 +586,7 @@ function showCharging(mqttResult = null) {
     chargingDetails.textContent = [
         currentCharge?.details || sessionDetails({ session }),
         mqttDetails(mqttResult),
+        chargeStateDetails(mqttResult),
         "Télémétrie ESP32 publiée vers MQTT pour la supervision Grafana.",
     ].filter(Boolean).join(" | ");
     pushEvent("Chargement en cours.");
@@ -626,6 +647,7 @@ async function stopCurrentCharge() {
         const details = [
             sessionDetails(closeResult || { session }),
             mqttDetails(mqttResult),
+            chargeStateDetails(mqttResult),
             closeResult ? "Session clôturée dans le backend." : "Session arrêtée côté ESP32, clôture backend non confirmée.",
         ].filter(Boolean).join(" | ");
         currentCharge = null;
