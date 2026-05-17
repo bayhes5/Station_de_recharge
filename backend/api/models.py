@@ -229,6 +229,7 @@ class ProfilUtilisateur(models.Model):
     )
     nom = models.CharField(max_length=100, blank=True)
     telephone = models.CharField(max_length=20, blank=True)
+    telephone_verifie = models.BooleanField(default=False)
 
     class Meta:
         db_table = "profil_utilisateur"

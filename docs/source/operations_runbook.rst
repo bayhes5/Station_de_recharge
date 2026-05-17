@@ -359,6 +359,39 @@ après validation HTTPS, limiter ``ALLOWED_HOSTS``, configurer les identifiants
 MQTT, chiffrer MQTT si le trafic sort du réseau local de confiance et remplacer
 le mot de passe Grafana de démonstration.
 
+SMS de production
+-----------------
+
+En développement, ``SMS_BACKEND=console`` suffit : aucun SMS réel n'est envoyé
+et le backend journalise seulement une tentative d'envoi. En production, choisir
+un fournisseur explicite :
+
+.. list-table::
+   :header-rows: 1
+
+   * - Fournisseur
+     - Variables requises
+   * - ``twilio``
+     - ``SMS_TWILIO_ACCOUNT_SID``, ``SMS_TWILIO_AUTH_TOKEN``, ``SMS_TWILIO_FROM``
+   * - ``brevo``
+     - ``SMS_BREVO_API_KEY``
+   * - ``ovh``
+     - ``SMS_OVH_APPLICATION_KEY``, ``SMS_OVH_APPLICATION_SECRET``,
+       ``SMS_OVH_CONSUMER_KEY``, ``SMS_OVH_SERVICE_NAME``
+
+Réglages recommandés avant ouverture du service :
+
+* ``SMS_REQUIRE_VERIFIED_PHONE=True`` pour bloquer l'envoi vers un téléphone non
+  vérifié ;
+* ``SMS_RESEND_COOLDOWN_SECONDS=60`` ou plus pour limiter le bouton de renvoi ;
+* ``SMS_HTTP_TIMEOUT_SECONDS=10`` pour éviter de bloquer trop longtemps une
+  requête utilisateur si le fournisseur ne répond pas ;
+* ``SMS_SENDER_NAME`` limité à un libellé court compatible avec le fournisseur.
+
+Le profil utilisateur expose ``telephone_verifie``. Un changement de numéro
+depuis le profil remet automatiquement cette valeur à ``False``. L'admin peut la
+remettre à ``True`` après vérification opérationnelle du numéro.
+
 Tests automatisés
 -----------------
 

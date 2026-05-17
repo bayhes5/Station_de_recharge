@@ -345,6 +345,7 @@ def _serialize_user(user):
         "pseudo": user.pseudo,
         "email": user.email,
         "telephone": getattr(profile, "telephone", ""),
+        "telephone_verifie": getattr(profile, "telephone_verifie", False),
         "statut": user.statut,
         "nom": getattr(profile, "nom", ""),
         "is_staff": user.is_staff,
@@ -920,6 +921,12 @@ def _user_phone_number(user):
     return (getattr(profile, "telephone", "") or "").strip()
 
 
+def _user_phone_is_verified(user):
+    """Return whether the user's phone number is marked as verified."""
+    profile = getattr(user, "profil", None)
+    return bool(getattr(profile, "telephone_verifie", False))
+
+
 def _build_sms_access_message(reservation, access_value):
     """Build the transactional SMS sent for a temporary code reservation."""
     sender = getattr(settings, "SMS_SENDER_NAME", "Station")
@@ -928,6 +935,21 @@ def _build_sms_access_message(reservation, access_value):
         f"Code reservation: {reservation.reference_code}. "
         f"Valable jusqu'au {timezone.localtime(reservation.date_fin).strftime('%d/%m/%Y %H:%M')}."
     )
+
+
+def _sms_resend_wait_seconds(auth_method):
+    """Return remaining cooldown seconds before another SMS can be sent."""
+    cooldown = getattr(settings, "SMS_RESEND_COOLDOWN_SECONDS", 60)
+    if cooldown <= 0 or auth_method is None:
+        return 0
+
+    last_sent = parse_datetime((auth_method.metadata or {}).get("sms_last_sent_at", ""))
+    if last_sent is None:
+        return 0
+    if timezone.is_naive(last_sent):
+        last_sent = timezone.make_aware(last_sent, timezone=datetime_timezone.utc)
+    elapsed = (timezone.now() - last_sent).total_seconds()
+    return max(0, int(cooldown - elapsed))
 
 
 def _build_qr_payload(reservation_code, token):
@@ -1044,8 +1066,23 @@ def _send_reservation_sms_code(request, reservation, auth_method, access_value):
     phone_number = _user_phone_number(reservation.utilisateur)
     if not phone_number:
         return None, Response(
-            {"telephone": "Un numero de telephone est obligatoire pour recevoir un code SMS."},
+            {"telephone": "Un numéro de téléphone est obligatoire pour recevoir un code SMS."},
             status=status.HTTP_400_BAD_REQUEST,
+        )
+    if getattr(settings, "SMS_REQUIRE_VERIFIED_PHONE", False) and not _user_phone_is_verified(reservation.utilisateur):
+        return None, Response(
+            {"telephone": "Le numéro de téléphone doit être vérifié avant l'envoi d'un code SMS."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    wait_seconds = _sms_resend_wait_seconds(auth_method)
+    if wait_seconds > 0:
+        return None, Response(
+            {
+                "detail": "Un code SMS a déjà été envoyé récemment.",
+                "retry_after_seconds": wait_seconds,
+            },
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
         )
 
     try:
@@ -2689,7 +2726,16 @@ def reservations(request):
                 )
         elif auth_mode == "code" and not _user_phone_number(request.user):
             return Response(
-                {"telephone": "Un numero de telephone est obligatoire pour recevoir un code SMS."},
+                {"telephone": "Un numéro de téléphone est obligatoire pour recevoir un code SMS."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        elif (
+            auth_mode == "code"
+            and getattr(settings, "SMS_REQUIRE_VERIFIED_PHONE", False)
+            and not _user_phone_is_verified(request.user)
+        ):
+            return Response(
+                {"telephone": "Le numéro de téléphone doit être vérifié pour choisir le mode code SMS."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         else:
@@ -2829,14 +2875,14 @@ def send_reservation_access_code(request, reservation_id):
 
     if reservation.statut in {"annulee", "terminee"} or reservation.date_fin < timezone.now():
         return Response(
-            {"detail": "Le code SMS ne peut plus etre envoye pour cette reservation."},
+            {"detail": "Le code SMS ne peut plus être envoyé pour cette réservation."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     auth_method, access_value = _get_temporary_access_value(reservation)
     if auth_method is None or access_value is None:
         return Response(
-            {"detail": "Le code SMS ne peut pas etre envoye. Regenerez l'acces depuis l'administration."},
+            {"detail": "Le code SMS ne peut pas être envoyé. Régénérez l'accès depuis l'administration."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -2847,7 +2893,7 @@ def send_reservation_access_code(request, reservation_id):
     return Response(
         {
             "reservation_code": reservation.reference_code,
-            "message": "Code SMS envoye.",
+            "message": "Code SMS envoyé.",
             "sms": {
                 "sent_at": delivery["sent_at"].isoformat(),
                 "recipient_hint": delivery["recipient_hint"],

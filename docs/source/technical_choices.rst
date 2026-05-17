@@ -259,6 +259,13 @@ moment de la charge : le secret est créé dès la réservation pour pouvoir êt
 synchronisé côté station, mais il n'est envoyé à l'utilisateur que peu avant le
 créneau ou lorsqu'il clique sur ``Recevoir le code SMS``.
 
+Le transport SMS est isolé derrière un service backend. En local, le fournisseur
+``console`` évite tout coût et tout envoi réel. En production, le fournisseur
+doit être choisi explicitement parmi ``twilio``, ``brevo`` ou ``ovh`` avec ses
+identifiants dédiés. Le mode production recommande aussi
+``SMS_REQUIRE_VERIFIED_PHONE=True`` et un délai de renvoi afin de limiter les
+erreurs de numéro, les abus et les boucles de clic sur l'interface mobile.
+
 La régénération par l'administration remplace la valeur active et ne présente
 plus le QR/code SMS dans une modale de copie. Cette décision évite de transformer
 l'admin en canal de transmission du secret : si l'utilisateur affiche déjà son

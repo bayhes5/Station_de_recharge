@@ -28,6 +28,17 @@ INSECURE_GRAFANA_PASSWORDS = {
     "change-me",
 }
 
+SMS_PROVIDER_REQUIRED_SETTINGS = {
+    "twilio": ("SMS_TWILIO_ACCOUNT_SID", "SMS_TWILIO_AUTH_TOKEN", "SMS_TWILIO_FROM"),
+    "brevo": ("SMS_BREVO_API_KEY",),
+    "ovh": (
+        "SMS_OVH_APPLICATION_KEY",
+        "SMS_OVH_APPLICATION_SECRET",
+        "SMS_OVH_CONSUMER_KEY",
+        "SMS_OVH_SERVICE_NAME",
+    ),
+}
+
 
 def _setting_text(name, default=""):
     """Return a stripped textual representation of a Django setting."""
@@ -127,6 +138,31 @@ def station_deployment_checks(app_configs, **kwargs):
             Warning(
                 "GRAFANA_ADMIN_PASSWORD should not use an empty or default demo value.",
                 id="api.W005",
+            )
+        )
+
+    sms_backend = _setting_text("SMS_BACKEND", "console").lower()
+    if sms_backend in {"console", "disabled"}:
+        messages.append(
+            Warning(
+                "SMS_BACKEND should use a production provider such as twilio, brevo or ovh.",
+                id="api.W006",
+            )
+        )
+    for setting_name in SMS_PROVIDER_REQUIRED_SETTINGS.get(sms_backend, ()):
+        if not _setting_text(setting_name):
+            messages.append(
+                Error(
+                    f"{setting_name} must be configured when SMS_BACKEND={sms_backend}.",
+                    id="api.E007",
+                )
+            )
+
+    if not getattr(settings, "SMS_REQUIRE_VERIFIED_PHONE", False):
+        messages.append(
+            Warning(
+                "SMS_REQUIRE_VERIFIED_PHONE should be True before production SMS delivery.",
+                id="api.W007",
             )
         )
 

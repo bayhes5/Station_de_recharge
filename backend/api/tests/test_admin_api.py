@@ -415,6 +415,26 @@ def test_admin_can_patch_user(admin_client, user):
 
 
 @pytest.mark.django_db
+def test_admin_can_mark_phone_number_as_verified(admin_client, user):
+    ProfilUtilisateur.objects.create(
+        utilisateur=user,
+        nom="User",
+        telephone="+33600000000",
+        telephone_verifie=False,
+    )
+
+    response = admin_client.patch(
+        reverse("api-admin-user-detail", kwargs={"user_id": user.id_user}),
+        {"telephone_verifie": True},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    user.profil.refresh_from_db()
+    assert user.profil.telephone_verifie is True
+
+
+@pytest.mark.django_db
 def test_admin_can_delete_user(admin_client):
     user = get_user_model().objects.create_user(
         pseudo="delete-me",

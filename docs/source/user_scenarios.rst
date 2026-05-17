@@ -146,7 +146,8 @@ Objectif
 
 Préconditions
    La réservation est créée en mode ``code``. L'utilisateur possède un numéro de
-   téléphone renseigné. Le code SMS a été envoyé avant le passage ou à la demande.
+   téléphone renseigné. En production, ce numéro est vérifié. Le code SMS a été
+   envoyé avant le passage ou à la demande.
 
 Déroulement
    1. L'utilisateur choisit ``Code SMS`` sur le kiosque.
@@ -166,8 +167,10 @@ Résultat attendu
 
 Cas d'erreur
    Une réservation en mode ``code`` est refusée si le profil n'a pas de téléphone.
-   Un code SMS expiré, révoqué ou mal saisi est refusé. Un code associé à une
-   autre station ou une autre borne est refusé.
+   Si ``SMS_REQUIRE_VERIFIED_PHONE`` est activé, elle est aussi refusée si le
+   téléphone n'est pas vérifié. Un renvoi trop rapproché retourne une erreur de
+   limitation avec un délai d'attente. Un code SMS expiré, révoqué ou mal saisi
+   est refusé. Un code associé à une autre station ou une autre borne est refusé.
 
 Scénario 5 : accès direct avec badge RFID
 -----------------------------------------
@@ -352,6 +355,7 @@ Cas ``code SMS``
    L'utilisateur doit avoir un numéro de téléphone renseigné. Le secret est créé
    dès la réservation, stocké sans clair et envoyé plus tard par SMS. Si aucun
    téléphone n'est disponible, ce mode doit être bloqué avant la confirmation.
+   En production, le numéro doit aussi être vérifié avant l'envoi.
 
 Cas d'erreur
    Si aucun emplacement n'est libre, la réservation est refusée. Si le moyen
@@ -461,6 +465,10 @@ Tableau de décision rapide
      - Choisir code SMS à la réservation
      - Backend bloque la création ou l'envoi
      - Choisir RFID ou QR
+   * - Mode SMS demandé avec téléphone non vérifié
+     - Choisir code SMS avec ``SMS_REQUIRE_VERIFIED_PHONE=True``
+     - Backend refuse la création ou l'envoi
+     - Vérifier le téléphone ou choisir RFID/QR
    * - Backend indisponible
      - Badge, QR ou code déjà synchronisé
      - Cache local vérifie le hash

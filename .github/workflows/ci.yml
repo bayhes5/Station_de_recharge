@@ -82,6 +82,9 @@ jobs:
           SECRET_KEY: station-production-secret-key-with-enough-random-length
           SECURE_HSTS_SECONDS: "31536000"
           SESSION_COOKIE_SECURE: "True"
+          SMS_BACKEND: brevo
+          SMS_BREVO_API_KEY: brevo-production-api-key
+          SMS_REQUIRE_VERIFIED_PHONE: "True"
           TERMINAL_API_SECRET: terminal-production-secret-with-enough-length
         run: python manage.py check --deploy
 

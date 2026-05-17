@@ -18,6 +18,8 @@ def _check_ids():
     SECRET_KEY="dev-key",
     SECURE_HSTS_SECONDS=0,
     SESSION_COOKIE_SECURE=False,
+    SMS_BACKEND="console",
+    SMS_REQUIRE_VERIFIED_PHONE=False,
     TERMINAL_API_SECRET="change-me-terminal-secret",
 )
 def test_station_deployment_checks_report_unsafe_settings(monkeypatch):
@@ -38,6 +40,8 @@ def test_station_deployment_checks_report_unsafe_settings(monkeypatch):
         "api.W003",
         "api.W004",
         "api.W005",
+        "api.W006",
+        "api.W007",
     }.issubset(ids)
 
 
@@ -52,6 +56,9 @@ def test_station_deployment_checks_report_unsafe_settings(monkeypatch):
     SECRET_KEY="station-production-secret-key-with-enough-random-length",
     SECURE_HSTS_SECONDS=31536000,
     SESSION_COOKIE_SECURE=True,
+    SMS_BACKEND="brevo",
+    SMS_BREVO_API_KEY="brevo-production-api-key",
+    SMS_REQUIRE_VERIFIED_PHONE=True,
     TERMINAL_API_SECRET="terminal-production-secret-with-enough-length",
 )
 def test_station_deployment_checks_accept_hardened_settings(monkeypatch):

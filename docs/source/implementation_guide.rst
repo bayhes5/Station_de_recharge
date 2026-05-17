@@ -163,7 +163,17 @@ puisse être synchronisé ou caché côté station avant le passage de l'utilisa
 Il n'est toutefois pas affiché dans l'interface : il est envoyé via
 ``POST /api/reservations/<reservation_id>/send-access-code/`` peu avant le
 créneau, ou à la demande avec le bouton d'envoi. Une réservation en mode
-``code`` est refusée si aucun numéro de téléphone n'est renseigné.
+``code`` est refusée si aucun numéro de téléphone n'est renseigné. En mode
+production, ``SMS_REQUIRE_VERIFIED_PHONE`` doit être activé : le numéro doit
+alors être marqué comme vérifié sur le profil avant de pouvoir choisir ou
+recevoir un code SMS.
+
+Le service d'envoi est abstrait dans ``backend/api/services/sms.py``. Le backend
+``console`` sert au développement local et journalise seulement l'envoi. Les
+backends ``twilio``, ``brevo`` et ``ovh`` utilisent des variables
+d'environnement dédiées et échouent immédiatement si leurs identifiants sont
+absents. ``SMS_RESEND_COOLDOWN_SECONDS`` limite le renvoi manuel du même code
+pour éviter le spam et les boucles côté interface mobile.
 
 L'implantation principale est dans ``backend/api/views.py`` :
 
@@ -174,6 +184,8 @@ L'implantation principale est dans ``backend/api/views.py`` :
 * ``_build_qr_svg`` génère le SVG QR ;
 * ``reservation_access_payload`` expose le QR ou les métadonnées du code SMS ;
 * ``send_reservation_access_code`` envoie le code SMS et journalise l'action.
+  Les métadonnées d'authentification conservent notamment le dernier envoi et
+  l'identifiant retourné par le fournisseur SMS, sans stocker le code clair.
 
 Le choix important est de ne pas stocker le secret clair. L'administration peut
 régénérer ou révoquer l'accès, mais elle ne devient pas le canal de transmission
@@ -575,7 +587,8 @@ local :
   simulations ;
 * MQTT n'est pas authentifié en développement local ;
 * Grafana n'est pas encore protégé par SSO ;
-* les notifications technicien email/SMS ne sont pas encore implémentées ;
+* les notifications technicien par email ou SMS restent à définir séparément du
+  code SMS temporaire d'accès ;
 * TimescaleDB est utilisé comme PostgreSQL compatible, sans hypertables dédiées
   pour l'instant ;
 * la gestion de conservation des historiques reste à définir.

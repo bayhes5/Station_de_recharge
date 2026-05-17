@@ -65,6 +65,8 @@ def test_me_returns_current_profile(authenticated_client, user):
 
 @pytest.mark.django_db
 def test_profile_patch_updates_user_and_profile(authenticated_client, user):
+    ProfilUtilisateur.objects.create(utilisateur=user, nom="Old User", telephone="0600000000", telephone_verifie=True)
+
     response = authenticated_client.patch(
         reverse("api-profile"),
         {
@@ -82,6 +84,7 @@ def test_profile_patch_updates_user_and_profile(authenticated_client, user):
     assert user.email == "newuser@example.com"
     assert user.profil.nom == "New User"
     assert user.profil.telephone == "0611223344"
+    assert user.profil.telephone_verifie is False
 
 
 @pytest.mark.django_db

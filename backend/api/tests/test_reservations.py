@@ -3,6 +3,7 @@ import re
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -459,6 +460,30 @@ def test_sms_code_requires_phone_number(authenticated_client, station, emplaceme
 
 
 @pytest.mark.django_db
+@override_settings(SMS_REQUIRE_VERIFIED_PHONE=True)
+def test_sms_code_requires_verified_phone_when_enabled(authenticated_client, user, station, emplacements, reservation_start):
+    ProfilUtilisateur.objects.create(
+        utilisateur=user,
+        nom="User",
+        telephone="+33600000000",
+        telephone_verifie=False,
+    )
+
+    response = authenticated_client.post(
+        reverse("api-reservations"),
+        {
+            "station": str(station.id_station),
+            "date_debut": reservation_start.isoformat(),
+            "auth_mode": "code",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "vérifié" in response.data["telephone"]
+
+
+@pytest.mark.django_db
 def test_sms_code_can_be_sent_and_used(
     authenticated_client,
     api_client,
@@ -518,6 +543,39 @@ def test_sms_code_can_be_sent_and_used(
         utilisateur=user,
         action__contains="sms_access_code_sent",
     ).exists()
+
+
+@pytest.mark.django_db
+def test_sms_resend_is_rate_limited(authenticated_client, user, station, emplacements, reservation_start, monkeypatch):
+    ProfilUtilisateur.objects.create(utilisateur=user, nom="User", telephone="+33600000000")
+    sent_messages = []
+
+    def fake_send_sms(phone_number, message):
+        from api.services.sms import SmsResult
+
+        sent_messages.append((phone_number, message))
+        return SmsResult(backend="test", message_id=f"sms-{len(sent_messages)}")
+
+    monkeypatch.setattr("api.views.send_sms", fake_send_sms)
+    create_response = authenticated_client.post(
+        reverse("api-reservations"),
+        {
+            "station": str(station.id_station),
+            "date_debut": reservation_start.isoformat(),
+            "auth_mode": "code",
+        },
+        format="json",
+    )
+    reservation_id = create_response.data["reservation"]["id_reservation"]
+    send_url = reverse("api-reservation-send-access-code", kwargs={"reservation_id": reservation_id})
+
+    first_response = authenticated_client.post(send_url)
+    second_response = authenticated_client.post(send_url)
+
+    assert first_response.status_code == status.HTTP_200_OK
+    assert second_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+    assert second_response.data["retry_after_seconds"] > 0
+    assert len(sent_messages) == 1
 
 
 @pytest.mark.django_db

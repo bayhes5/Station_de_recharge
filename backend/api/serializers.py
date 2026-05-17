@@ -143,10 +143,21 @@ class ProfileSerializer(serializers.ModelSerializer):
 
     nom = serializers.CharField(max_length=255, required=False, allow_blank=True)
     telephone = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    telephone_verifie = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ("id_user", "pseudo", "email", "telephone", "statut", "nom", "is_staff", "is_superuser")
+        fields = (
+            "id_user",
+            "pseudo",
+            "email",
+            "telephone",
+            "telephone_verifie",
+            "statut",
+            "nom",
+            "is_staff",
+            "is_superuser",
+        )
         extra_kwargs = {
             "telephone": {"required": False, "allow_blank": True},
             "statut": {"required": False},
@@ -174,14 +185,21 @@ class ProfileSerializer(serializers.ModelSerializer):
             profile.nom = profile_name
         if telephone is not None:
             profile.telephone = telephone
+            profile.telephone_verifie = False
         if profile_name is not None or telephone is not None:
-            profile.save(update_fields=["nom", "telephone"])
+            profile.save(update_fields=["nom", "telephone", "telephone_verifie"])
 
         return instance
+
+    def get_telephone_verifie(self, obj) -> bool:
+        """Return whether the current profile phone number is verified."""
+        return getattr(getattr(obj, "profil", None), "telephone_verifie", False)
 
 
 class AdminUserUpdateSerializer(ProfileSerializer):
     """Expose administrative user fields while reusing profile synchronization."""
+
+    telephone_verifie = serializers.BooleanField(required=False)
 
     class Meta(ProfileSerializer.Meta):
         fields = (
@@ -189,6 +207,7 @@ class AdminUserUpdateSerializer(ProfileSerializer):
             "pseudo",
             "email",
             "telephone",
+            "telephone_verifie",
             "statut",
             "nom",
             "is_active",
@@ -207,6 +226,7 @@ class AdminUserUpdateSerializer(ProfileSerializer):
         """Update user flags and profile fields from the admin API."""
         profile_name = validated_data.pop("nom", None)
         telephone = validated_data.pop("telephone", None)
+        telephone_verifie = validated_data.pop("telephone_verifie", None)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
@@ -223,8 +243,11 @@ class AdminUserUpdateSerializer(ProfileSerializer):
             profile.nom = profile_name
         if telephone is not None:
             profile.telephone = telephone
-        if profile_name is not None or telephone is not None:
-            profile.save(update_fields=["nom", "telephone"])
+            profile.telephone_verifie = False
+        if telephone_verifie is not None:
+            profile.telephone_verifie = bool(telephone_verifie)
+        if profile_name is not None or telephone is not None or telephone_verifie is not None:
+            profile.save(update_fields=["nom", "telephone", "telephone_verifie"])
 
         return instance
 
@@ -254,6 +277,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
 
     nom = serializers.SerializerMethodField()
     telephone = serializers.SerializerMethodField()
+    telephone_verifie = serializers.SerializerMethodField()
     is_technician = serializers.SerializerMethodField()
 
     class Meta:
@@ -263,6 +287,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
             "pseudo",
             "email",
             "telephone",
+            "telephone_verifie",
             "statut",
             "is_active",
             "is_staff",
@@ -280,6 +305,10 @@ class AdminUserSerializer(serializers.ModelSerializer):
     def get_telephone(self, obj):
         """Return the phone number stored on the related profile."""
         return getattr(getattr(obj, "profil", None), "telephone", "")
+
+    def get_telephone_verifie(self, obj) -> bool:
+        """Return whether the phone number stored on the related profile is verified."""
+        return getattr(getattr(obj, "profil", None), "telephone_verifie", False)
 
     def get_is_technician(self, obj):
         """Return whether the user is linked to a technician profile."""
