@@ -62,6 +62,11 @@ Les variables minimales pour tester sur un Raspberry physique sont :
    export TERMINAL_BORNE_ID=<id-borne>
    export RFID_READER_BACKEND=acr122u
 
+Pour un réseau de production, ``MQTT_BASE_TOPIC`` peut intégrer la station et la
+borne, par exemple ``station/<station_id>/<borne_id>``. Le Raspberry publiera
+alors les commandes sur ``station/<station_id>/<borne_id>/<slot_id>/cmd`` et
+attendra les ACK sur ``station/<station_id>/<borne_id>/<slot_id>/ack``.
+
 En production, Mosquitto tourne sur le Raspberry : ``MQTT_HOST=localhost`` pour
 le kiosque, tandis que les ESP32 utilisent l'adresse IP Wi-Fi du Raspberry. En
 développement, si le backend et Mosquitto tournent sur le PC dans Docker,

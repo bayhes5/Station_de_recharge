@@ -9,6 +9,12 @@ from api.tasks import process_mqtt_message, process_mqtt_message_task
 logger = logging.getLogger(__name__)
 
 
+def _subscription_topic() -> str:
+    """Return the supervision topic tree subscribed by the backend bridge."""
+    base_topic = str(settings.MQTT_BASE_TOPIC or "station").strip("/")
+    return f"{base_topic}/#" if base_topic else "#"
+
+
 def _handle_message(topic: str, payload: bytes):
     """Dispatch one raw MQTT message to Celery or the local processor."""
     payload_text = payload.decode("utf-8", errors="replace")
@@ -19,18 +25,13 @@ def _handle_message(topic: str, payload: bytes):
 
 
 def run_mqtt_bridge():
-    """Subscribe to ESP32 MQTT telemetry/status/alerts and enqueue backend ingestion."""
+    """Subscribe to ESP32 MQTT supervision topics and enqueue backend ingestion."""
     try:
         import paho.mqtt.client as mqtt
     except ImportError as exc:
         raise RuntimeError("Installe paho-mqtt pour lancer le bridge MQTT.") from exc
 
-    topics = [
-        (f"{settings.MQTT_BASE_TOPIC}/+/telemetry", settings.MQTT_QOS),
-        (f"{settings.MQTT_BASE_TOPIC}/+/status", settings.MQTT_QOS),
-        (f"{settings.MQTT_BASE_TOPIC}/+/ack", settings.MQTT_QOS),
-        (f"{settings.MQTT_BASE_TOPIC}/+/alert", settings.MQTT_QOS),
-    ]
+    topics = [(_subscription_topic(), settings.MQTT_QOS)]
     topic_label = ", ".join(topic for topic, _qos in topics)
     client = mqtt.Client(client_id=settings.MQTT_BACKEND_CLIENT_ID)
 

@@ -6,17 +6,18 @@
 
 user station_backend
 topic readwrite station/health
-topic read station/+/telemetry
-topic read station/+/status
-topic read station/+/alert
-topic read station/+/ack
+topic read station/#
 topic write station/+/cmd
+topic write station/+/+/+/cmd
 # Autorisé pour le simulateur local lancé côté backend.
 topic write station/+/telemetry
+topic write station/+/+/+/telemetry
 
 user raspberry_kiosk
 topic read station/+/ack
+topic read station/+/+/+/ack
 topic write station/+/cmd
+topic write station/+/+/+/cmd
 
 user esp32_slot1
 topic read station/slot1/cmd

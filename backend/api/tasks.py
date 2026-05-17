@@ -3,28 +3,32 @@ from __future__ import annotations
 import json
 import logging
 
-from django.conf import settings
-
 from api.realtime import broadcast_supervision_update
 from api.services.telemetry import ingest_slot_ack, ingest_slot_status, ingest_slot_telemetry
 
 logger = logging.getLogger(__name__)
 
+SUPPORTED_MQTT_MESSAGE_KINDS = {"ack", "alert", "status", "telemetry"}
+
+
+def _topic_parts(topic: str) -> list[str]:
+    """Return normalized MQTT topic parts."""
+    return [part for part in topic.split("/") if part]
+
 
 def _extract_slot_id(topic: str) -> str:
     """Extract the slot identifier from an ESP32 MQTT topic."""
-    parts = [part for part in topic.split("/") if part]
-    if len(parts) >= 2 and parts[0] == settings.MQTT_BASE_TOPIC:
-        return parts[1]
-    if len(parts) >= 2:
+    parts = _topic_parts(topic)
+    if len(parts) >= 2 and parts[-1] in SUPPORTED_MQTT_MESSAGE_KINDS:
         return parts[-2]
     return "unknown"
 
 
 def _extract_message_kind(topic: str) -> str:
     """Return the semantic MQTT message kind from the topic suffix."""
-    parts = [part for part in topic.split("/") if part]
-    return parts[-1] if parts else "telemetry"
+    parts = _topic_parts(topic)
+    message_kind = parts[-1] if parts else ""
+    return message_kind if message_kind in SUPPORTED_MQTT_MESSAGE_KINDS else ""
 
 
 def process_mqtt_message(topic: str, payload: str | bytes):
@@ -36,8 +40,12 @@ def process_mqtt_message(topic: str, payload: str | bytes):
         logger.warning("MQTT payload ignore: JSON invalide sur %s: %s", topic, raw_payload)
         return None
 
-    slot_id = str(data.pop("slot_id", "") or _extract_slot_id(topic))
     message_kind = _extract_message_kind(topic)
+    if not message_kind:
+        logger.debug("MQTT payload ignore: topic non supervise %s", topic)
+        return None
+
+    slot_id = str(data.pop("slot_id", "") or _extract_slot_id(topic))
     if message_kind == "ack":
         result = ingest_slot_ack(slot_id=slot_id, payload=data)
         logger.info(

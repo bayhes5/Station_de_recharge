@@ -97,6 +97,13 @@ Topic écouté par l'ESP32 :
 
    station/<slot_id>/cmd
 
+Pour une borne de production, ``MQTT_BASE_TOPIC`` peut être configuré avec un
+préfixe plus précis, par exemple ``station/<station_id>/<borne_id>``. Les topics
+deviennent alors ``station/<station_id>/<borne_id>/<slot_id>/telemetry`` et
+``station/<station_id>/<borne_id>/<slot_id>/cmd``. Le firmware n'a pas besoin de
+logique métier supplémentaire : il concatène toujours ``MQTT_BASE_TOPIC``,
+``SLOT_ID`` et le suffixe.
+
 Commandes acceptées
 -------------------
 

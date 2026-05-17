@@ -5,12 +5,13 @@ import json
 from django.conf import settings
 
 
-def build_slot_command_topic(slot_id: str) -> str:
+def build_slot_command_topic(slot_id: str, topic_prefix: str | None = None) -> str:
     """Return the command topic used by one ESP32 slot."""
-    return f"{settings.MQTT_BASE_TOPIC}/{slot_id}/cmd"
+    prefix = str(topic_prefix or settings.MQTT_BASE_TOPIC).strip("/")
+    return f"{prefix}/{slot_id}/cmd"
 
 
-def publish_slot_command(slot_id: str, action: str, **metadata):
+def publish_slot_command(slot_id: str, action: str, topic_prefix: str | None = None, **metadata):
     """Publish a diagnostic command to one ESP32 slot.
 
     Production kiosk flows should publish from the Raspberry, because it owns the
@@ -31,7 +32,7 @@ def publish_slot_command(slot_id: str, action: str, **metadata):
 
     client.connect(settings.MQTT_HOST, settings.MQTT_PORT, settings.MQTT_KEEPALIVE)
     client.publish(
-        build_slot_command_topic(slot_id),
+        build_slot_command_topic(slot_id, topic_prefix=topic_prefix),
         json.dumps(payload),
         qos=settings.MQTT_QOS,
     )

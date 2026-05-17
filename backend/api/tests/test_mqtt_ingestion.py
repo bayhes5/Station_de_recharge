@@ -5,7 +5,19 @@ import pytest
 from django.utils import timezone
 
 from api.models import Alerte, CapteurData, Device, Reservation, Session, SessionTelemetry
+from api.services.mqtt_commands import build_slot_command_topic
 from api.tasks import process_mqtt_message
+
+
+def test_build_slot_command_topic_accepts_structured_prefix(settings):
+    """Build command topics for compact and station/borne MQTT prefixes."""
+    settings.MQTT_BASE_TOPIC = "station"
+
+    assert build_slot_command_topic("slot1") == "station/slot1/cmd"
+    assert (
+        build_slot_command_topic("slot1", topic_prefix="station/station-centre/borne-1")
+        == "station/station-centre/borne-1/slot1/cmd"
+    )
 
 
 @pytest.mark.django_db
@@ -46,6 +58,38 @@ def test_process_mqtt_message_stores_sensor_data(emplacements):
         "cable",
     }
     assert Device.objects.get(mac_address="slot1").status == "charging"
+
+
+@pytest.mark.django_db
+def test_process_mqtt_message_accepts_structured_station_topic(emplacements):
+    """Accept production topics that include station and cabinet segments."""
+    Device.objects.create(
+        emplacement=emplacements[1],
+        type_device="ESP32",
+        firmware_version="demo",
+        mac_address="slot2",
+        status="offline",
+    )
+
+    result = process_mqtt_message(
+        "station/station-centre/borne-1/slot2/telemetry",
+        json.dumps({"state": "charging", "temperature": 29.5, "humidity": 47}),
+    )
+
+    assert result["slot_id"] == "slot2"
+    assert result["message_type"] == "telemetry"
+    assert CapteurData.objects.count() == 2
+    assert Device.objects.get(mac_address="slot2").status == "charging"
+
+
+@pytest.mark.django_db
+def test_process_mqtt_message_ignores_non_supervision_topic(emplacements):
+    """Ignore health or diagnostic MQTT topics under the station tree."""
+    result = process_mqtt_message("station/health", json.dumps({"status": "ok"}))
+
+    assert result is None
+    assert Device.objects.count() == 0
+    assert CapteurData.objects.count() == 0
 
 
 @pytest.mark.django_db

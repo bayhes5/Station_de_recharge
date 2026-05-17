@@ -125,6 +125,19 @@ Les ESP32 publient leur télémétrie sur :
 
    station/<slot_id>/telemetry
 
+Ce format compact reste celui du développement local et du simulateur. En
+production, le broker peut utiliser un chemin plus explicite par station et par
+borne :
+
+.. code-block:: text
+
+   station/<station_id>/<borne_id>/<slot_id>/telemetry
+
+Le bridge backend s'abonne à ``station/#`` puis ne traite que les suffixes
+supervisés ``telemetry``, ``status``, ``ack`` et ``alert``. Les messages de
+diagnostic comme ``station/health`` sont donc ignorés par l'ingestion métier et
+ne créent pas de faux ``Device``.
+
 Ils publient aussi leurs événements d'état sur :
 
 .. code-block:: text
@@ -170,6 +183,12 @@ Les commandes vers un ESP32 utilisent :
 .. code-block:: text
 
    station/<slot_id>/cmd
+
+Le même principe de préfixe s'applique aux commandes terrain :
+
+.. code-block:: text
+
+   station/<station_id>/<borne_id>/<slot_id>/cmd
 
 Le message de commande est un JSON simple :
 
