@@ -266,11 +266,17 @@ Le script crée ``mosquitto/config/passwords`` avec les comptes :
 * ``raspberry_kiosk`` ;
 * ``esp32_slot1`` ;
 * ``esp32_slot2`` ;
-* ``esp32_slot3``.
+* ``esp32_slot3`` ;
+* ``esp32_station_demo_borne_1_slot1`` ;
+* ``esp32_station_demo_borne_1_slot2`` ;
+* ``esp32_station_demo_borne_1_slot3``.
 
 Activer ensuite ``mosquitto/config/mosquitto.secure.conf`` comme configuration
 Mosquitto et redémarrer le service. Les règles dans ``mosquitto/config/acl``
-doivent garantir qu'un ESP32 ne peut publier que sur son propre slot.
+doivent garantir qu'un ESP32 ne peut publier que sur son propre emplacement.
+Les comptes ``esp32_slotX`` servent aux tests locaux historiques
+``station/slotX/...``. Les comptes ``esp32_station_demo_borne_1_slotX`` servent
+au routage plus réaliste ``station/station-demo/borne-1/slotX/...``.
 
 Contrôle recommandé avec Mosquitto sécurisé :
 
@@ -278,8 +284,11 @@ Contrôle recommandé avec Mosquitto sécurisé :
 
    docker compose exec mqtt mosquitto_pub -h localhost -u esp32_slot1 -P <mot-de-passe> -t station/slot1/status -m '{"state":"idle"}'
    docker compose exec mqtt mosquitto_pub -h localhost -u esp32_slot1 -P <mot-de-passe> -t station/slot2/status -m '{"state":"idle"}'
+   docker compose exec mqtt mosquitto_pub -h localhost -u esp32_station_demo_borne_1_slot1 -P <mot-de-passe> -t station/station-demo/borne-1/slot1/status -m '{"state":"idle"}'
+   docker compose exec mqtt mosquitto_pub -h localhost -u esp32_station_demo_borne_1_slot1 -P <mot-de-passe> -t station/station-demo/borne-1/slot2/status -m '{"state":"idle"}'
 
-La première commande doit réussir, la seconde doit être refusée par l'ACL.
+La première commande de chaque paire doit réussir, la seconde doit être refusée
+par l'ACL.
 
 Test RFID Raspberry
 -------------------

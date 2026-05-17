@@ -1,8 +1,12 @@
-# ACL Mosquitto cible pour la borne.
+# ACL Mosquitto cible pour une station de recharge.
 #
-# Le backend lit toute la télémétrie et peut publier des commandes.
-# Le Raspberry publie les commandes vers les ESP32.
-# Chaque ESP32 publie sa télémétrie et ses ACK, et écoute sa commande.
+# Principes :
+# - le backend lit la supervision complète et peut publier des commandes de diagnostic ;
+# - le Raspberry publie les commandes physiques et lit les ACK ESP32 ;
+# - chaque ESP32 ne lit/écrit que les topics de son propre emplacement ;
+# - les comptes esp32_slotX restent disponibles pour les tests locaux historiques ;
+# - les comptes esp32_station_demo_borne_1_slotX illustrent le modèle production
+#   station/borne/emplacement.
 
 user station_backend
 topic readwrite station/health
@@ -19,6 +23,7 @@ topic read station/+/+/+/ack
 topic write station/+/cmd
 topic write station/+/+/+/cmd
 
+# Comptes ESP32 de développement local : station/slotX/...
 user esp32_slot1
 topic read station/slot1/cmd
 topic write station/slot1/telemetry
@@ -39,3 +44,25 @@ topic write station/slot3/telemetry
 topic write station/slot3/status
 topic write station/slot3/alert
 topic write station/slot3/ack
+
+# Comptes ESP32 production de démonstration : station/<mqtt_prefix>/slotX/...
+user esp32_station_demo_borne_1_slot1
+topic read station/station-demo/borne-1/slot1/cmd
+topic write station/station-demo/borne-1/slot1/telemetry
+topic write station/station-demo/borne-1/slot1/status
+topic write station/station-demo/borne-1/slot1/alert
+topic write station/station-demo/borne-1/slot1/ack
+
+user esp32_station_demo_borne_1_slot2
+topic read station/station-demo/borne-1/slot2/cmd
+topic write station/station-demo/borne-1/slot2/telemetry
+topic write station/station-demo/borne-1/slot2/status
+topic write station/station-demo/borne-1/slot2/alert
+topic write station/station-demo/borne-1/slot2/ack
+
+user esp32_station_demo_borne_1_slot3
+topic read station/station-demo/borne-1/slot3/cmd
+topic write station/station-demo/borne-1/slot3/telemetry
+topic write station/station-demo/borne-1/slot3/status
+topic write station/station-demo/borne-1/slot3/alert
+topic write station/station-demo/borne-1/slot3/ack

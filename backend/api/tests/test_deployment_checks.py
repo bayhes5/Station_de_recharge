@@ -11,6 +11,7 @@ def _check_ids():
     ALLOWED_HOSTS=["*"],
     CSRF_COOKIE_SECURE=False,
     JWT_REFRESH_COOKIE_SECURE=False,
+    MQTT_ACK_REQUIRED=False,
     MQTT_PASSWORD="",
     MQTT_TLS_ENABLED=False,
     MQTT_USERNAME="",
@@ -20,6 +21,7 @@ def _check_ids():
     TERMINAL_API_SECRET="change-me-terminal-secret",
 )
 def test_station_deployment_checks_report_unsafe_settings(monkeypatch):
+    """Report every project-specific production safety issue."""
     monkeypatch.setenv("GRAFANA_ADMIN_PASSWORD", "admin")
 
     ids = _check_ids()
@@ -30,6 +32,7 @@ def test_station_deployment_checks_report_unsafe_settings(monkeypatch):
         "api.E003",
         "api.E004",
         "api.E005",
+        "api.E006",
         "api.W001",
         "api.W002",
         "api.W003",
@@ -42,6 +45,7 @@ def test_station_deployment_checks_report_unsafe_settings(monkeypatch):
     ALLOWED_HOSTS=["station.example.com"],
     CSRF_COOKIE_SECURE=True,
     JWT_REFRESH_COOKIE_SECURE=True,
+    MQTT_ACK_REQUIRED=True,
     MQTT_PASSWORD="mqtt-production-password",
     MQTT_TLS_ENABLED=True,
     MQTT_USERNAME="station-backend",
@@ -51,6 +55,7 @@ def test_station_deployment_checks_report_unsafe_settings(monkeypatch):
     TERMINAL_API_SECRET="terminal-production-secret-with-enough-length",
 )
 def test_station_deployment_checks_accept_hardened_settings(monkeypatch):
+    """Accept a hardened production-like configuration."""
     monkeypatch.setenv("GRAFANA_ADMIN_PASSWORD", "grafana-production-password")
 
     assert station_deployment_checks(None) == []

@@ -75,6 +75,7 @@ jobs:
           DEBUG: "False"
           GRAFANA_ADMIN_PASSWORD: grafana-production-password
           JWT_REFRESH_COOKIE_SECURE: "True"
+          MQTT_ACK_REQUIRED: "True"
           MQTT_PASSWORD: mqtt-production-password
           MQTT_TLS_ENABLED: "True"
           MQTT_USERNAME: station-backend

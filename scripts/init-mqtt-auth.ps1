@@ -17,7 +17,10 @@ $accounts = @(
     "raspberry_kiosk",
     "esp32_slot1",
     "esp32_slot2",
-    "esp32_slot3"
+    "esp32_slot3",
+    "esp32_station_demo_borne_1_slot1",
+    "esp32_station_demo_borne_1_slot2",
+    "esp32_station_demo_borne_1_slot3"
 )
 
 if (Test-Path -LiteralPath $passwordFile) {

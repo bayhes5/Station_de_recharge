@@ -113,6 +113,14 @@ def station_deployment_checks(app_configs, **kwargs):
             )
         )
 
+    if not getattr(settings, "MQTT_ACK_REQUIRED", False):
+        messages.append(
+            Error(
+                "MQTT_ACK_REQUIRED must be True in production so START/STOP commands require ESP32 confirmation.",
+                id="api.E006",
+            )
+        )
+
     grafana_password = os.environ.get("GRAFANA_ADMIN_PASSWORD", "").strip()
     if grafana_password in INSECURE_GRAFANA_PASSWORDS:
         messages.append(
