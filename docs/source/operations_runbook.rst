@@ -329,6 +329,22 @@ Le mode dégradé n'est pas un mode autonome complet. Il sert uniquement à
 réutiliser des droits déjà synchronisés et encore valides si le backend devient
 temporairement indisponible.
 
+Contrôles de déploiement
+------------------------
+
+Avant une bascule vers un environnement exposé, exécuter les contrôles Django
+avec les variables de production chargées :
+
+.. code-block:: bash
+
+   docker compose exec backend python manage.py check --deploy
+
+Le contrôle doit rester sans erreur ``api.E``. Les avertissements ``api.W`` sont
+à traiter avant ouverture du service hors réseau de développement : activer HSTS
+après validation HTTPS, limiter ``ALLOWED_HOSTS``, configurer les identifiants
+MQTT, chiffrer MQTT si le trafic sort du réseau local de confiance et remplacer
+le mot de passe Grafana de démonstration.
+
 Tests automatisés
 -----------------
 

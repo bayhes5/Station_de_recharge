@@ -261,6 +261,12 @@ production. ``SECURE_HSTS_SECONDS`` peut être activé après validation du HTTP
 ``SECURE_HSTS_PRELOAD`` ne doit être activé que si le domaine est prêt pour la
 preload list navigateur.
 
+Le projet ajoute aussi des contrôles spécifiques à la station. Les erreurs
+``api.E001`` à ``api.E005`` bloquent les secrets de démonstration et les cookies
+non sécurisés. Les avertissements ``api.W001`` à ``api.W005`` signalent les
+points à durcir avant exposition réelle : HSTS, ``ALLOWED_HOSTS``, identifiants
+MQTT, TLS MQTT et mot de passe administrateur Grafana.
+
 Lancer les tests
 ----------------
 
