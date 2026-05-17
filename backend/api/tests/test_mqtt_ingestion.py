@@ -165,6 +165,16 @@ def test_process_mqtt_message_ignores_non_supervision_topic(emplacements):
 
 
 @pytest.mark.django_db
+def test_process_mqtt_message_ignores_non_supervision_text_payload(emplacements):
+    """Ignore broker healthcheck payloads before trying to parse JSON."""
+    result = process_mqtt_message("station/health", "ok")
+
+    assert result is None
+    assert Device.objects.count() == 0
+    assert CapteurData.objects.count() == 0
+
+
+@pytest.mark.django_db
 def test_process_mqtt_status_updates_device_presence(emplacements):
     """Use ESP32 status events as heartbeat even before sensor telemetry arrives."""
     Device.objects.create(

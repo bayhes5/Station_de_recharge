@@ -83,6 +83,7 @@ La stack locale contient les services de supervision suivants :
 * ``mqtt`` : broker Mosquitto local, exposé sur le port ``1883`` ;
 * ``redis`` : cache, broker Celery et bus temps réel de Django Channels ;
 * ``celery`` : worker de traitement asynchrone ;
+* ``celery-beat`` : planificateur des contrôles périodiques de supervision ;
 * ``mqtt-bridge`` : consommateur backend abonné aux télémétries, statuts, ACK et alertes ESP32 ;
 * ``grafana`` : supervision technique exposée sur ``http://localhost:3000`` ;
 * ``db`` : TimescaleDB/PostgreSQL, compatible avec les modèles Django existants.
@@ -91,6 +92,8 @@ Le worker ``celery`` et le ``mqtt-bridge`` disposent de healthchecks Docker. Le
 worker doit répondre à ``celery inspect ping``. Le bridge écrit un heartbeat
 local tant que la connexion MQTT est active ; si le heartbeat devient trop
 ancien, Docker marque le service comme non sain.
+Le service ``celery-beat`` publie périodiquement les contrôles
+``api.scan_session_telemetry_gaps`` et ``api.notify_pending_alerts``.
 
 Supervision web temps réel
 --------------------------
@@ -598,6 +601,10 @@ Elle scanne les sessions ouvertes plus anciennes que
 ``SessionTelemetry`` récente n'existe, le backend crée ou maintient une alerte
 ``session_without_telemetry``. L'alerte est résolue automatiquement dès que la
 télémétrie revient ou lorsque la session se termine.
+Dans Docker Compose, ``celery-beat`` exécute ce contrôle toutes les
+``CELERY_BEAT_SESSION_TELEMETRY_HEALTH_SECONDS`` secondes, ``60`` par défaut, et
+déclenche aussi ``api.notify_pending_alerts`` toutes les
+``CELERY_BEAT_ALERT_NOTIFICATIONS_SECONDS`` secondes.
 
 Accès technicien
 ----------------

@@ -6,6 +6,8 @@ import logging
 from django.conf import settings
 
 from api.realtime import broadcast_supervision_update
+from api.services.email_notifications import notify_pending_alerts
+from api.services.operational_alerts import scan_session_telemetry_gaps
 from api.services.telemetry import ingest_slot_ack, ingest_slot_status, ingest_slot_telemetry
 
 logger = logging.getLogger(__name__)
@@ -52,16 +54,16 @@ def _extract_topic_prefix(topic: str) -> str:
 
 def process_mqtt_message(topic: str, payload: str | bytes):
     """Process one MQTT message synchronously for local/dev usage."""
+    message_kind = _extract_message_kind(topic)
+    if not message_kind:
+        logger.debug("MQTT payload ignore: topic non supervise %s", topic)
+        return None
+
     raw_payload = payload.decode("utf-8") if isinstance(payload, bytes) else payload
     try:
         data = json.loads(raw_payload)
     except json.JSONDecodeError:
         logger.warning("MQTT payload ignore: JSON invalide sur %s: %s", topic, raw_payload)
-        return None
-
-    message_kind = _extract_message_kind(topic)
-    if not message_kind:
-        logger.debug("MQTT payload ignore: topic non supervise %s", topic)
         return None
 
     slot_id = str(data.pop("slot_id", "") or _extract_slot_id(topic))
@@ -157,5 +159,22 @@ if celery_app:
         """Celery entrypoint used by the MQTT bridge in production."""
         return process_mqtt_message(topic, payload)
 
+    @celery_app.task(name="api.scan_session_telemetry_gaps")
+    def scan_session_telemetry_gaps_task():
+        """Celery periodic task that creates or resolves telemetry-gap alerts."""
+        result = scan_session_telemetry_gaps()
+        return {
+            "created": result.created,
+            "updated": result.updated,
+            "resolved": result.resolved,
+        }
+
+    @celery_app.task(name="api.notify_pending_alerts")
+    def notify_pending_alerts_task():
+        """Celery periodic task that sends pending technician notifications."""
+        return notify_pending_alerts()
+
 else:
     process_mqtt_message_task = None
+    scan_session_telemetry_gaps_task = None
+    notify_pending_alerts_task = None

@@ -46,6 +46,9 @@ Vérifier la chaîne asynchrone :
 Le worker ``celery`` est considéré sain s'il répond au ping Celery. Le service
 ``mqtt-bridge`` écrit un heartbeat local tant qu'il est connecté au broker MQTT ;
 le healthcheck échoue si ce heartbeat est absent ou trop ancien.
+Le service ``celery-beat`` publie les tâches périodiques de supervision :
+contrôle des sessions sans télémétrie et envoi des notifications d'alertes en
+attente.
 
 Services attendus pour une démonstration complète :
 
@@ -55,6 +58,7 @@ Services attendus pour une démonstration complète :
 * ``mqtt`` ;
 * ``mqtt-bridge`` ;
 * ``celery`` ;
+* ``celery-beat`` ;
 * ``redis`` ;
 * ``db`` ;
 * ``grafana`` ;
@@ -136,7 +140,7 @@ Démarrer les services nécessaires à la supervision :
 
 .. code-block:: bash
 
-   docker compose up -d mqtt mqtt-bridge celery grafana
+   docker compose up -d mqtt mqtt-bridge celery celery-beat grafana
 
 Publier cinq mesures simulées :
 
@@ -175,7 +179,7 @@ Diagnostic du bridge MQTT
 Si les messages sont visibles sur MQTT mais pas en base :
 
 1. vérifier que ``mqtt-bridge`` tourne ;
-2. vérifier que ``celery`` tourne ;
+2. vérifier que ``celery`` et ``celery-beat`` tournent ;
 3. lire les logs des deux services ;
 4. republier une télémétrie de test.
 
@@ -183,13 +187,15 @@ Commandes :
 
 .. code-block:: bash
 
-   docker compose ps mqtt mqtt-bridge celery redis db
+   docker compose ps mqtt mqtt-bridge celery celery-beat redis db
    docker compose logs --tail=100 mqtt-bridge
    docker compose logs --tail=100 celery
-   docker compose restart mqtt-bridge celery
+   docker compose logs --tail=100 celery-beat
+   docker compose restart mqtt-bridge celery celery-beat
 
 Le bridge reçoit les messages et les met en file. Celery exécute réellement
-l'ingestion et écrit en base.
+l'ingestion et écrit en base. Celery Beat planifie les contrôles récurrents qui
+ne dépendent pas directement d'un message MQTT entrant.
 
 Test de commande ESP32
 ----------------------
@@ -413,13 +419,13 @@ Les notifications email sont envoyées uniquement aux techniciens actifs affect�
 * ``120`` secondes pour une alerte haute ou moyenne ;
 * ``1800`` secondes de délai de relance si l'alerte reste active.
 
-Traiter les notifications en attente :
+Traiter les notifications en attente manuellement :
 
 .. code-block:: bash
 
    docker compose exec backend python manage.py send_alert_notifications
 
-Contrôler les sessions actives sans télémétrie :
+Contrôler les sessions actives sans télémétrie manuellement :
 
 .. code-block:: bash
 
@@ -429,6 +435,10 @@ Ce contrôle crée une alerte ``session_without_telemetry`` si une session ouver
 ne reçoit plus de mesure depuis ``SESSION_TELEMETRY_STALE_MINUTES`` minutes,
 ``2`` par défaut. L'alerte se résout automatiquement quand la télémétrie revient
 ou quand la session est clôturée.
+En fonctionnement normal, ces deux commandes sont exécutées automatiquement par
+``celery-beat`` toutes les ``60`` secondes par défaut, via
+``CELERY_BEAT_ALERT_NOTIFICATIONS_SECONDS`` et
+``CELERY_BEAT_SESSION_TELEMETRY_HEALTH_SECONDS``.
 
 L'alerte ``firmware_outdated`` est levée si ``EXPECTED_ESP32_FIRMWARE_VERSION``
 est défini et si un ESP32 remonte une version différente. Elle se résout lorsque
@@ -515,7 +525,8 @@ Avant une présentation, vérifier :
 * une réservation de test existe ;
 * le backend est joignable depuis le Raspberry ;
 * le broker MQTT est joignable depuis le Raspberry et les ESP32 ;
-* ``mqtt-bridge`` et ``celery`` sont lancés pour alimenter Grafana ;
+* ``mqtt-bridge``, ``celery`` et ``celery-beat`` sont lancés pour alimenter
+  Grafana et maintenir les alertes métier ;
 * le dashboard Grafana affiche des points récents ;
 * le lecteur RFID lit bien un UID ;
 * l'ESP32 répond aux commandes avec un ACK.

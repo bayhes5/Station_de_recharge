@@ -4,10 +4,12 @@ from io import StringIO
 import pytest
 from django.core import mail
 from django.core.management import call_command
+from django.conf import settings
 from django.test import override_settings
 from django.utils import timezone
 
 from api.models import Alerte, Reservation, Session, SessionTelemetry, Technicien, TechnicienStation
+from api.tasks import notify_pending_alerts_task, scan_session_telemetry_gaps_task
 from api.services.operational_alerts import scan_session_telemetry_gaps
 
 
@@ -100,6 +102,34 @@ def test_check_session_telemetry_health_command_reports_counts(user, emplacement
 
     assert "created=1" in output.getvalue()
     assert Alerte.objects.filter(type="session_without_telemetry").count() == 1
+
+
+@pytest.mark.django_db
+@override_settings(SESSION_TELEMETRY_STALE_MINUTES=2)
+def test_scan_session_telemetry_gaps_task_reports_counts(user, emplacements):
+    """Expose the telemetry scan through Celery Beat."""
+    create_active_session(user, emplacements[0])
+
+    result = scan_session_telemetry_gaps_task()
+
+    assert result == {"created": 1, "updated": 0, "resolved": 0}
+    assert Alerte.objects.filter(type="session_without_telemetry").count() == 1
+
+
+def test_celery_beat_schedule_runs_operational_alert_tasks():
+    """Keep the production periodic tasks versioned in Django settings."""
+    schedule = settings.CELERY_BEAT_SCHEDULE
+
+    assert schedule["scan-session-telemetry-gaps"]["task"] == "api.scan_session_telemetry_gaps"
+    assert schedule["send-pending-alert-notifications"]["task"] == "api.notify_pending_alerts"
+    assert schedule["scan-session-telemetry-gaps"]["schedule"] > 0
+    assert schedule["send-pending-alert-notifications"]["schedule"] > 0
+
+
+@pytest.mark.django_db
+def test_notify_pending_alerts_task_runs_without_pending_alerts():
+    """Expose delayed alert notifications through Celery Beat."""
+    assert notify_pending_alerts_task() == {"alerts_notified": 0, "emails_sent": 0}
 
 
 @pytest.mark.django_db

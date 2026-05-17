@@ -336,6 +336,7 @@ Le broker local est Mosquitto. Les services concernés sont :
 * ``mqtt`` : broker de messagerie ;
 * ``mqtt-bridge`` : consommateur abonné aux télémétries ;
 * ``celery`` : traitement asynchrone ;
+* ``celery-beat`` : planification des contrôles récurrents de supervision ;
 * ``redis`` : broker Celery ;
 * ``db`` : stockage final.
 
@@ -349,6 +350,9 @@ Le choix Celery évite de bloquer le consommateur de messages pendant les
 écritures en base.
 Même si le volume actuel reste limité, cette architecture prépare le
 filtrage, l'agrégation et les notifications.
+``celery-beat`` déclenche en complément les contrôles qui ne dépendent pas d'un
+message MQTT entrant, notamment ``api.scan_session_telemetry_gaps`` et
+``api.notify_pending_alerts``.
 
 Stockage des capteurs
 ---------------------
@@ -382,6 +386,10 @@ actuelles sont :
 * ``overheat`` si la température est supérieure ou égale à ``60`` ;
 * ``overcurrent`` si le courant est supérieur ou égal à ``3.0`` ;
 * ``state_error`` si l'état vaut ``error``, ``emergency`` ou ``fault`` ;
+* ``charge_without_session`` si l'ESP32 remonte une charge avec un ``session_id``
+  inconnu du backend ;
+* ``session_without_telemetry`` si une session active ne reçoit plus de mesure
+  récente, via le contrôle périodique Celery Beat ;
 * ``firmware_outdated`` si ``EXPECTED_ESP32_FIRMWARE_VERSION`` est défini et que
   la version remontée par l'ESP32 est différente.
 
@@ -411,8 +419,11 @@ Les délais configurables sont :
   techniciens.
 
 La commande ``python manage.py send_alert_notifications`` traite les alertes en
-attente. En environnement académique, Django envoie ces emails vers Mailpit via
-SMTP ; aucun fournisseur externe n'est nécessaire pour démontrer le parcours.
+attente, et ``python manage.py check_session_telemetry_health`` contrôle les
+sessions sans télémétrie. En fonctionnement Docker, ces commandes sont lancées
+automatiquement par ``celery-beat``. En environnement académique, Django envoie
+les emails vers Mailpit via SMTP ; aucun fournisseur externe n'est nécessaire
+pour démontrer le parcours.
 
 L'alerte ``firmware_outdated`` est volontairement séparée des emails technicien
 par défaut. Elle doit être visible dans la supervision, mais la décision de mise

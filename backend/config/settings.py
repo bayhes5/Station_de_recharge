@@ -265,6 +265,24 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = os.environ.get("CELERY_TIMEZONE", "Europe/Paris")
+CELERY_BEAT_SESSION_TELEMETRY_HEALTH_SECONDS = env_int(
+    "CELERY_BEAT_SESSION_TELEMETRY_HEALTH_SECONDS",
+    60,
+)
+CELERY_BEAT_ALERT_NOTIFICATIONS_SECONDS = env_int(
+    "CELERY_BEAT_ALERT_NOTIFICATIONS_SECONDS",
+    60,
+)
+CELERY_BEAT_SCHEDULE = {
+    "scan-session-telemetry-gaps": {
+        "task": "api.scan_session_telemetry_gaps",
+        "schedule": CELERY_BEAT_SESSION_TELEMETRY_HEALTH_SECONDS,
+    },
+    "send-pending-alert-notifications": {
+        "task": "api.notify_pending_alerts",
+        "schedule": CELERY_BEAT_ALERT_NOTIFICATIONS_SECONDS,
+    },
+}
 
 if find_spec("channels_redis"):
     CHANNEL_LAYERS = {
