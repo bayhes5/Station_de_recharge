@@ -73,7 +73,7 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COUNT(*)::double precision AS value\nFROM station s\nWHERE s.statut = 'active'\n  AND ('$station' = 'all' OR s.id_station::text = '$station');",
+          "rawSql": "SELECT COUNT(*)::double precision AS value\nFROM station s\nWHERE s.statut = 'active'\n  AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}');",
           "refId": "A"
         }
       ],
@@ -119,7 +119,7 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COUNT(*)::double precision AS value\nFROM charging_session cs\nJOIN emplacement e ON e.id_emplacement = cs.id_emplacement\nJOIN borne b ON b.id_borne = e.id_borne\nJOIN station s ON s.id_station = e.id_station\nWHERE cs.end_time IS NULL\n  AND ('$station' = 'all' OR s.id_station::text = '$station')\n  AND ('$borne' = 'all' OR b.id_borne::text = '$borne')\n  AND ('$emplacement' = 'all' OR e.id_emplacement::text = '$emplacement');",
+          "rawSql": "SELECT COUNT(*)::double precision AS value\nFROM charging_session cs\nJOIN emplacement e ON e.id_emplacement = cs.id_emplacement\nJOIN borne b ON b.id_borne = e.id_borne\nJOIN station s ON s.id_station = e.id_station\nWHERE cs.end_time IS NULL\n  AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}');",
           "refId": "A"
         }
       ],
@@ -165,7 +165,7 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COUNT(*)::double precision AS value\nFROM device d\nJOIN emplacement e ON e.id_emplacement = d.id_emplacement\nJOIN borne b ON b.id_borne = e.id_borne\nJOIN station s ON s.id_station = e.id_station\nWHERE (d.last_seen IS NULL OR d.last_seen < now() - interval '5 minutes')\n  AND ('$station' = 'all' OR s.id_station::text = '$station')\n  AND ('$borne' = 'all' OR b.id_borne::text = '$borne')\n  AND ('$emplacement' = 'all' OR e.id_emplacement::text = '$emplacement');",
+          "rawSql": "SELECT COUNT(*)::double precision AS value\nFROM device d\nJOIN emplacement e ON e.id_emplacement = d.id_emplacement\nJOIN borne b ON b.id_borne = e.id_borne\nJOIN station s ON s.id_station = e.id_station\nWHERE (d.last_seen IS NULL OR d.last_seen < now() - interval '5 minutes')\n  AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}');",
           "refId": "A"
         }
       ],
@@ -211,7 +211,7 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COUNT(*)::double precision AS value\nFROM alerte a\nLEFT JOIN charging_session cs ON cs.id_session = a.id_session\nLEFT JOIN emplacement session_emplacement ON session_emplacement.id_emplacement = cs.id_emplacement\nLEFT JOIN capteur_data cd ON cd.id_data = a.id_data\nLEFT JOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement sensor_emplacement ON sensor_emplacement.id_emplacement = d.id_emplacement\nLEFT JOIN emplacement e ON e.id_emplacement = COALESCE(session_emplacement.id_emplacement, sensor_emplacement.id_emplacement)\nLEFT JOIN borne b ON b.id_borne = e.id_borne\nLEFT JOIN station s ON s.id_station = e.id_station\nWHERE a.status NOT IN ('resolved', 'resolue', 'closed', 'fermee')\n  AND ('$station' = 'all' OR s.id_station::text = '$station')\n  AND ('$borne' = 'all' OR b.id_borne::text = '$borne')\n  AND ('$emplacement' = 'all' OR e.id_emplacement::text = '$emplacement');",
+          "rawSql": "SELECT COUNT(*)::double precision AS value\nFROM alerte a\nLEFT JOIN charging_session cs ON cs.id_session = a.id_session\nLEFT JOIN emplacement session_emplacement ON session_emplacement.id_emplacement = cs.id_emplacement\nLEFT JOIN capteur_data cd ON cd.id_data = a.id_data\nLEFT JOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement sensor_emplacement ON sensor_emplacement.id_emplacement = d.id_emplacement\nLEFT JOIN emplacement e ON e.id_emplacement = COALESCE(session_emplacement.id_emplacement, sensor_emplacement.id_emplacement)\nLEFT JOIN borne b ON b.id_borne = e.id_borne\nLEFT JOIN station s ON s.id_station = e.id_station\nWHERE a.status NOT IN ('resolved', 'resolue', 'closed', 'fermee')\n  AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}');",
           "refId": "A"
         }
       ],
@@ -257,7 +257,7 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH latest_power AS (\n  SELECT DISTINCT ON (d.id_device) d.id_device, cd.valeur\n  FROM capteur_data cd\n  JOIN capteur c ON c.id_capteur = cd.id_capteur\n  JOIN device d ON d.id_device = c.id_device\n  JOIN emplacement e ON e.id_emplacement = d.id_emplacement\n  JOIN borne b ON b.id_borne = e.id_borne\n  JOIN station s ON s.id_station = e.id_station\n  WHERE c.type = 'power' AND $__timeFilter(cd.timestamp)\n    AND ('$station' = 'all' OR s.id_station::text = '$station')\n    AND ('$borne' = 'all' OR b.id_borne::text = '$borne')\n    AND ('$emplacement' = 'all' OR e.id_emplacement::text = '$emplacement')\n  ORDER BY d.id_device, cd.timestamp DESC\n)\nSELECT COALESCE(SUM(valeur), 0)::double precision AS value FROM latest_power;",
+          "rawSql": "WITH latest_power AS (\n  SELECT DISTINCT ON (d.id_device) d.id_device, cd.valeur\n  FROM capteur_data cd\n  JOIN capteur c ON c.id_capteur = cd.id_capteur\n  JOIN device d ON d.id_device = c.id_device\n  JOIN emplacement e ON e.id_emplacement = d.id_emplacement\n  JOIN borne b ON b.id_borne = e.id_borne\n  JOIN station s ON s.id_station = e.id_station\n  WHERE c.type = 'power' AND $__timeFilter(cd.timestamp)\n    AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n    AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n    AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\n  ORDER BY d.id_device, cd.timestamp DESC\n)\nSELECT COALESCE(SUM(valeur), 0)::double precision AS value FROM latest_power;",
           "refId": "A"
         }
       ],
@@ -303,7 +303,7 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH latest_session_energy AS (\n  SELECT DISTINCT ON (st.id_session) st.id_session, st.energie_kwh\n  FROM session_telemetry st\n  JOIN charging_session cs ON cs.id_session = st.id_session\n  JOIN emplacement e ON e.id_emplacement = cs.id_emplacement\n  JOIN borne b ON b.id_borne = e.id_borne\n  JOIN station s ON s.id_station = e.id_station\n  WHERE st.timestamp >= date_trunc('day', now())\n    AND ('$station' = 'all' OR s.id_station::text = '$station')\n    AND ('$borne' = 'all' OR b.id_borne::text = '$borne')\n    AND ('$emplacement' = 'all' OR e.id_emplacement::text = '$emplacement')\n  ORDER BY st.id_session, st.timestamp DESC\n)\nSELECT COALESCE(SUM(energie_kwh), 0)::double precision AS value FROM latest_session_energy;",
+          "rawSql": "WITH latest_session_energy AS (\n  SELECT DISTINCT ON (st.id_session) st.id_session, st.energie_kwh\n  FROM session_telemetry st\n  JOIN charging_session cs ON cs.id_session = st.id_session\n  JOIN emplacement e ON e.id_emplacement = cs.id_emplacement\n  JOIN borne b ON b.id_borne = e.id_borne\n  JOIN station s ON s.id_station = e.id_station\n  WHERE st.timestamp >= date_trunc('day', now())\n    AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n    AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n    AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\n  ORDER BY st.id_session, st.timestamp DESC\n)\nSELECT COALESCE(SUM(energie_kwh), 0)::double precision AS value FROM latest_session_energy;",
           "refId": "A"
         }
       ],
@@ -337,7 +337,7 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT cs.start_time AS debut, COALESCE(u.pseudo, '-') AS utilisateur, COALESCE(r.reference_code, '-') AS code_reservation, s.nom AS station, b.nom AS borne, e.numero AS emplacement, ROUND(EXTRACT(EPOCH FROM (now() - cs.start_time)) / 60)::integer AS duree_min, latest_tel.courant, latest_tel.tension, latest_tel.energie_kwh\nFROM charging_session cs\nJOIN reservation r ON r.id_reservation = cs.id_reservation\nLEFT JOIN utilisateur u ON u.id_user = r.id_user\nJOIN emplacement e ON e.id_emplacement = cs.id_emplacement\nJOIN borne b ON b.id_borne = e.id_borne\nJOIN station s ON s.id_station = e.id_station\nLEFT JOIN LATERAL (\n  SELECT st.courant, st.tension, st.energie_kwh\n  FROM session_telemetry st\n  WHERE st.id_session = cs.id_session\n  ORDER BY st.timestamp DESC\n  LIMIT 1\n) latest_tel ON true\nWHERE cs.end_time IS NULL\n  AND ('$station' = 'all' OR s.id_station::text = '$station')\n  AND ('$borne' = 'all' OR b.id_borne::text = '$borne')\n  AND ('$emplacement' = 'all' OR e.id_emplacement::text = '$emplacement')\nORDER BY cs.start_time;",
+          "rawSql": "SELECT cs.start_time AS debut, COALESCE(u.pseudo, '-') AS utilisateur, COALESCE(r.reference_code, '-') AS code_reservation, s.nom AS station, b.nom AS borne, e.numero AS emplacement, ROUND(EXTRACT(EPOCH FROM (now() - cs.start_time)) / 60)::integer AS duree_min, latest_tel.courant, latest_tel.tension, latest_tel.energie_kwh\nFROM charging_session cs\nJOIN reservation r ON r.id_reservation = cs.id_reservation\nLEFT JOIN utilisateur u ON u.id_user = r.id_user\nJOIN emplacement e ON e.id_emplacement = cs.id_emplacement\nJOIN borne b ON b.id_borne = e.id_borne\nJOIN station s ON s.id_station = e.id_station\nLEFT JOIN LATERAL (\n  SELECT st.courant, st.tension, st.energie_kwh\n  FROM session_telemetry st\n  WHERE st.id_session = cs.id_session\n  ORDER BY st.timestamp DESC\n  LIMIT 1\n) latest_tel ON true\nWHERE cs.end_time IS NULL\n  AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nORDER BY cs.start_time;",
           "refId": "A"
         }
       ],
@@ -371,7 +371,7 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT s.nom AS station, s.localisation AS localisation, s.statut, COUNT(DISTINCT d.id_device) AS devices, COUNT(DISTINCT d.id_device) FILTER (WHERE d.last_seen IS NULL OR d.last_seen < now() - interval '5 minutes') AS esp32_hors_ligne, COUNT(DISTINCT cs.id_session) AS sessions_en_cours, MAX(d.last_seen) AS dernier_signal\nFROM station s\nLEFT JOIN borne b ON b.id_station = s.id_station\nLEFT JOIN emplacement e ON e.id_borne = b.id_borne\nLEFT JOIN device d ON d.id_emplacement = e.id_emplacement\nLEFT JOIN charging_session cs ON cs.id_emplacement = e.id_emplacement AND cs.end_time IS NULL\nWHERE ('$station' = 'all' OR s.id_station::text = '$station')\n  AND ('$borne' = 'all' OR b.id_borne::text = '$borne')\n  AND ('$emplacement' = 'all' OR e.id_emplacement::text = '$emplacement')\nGROUP BY s.id_station, s.nom, s.localisation, s.statut\nORDER BY esp32_hors_ligne DESC, sessions_en_cours DESC, station;",
+          "rawSql": "SELECT s.nom AS station, s.localisation AS localisation, s.statut, COUNT(DISTINCT d.id_device) AS devices, COUNT(DISTINCT d.id_device) FILTER (WHERE d.last_seen IS NULL OR d.last_seen < now() - interval '5 minutes') AS esp32_hors_ligne, COUNT(DISTINCT cs.id_session) AS sessions_en_cours, MAX(d.last_seen) AS dernier_signal\nFROM station s\nLEFT JOIN borne b ON b.id_station = s.id_station\nLEFT JOIN emplacement e ON e.id_borne = b.id_borne\nLEFT JOIN device d ON d.id_emplacement = e.id_emplacement\nLEFT JOIN charging_session cs ON cs.id_emplacement = e.id_emplacement AND cs.end_time IS NULL\nWHERE ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nGROUP BY s.id_station, s.nom, s.localisation, s.statut\nORDER BY esp32_hors_ligne DESC, sessions_en_cours DESC, station;",
           "refId": "A"
         }
       ],
@@ -405,7 +405,7 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT a.date AS time, a.type, a.niveau_severite, a.status, COALESCE(s.nom, '-') AS station, COALESCE(b.nom, '-') AS borne, COALESCE(e.numero::text, '-') AS emplacement, a.message\nFROM alerte a\nLEFT JOIN charging_session cs ON cs.id_session = a.id_session\nLEFT JOIN emplacement session_emplacement ON session_emplacement.id_emplacement = cs.id_emplacement\nLEFT JOIN capteur_data cd ON cd.id_data = a.id_data\nLEFT JOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement sensor_emplacement ON sensor_emplacement.id_emplacement = d.id_emplacement\nLEFT JOIN emplacement e ON e.id_emplacement = COALESCE(session_emplacement.id_emplacement, sensor_emplacement.id_emplacement)\nLEFT JOIN borne b ON b.id_borne = e.id_borne\nLEFT JOIN station s ON s.id_station = e.id_station\nWHERE $__timeFilter(a.date)\n  AND ('$station' = 'all' OR s.id_station::text = '$station')\n  AND ('$borne' = 'all' OR b.id_borne::text = '$borne')\n  AND ('$emplacement' = 'all' OR e.id_emplacement::text = '$emplacement')\nORDER BY a.date DESC\nLIMIT 50;",
+          "rawSql": "SELECT a.date AS time, a.type, a.niveau_severite, a.status, COALESCE(s.nom, '-') AS station, COALESCE(b.nom, '-') AS borne, COALESCE(e.numero::text, '-') AS emplacement, a.message\nFROM alerte a\nLEFT JOIN charging_session cs ON cs.id_session = a.id_session\nLEFT JOIN emplacement session_emplacement ON session_emplacement.id_emplacement = cs.id_emplacement\nLEFT JOIN capteur_data cd ON cd.id_data = a.id_data\nLEFT JOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement sensor_emplacement ON sensor_emplacement.id_emplacement = d.id_emplacement\nLEFT JOIN emplacement e ON e.id_emplacement = COALESCE(session_emplacement.id_emplacement, sensor_emplacement.id_emplacement)\nLEFT JOIN borne b ON b.id_borne = e.id_borne\nLEFT JOIN station s ON s.id_station = e.id_station\nWHERE $__timeFilter(a.date)\n  AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nORDER BY a.date DESC\nLIMIT 50;",
           "refId": "A"
         }
       ],
@@ -439,7 +439,7 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT dcl.timestamp AS time, s.nom AS station, b.nom AS borne, e.numero AS emplacement, COALESCE(NULLIF(d.mac_address, ''), e.numero::text) AS slot, dcl.action, dcl.status, dcl.message, dcl.id_session AS session_id\nFROM device_command_log dcl\nJOIN device d ON d.id_device = dcl.id_device\nJOIN emplacement e ON e.id_emplacement = d.id_emplacement\nJOIN borne b ON b.id_borne = e.id_borne\nJOIN station s ON s.id_station = e.id_station\nWHERE $__timeFilter(dcl.timestamp)\n  AND ('$station' = 'all' OR s.id_station::text = '$station')\n  AND ('$borne' = 'all' OR b.id_borne::text = '$borne')\n  AND ('$emplacement' = 'all' OR e.id_emplacement::text = '$emplacement')\nORDER BY dcl.timestamp DESC\nLIMIT 50;",
+          "rawSql": "SELECT dcl.timestamp AS time, s.nom AS station, b.nom AS borne, e.numero AS emplacement, COALESCE(NULLIF(d.mac_address, ''), e.numero::text) AS slot, dcl.action, dcl.status, dcl.message, dcl.id_session AS session_id\nFROM device_command_log dcl\nJOIN device d ON d.id_device = dcl.id_device\nJOIN emplacement e ON e.id_emplacement = d.id_emplacement\nJOIN borne b ON b.id_borne = e.id_borne\nJOIN station s ON s.id_station = e.id_station\nWHERE $__timeFilter(dcl.timestamp)\n  AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nORDER BY dcl.timestamp DESC\nLIMIT 50;",
           "refId": "A"
         }
       ],
@@ -486,14 +486,14 @@
           "type": "postgres",
           "uid": "station-timescaledb"
         },
-        "definition": "SELECT b.id_borne::text AS __value, s.nom || ' / ' || b.nom AS __text FROM borne b JOIN station s ON s.id_station = b.id_station WHERE ('$station' = 'all' OR b.id_station::text = '$station') ORDER BY s.nom, b.numero;",
+        "definition": "SELECT b.id_borne::text AS __value, s.nom || ' / ' || b.nom AS __text FROM borne b JOIN station s ON s.id_station = b.id_station WHERE ('${station:raw}' = 'all' OR b.id_station::text = '${station:raw}') ORDER BY s.nom, b.numero;",
         "hide": 0,
         "includeAll": true,
         "label": "Borne",
         "multi": false,
         "name": "borne",
         "options": [],
-        "query": "SELECT b.id_borne::text AS __value, s.nom || ' / ' || b.nom AS __text FROM borne b JOIN station s ON s.id_station = b.id_station WHERE ('$station' = 'all' OR b.id_station::text = '$station') ORDER BY s.nom, b.numero;",
+        "query": "SELECT b.id_borne::text AS __value, s.nom || ' / ' || b.nom AS __text FROM borne b JOIN station s ON s.id_station = b.id_station WHERE ('${station:raw}' = 'all' OR b.id_station::text = '${station:raw}') ORDER BY s.nom, b.numero;",
         "refresh": 1,
         "sort": 1,
         "type": "query"
@@ -509,14 +509,14 @@
           "type": "postgres",
           "uid": "station-timescaledb"
         },
-        "definition": "SELECT e.id_emplacement::text AS __value, s.nom || ' / ' || b.nom || ' / emplacement ' || e.numero::text AS __text FROM emplacement e JOIN borne b ON b.id_borne = e.id_borne JOIN station s ON s.id_station = e.id_station WHERE ('$station' = 'all' OR e.id_station::text = '$station') AND ('$borne' = 'all' OR e.id_borne::text = '$borne') ORDER BY s.nom, b.numero, e.numero;",
+        "definition": "SELECT e.id_emplacement::text AS __value, s.nom || ' / ' || b.nom || ' / emplacement ' || e.numero::text AS __text FROM emplacement e JOIN borne b ON b.id_borne = e.id_borne JOIN station s ON s.id_station = e.id_station WHERE ('${station:raw}' = 'all' OR e.id_station::text = '${station:raw}') AND ('${borne:raw}' = 'all' OR e.id_borne::text = '${borne:raw}') ORDER BY s.nom, b.numero, e.numero;",
         "hide": 0,
         "includeAll": true,
         "label": "Emplacement",
         "multi": false,
         "name": "emplacement",
         "options": [],
-        "query": "SELECT e.id_emplacement::text AS __value, s.nom || ' / ' || b.nom || ' / emplacement ' || e.numero::text AS __text FROM emplacement e JOIN borne b ON b.id_borne = e.id_borne JOIN station s ON s.id_station = e.id_station WHERE ('$station' = 'all' OR e.id_station::text = '$station') AND ('$borne' = 'all' OR e.id_borne::text = '$borne') ORDER BY s.nom, b.numero, e.numero;",
+        "query": "SELECT e.id_emplacement::text AS __value, s.nom || ' / ' || b.nom || ' / emplacement ' || e.numero::text AS __text FROM emplacement e JOIN borne b ON b.id_borne = e.id_borne JOIN station s ON s.id_station = e.id_station WHERE ('${station:raw}' = 'all' OR e.id_station::text = '${station:raw}') AND ('${borne:raw}' = 'all' OR e.id_borne::text = '${borne:raw}') ORDER BY s.nom, b.numero, e.numero;",
         "refresh": 1,
         "sort": 1,
         "type": "query"
