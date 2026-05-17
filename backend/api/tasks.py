@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 
+from django.conf import settings
+
 from api.realtime import broadcast_supervision_update
 from api.services.telemetry import ingest_slot_ack, ingest_slot_status, ingest_slot_telemetry
 
@@ -31,6 +33,23 @@ def _extract_message_kind(topic: str) -> str:
     return message_kind if message_kind in SUPPORTED_MQTT_MESSAGE_KINDS else ""
 
 
+def _strip_base_topic(prefix_parts: list[str]) -> list[str]:
+    """Remove the configured MQTT base topic from a structured topic prefix."""
+    base_parts = _topic_parts(getattr(settings, "MQTT_BASE_TOPIC", "station"))
+    if base_parts and prefix_parts[: len(base_parts)] == base_parts:
+        return prefix_parts[len(base_parts) :]
+    return prefix_parts
+
+
+def _extract_topic_prefix(topic: str) -> str:
+    """Return the station/borne prefix found before the slot id, if any."""
+    parts = _topic_parts(topic)
+    if len(parts) < 3 or parts[-1] not in SUPPORTED_MQTT_MESSAGE_KINDS:
+        return ""
+    prefix_parts = _strip_base_topic(parts[:-2])
+    return "/".join(prefix_parts)
+
+
 def process_mqtt_message(topic: str, payload: str | bytes):
     """Process one MQTT message synchronously for local/dev usage."""
     raw_payload = payload.decode("utf-8") if isinstance(payload, bytes) else payload
@@ -46,10 +65,12 @@ def process_mqtt_message(topic: str, payload: str | bytes):
         return None
 
     slot_id = str(data.pop("slot_id", "") or _extract_slot_id(topic))
+    topic_prefix = _extract_topic_prefix(topic)
     if message_kind == "ack":
-        result = ingest_slot_ack(slot_id=slot_id, payload=data)
+        result = ingest_slot_ack(slot_id=slot_id, payload=data, topic_prefix=topic_prefix)
         logger.info(
-            "MQTT ACK ingere slot=%s action=%s status=%s command_id=%s",
+            "MQTT ACK ingere prefix=%s slot=%s action=%s status=%s command_id=%s",
+            topic_prefix,
             slot_id,
             result.action,
             result.status,
@@ -57,6 +78,7 @@ def process_mqtt_message(topic: str, payload: str | bytes):
         )
         response = {
             "slot_id": slot_id,
+            "topic_prefix": topic_prefix,
             "message_type": "ack",
             "device_status": result.device.status,
             "last_seen": result.device.last_seen.isoformat() if result.device.last_seen else None,
@@ -71,10 +93,11 @@ def process_mqtt_message(topic: str, payload: str | bytes):
         return response
 
     if message_kind == "status":
-        result = ingest_slot_status(slot_id=slot_id, payload=data)
-        logger.info("MQTT status ingere slot=%s status=%s", slot_id, result.device.status)
+        result = ingest_slot_status(slot_id=slot_id, payload=data, topic_prefix=topic_prefix)
+        logger.info("MQTT status ingere prefix=%s slot=%s status=%s", topic_prefix, slot_id, result.device.status)
         response = {
             "slot_id": slot_id,
+            "topic_prefix": topic_prefix,
             "message_type": "status",
             "device_status": result.device.status,
             "last_seen": result.device.last_seen.isoformat() if result.device.last_seen else None,
@@ -87,10 +110,11 @@ def process_mqtt_message(topic: str, payload: str | bytes):
 
     if message_kind == "alert":
         data.setdefault("state", "error")
-        result = ingest_slot_telemetry(slot_id=slot_id, payload=data)
-        logger.warning("MQTT alert ingeree slot=%s alerts=%s", slot_id, result.alert_count)
+        result = ingest_slot_telemetry(slot_id=slot_id, payload=data, topic_prefix=topic_prefix)
+        logger.warning("MQTT alert ingeree prefix=%s slot=%s alerts=%s", topic_prefix, slot_id, result.alert_count)
         response = {
             "slot_id": slot_id,
+            "topic_prefix": topic_prefix,
             "message_type": "alert",
             "capteur_count": result.capteur_count,
             "alert_count": result.alert_count,
@@ -99,9 +123,10 @@ def process_mqtt_message(topic: str, payload: str | bytes):
         broadcast_supervision_update("mqtt-alert", response)
         return response
 
-    result = ingest_slot_telemetry(slot_id=slot_id, payload=data)
+    result = ingest_slot_telemetry(slot_id=slot_id, payload=data, topic_prefix=topic_prefix)
     logger.info(
-        "MQTT telemetry ingeree slot=%s sensors=%s alerts=%s session=%s",
+        "MQTT telemetry ingeree prefix=%s slot=%s sensors=%s alerts=%s session=%s",
+        topic_prefix,
         slot_id,
         result.capteur_count,
         result.alert_count,
@@ -109,6 +134,7 @@ def process_mqtt_message(topic: str, payload: str | bytes):
     )
     response = {
         "slot_id": slot_id,
+        "topic_prefix": topic_prefix,
         "message_type": "telemetry",
         "capteur_count": result.capteur_count,
         "alert_count": result.alert_count,

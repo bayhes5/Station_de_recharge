@@ -343,6 +343,11 @@ Stockage des capteurs
 
 ``ingest_slot_telemetry`` crée ou met à jour le ``Device`` associé à l'emplacement,
 met à jour ``last_seen`` et stocke les mesures numériques dans ``CapteurData``.
+Quand le topic MQTT contient un préfixe structuré
+``station/<station>/<borne>/<slot_id>/telemetry``, le backend utilise la partie
+``<station>/<borne>`` pour retrouver la borne via ``Borne.mqtt_prefix`` avant de
+choisir l'emplacement. Cette règle protège les environnements multi-bornes où
+plusieurs ESP32 peuvent publier un ``slot1``.
 
 Les champs booléens ``door`` et ``cable`` sont convertis en ``1.0`` ou ``0.0``
 pour rester compatibles avec ``CapteurData.valeur`` qui est numérique. L'API de

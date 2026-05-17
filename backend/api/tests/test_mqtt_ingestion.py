@@ -4,7 +4,18 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
-from api.models import Alerte, CapteurData, Device, DeviceCommandLog, Reservation, Session, SessionTelemetry
+from api.models import (
+    Alerte,
+    Borne,
+    CapteurData,
+    Device,
+    DeviceCommandLog,
+    Emplacement,
+    Reservation,
+    Session,
+    SessionTelemetry,
+    Station,
+)
 from api.services.mqtt_commands import build_slot_command_topic
 from api.tasks import process_mqtt_message
 
@@ -80,6 +91,60 @@ def test_process_mqtt_message_accepts_structured_station_topic(emplacements):
     assert result["message_type"] == "telemetry"
     assert CapteurData.objects.count() == 2
     assert Device.objects.get(mac_address="slot2").status == "charging"
+
+
+@pytest.mark.django_db
+def test_structured_topic_scopes_duplicate_slot_ids_to_the_expected_borne(emplacements):
+    """Use the station/borne topic prefix to avoid mixing identical slot ids."""
+    second_station = Station.objects.create(
+        nom="Station Est",
+        localisation_text="Est",
+        statut="active",
+    )
+    second_borne = Borne.objects.create(
+        station=second_station,
+        numero=1,
+        nom="Borne Est 1",
+        mqtt_prefix="station-est/borne-1",
+        statut="active",
+    )
+    second_emplacement = Emplacement.objects.create(
+        station=second_station,
+        borne=second_borne,
+        numero=1,
+        statut="disponible",
+        lock_state="verrouille",
+    )
+    first_device = Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="demo",
+        mac_address="slot1",
+        status="offline",
+    )
+    second_device = Device.objects.create(
+        emplacement=second_emplacement,
+        type_device="ESP32",
+        firmware_version="demo",
+        mac_address="slot1",
+        status="offline",
+    )
+
+    result = process_mqtt_message(
+        "station/station-est/borne-1/slot1/telemetry",
+        json.dumps({"state": "charging", "temperature": 29.5, "humidity": 47}),
+    )
+
+    assert result["slot_id"] == "slot1"
+    assert result["topic_prefix"] == "station-est/borne-1"
+    assert CapteurData.objects.count() == 2
+    assert set(CapteurData.objects.values_list("capteur__device_id", flat=True)) == {
+        second_device.id_device,
+    }
+    first_device.refresh_from_db()
+    second_device.refresh_from_db()
+    assert first_device.status == "offline"
+    assert second_device.status == "charging"
 
 
 @pytest.mark.django_db

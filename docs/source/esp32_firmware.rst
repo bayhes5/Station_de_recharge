@@ -104,6 +104,12 @@ deviennent alors ``station/<station_id>/<borne_id>/<slot_id>/telemetry`` et
 logique métier supplémentaire : il concatène toujours ``MQTT_BASE_TOPIC``,
 ``SLOT_ID`` et le suffixe.
 
+Le backend retire le préfixe global ``station`` et compare la partie
+``<station_id>/<borne_id>`` au champ ``mqtt_prefix`` de la borne. En production,
+chaque borne doit donc avoir un ``mqtt_prefix`` stable, par exemple
+``station-centre/borne-1``. Cela évite qu'un ``slot1`` publié par deux bornes
+différentes soit rattaché au mauvais emplacement.
+
 Commandes acceptées
 -------------------
 

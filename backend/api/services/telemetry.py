@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from api.models import (
     Alerte,
+    Borne,
     Capteur,
     CapteurData,
     Device,
@@ -140,37 +141,94 @@ def _slot_number(slot_id: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def _get_device(slot_id: str) -> Device:
-    """Return the device mapped to the slot, creating it on first telemetry."""
-    try:
-        return Device.objects.select_related("emplacement", "emplacement__borne").get(mac_address=slot_id)
-    except Device.DoesNotExist:
-        slot_number = _slot_number(slot_id)
-        emplacement_query = Emplacement.objects.select_related("station", "borne").order_by(
-            "station__nom",
-            "borne__numero",
-            "numero",
+def _topic_prefix_candidates(topic_prefix: str | None) -> list[str]:
+    """Return normalized variants for a structured station/borne MQTT prefix."""
+    normalized = str(topic_prefix or "").strip("/")
+    if not normalized:
+        return []
+    return [normalized, f"station/{normalized}"]
+
+
+def _borne_from_topic_prefix(topic_prefix: str | None) -> Borne | None:
+    """Resolve a cabinet from a structured MQTT topic prefix."""
+    candidates = _topic_prefix_candidates(topic_prefix)
+    if not candidates:
+        return None
+
+    borne = Borne.objects.select_related("station").filter(mqtt_prefix__in=candidates).first()
+    if borne is not None:
+        return borne
+
+    parts = candidates[0].split("/")
+    if len(parts) >= 2:
+        station_part, borne_part = parts[-2], parts[-1]
+        try:
+            station_uuid = UUID(station_part)
+            borne_uuid = UUID(borne_part)
+        except ValueError:
+            return None
+        return (
+            Borne.objects.select_related("station")
+            .filter(station_id=station_uuid, id_borne=borne_uuid)
+            .first()
         )
-        if slot_number is not None:
-            emplacement = emplacement_query.filter(numero=slot_number).first()
-        else:
-            emplacement = emplacement_query.first()
-        if emplacement is None:
-            raise ValueError("Aucun emplacement n'existe pour rattacher la telemetrie MQTT.") from None
-        device = getattr(emplacement, "device", None)
-        if device is not None:
+    return None
+
+
+def _device_for_emplacement(emplacement: Emplacement, slot_id: str) -> Device:
+    """Return or create the device attached to a known charging bay."""
+    device = getattr(emplacement, "device", None)
+    if device is not None:
+        if device.mac_address != slot_id:
             device.mac_address = slot_id
             device.last_seen = timezone.now()
             device.save(update_fields=["mac_address", "last_seen"])
-            return device
-        return Device.objects.create(
-            emplacement=emplacement,
-            type_device="ESP32",
-            firmware_version="unknown",
-            mac_address=slot_id,
-            status="online",
-            last_seen=timezone.now(),
+        return device
+    return Device.objects.create(
+        emplacement=emplacement,
+        type_device="ESP32",
+        firmware_version="unknown",
+        mac_address=slot_id,
+        status="online",
+        last_seen=timezone.now(),
+    )
+
+
+def _get_device(slot_id: str, topic_prefix: str | None = None) -> Device:
+    """Return the device mapped to a slot, scoping by station/borne when present."""
+    slot_number = _slot_number(slot_id)
+    borne = _borne_from_topic_prefix(topic_prefix)
+    if borne is not None and slot_number is not None:
+        emplacement = (
+            Emplacement.objects.select_related("station", "borne")
+            .filter(borne=borne, numero=slot_number)
+            .first()
         )
+        if emplacement is None:
+            raise ValueError("Aucun emplacement ne correspond au topic MQTT structure.")
+        return _device_for_emplacement(emplacement, slot_id)
+
+    device = (
+        Device.objects.select_related("emplacement", "emplacement__borne")
+        .filter(mac_address=slot_id)
+        .order_by("emplacement__station__nom", "emplacement__borne__numero", "emplacement__numero")
+        .first()
+    )
+    if device is not None:
+        return device
+
+    emplacement_query = Emplacement.objects.select_related("station", "borne").order_by(
+        "station__nom",
+        "borne__numero",
+        "numero",
+    )
+    if slot_number is not None:
+        emplacement = emplacement_query.filter(numero=slot_number).first()
+    else:
+        emplacement = emplacement_query.first()
+    if emplacement is None:
+        raise ValueError("Aucun emplacement n'existe pour rattacher la telemetrie MQTT.") from None
+    return _device_for_emplacement(emplacement, slot_id)
 
 
 def _get_active_session(emplacement: Emplacement, session_id: str | None):
@@ -316,14 +374,14 @@ def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp, 
 
 
 @transaction.atomic
-def ingest_slot_status(slot_id: str, payload: dict[str, Any]) -> DeviceStatusResult:
+def ingest_slot_status(slot_id: str, payload: dict[str, Any], topic_prefix: str | None = None) -> DeviceStatusResult:
     """Persist one ESP32 status event without requiring a sensor sample."""
     if not slot_id:
         raise ValueError("slot_id est obligatoire.")
 
     timestamp = _parse_timestamp(payload.get("timestamp"))
     status_value = payload.get("state") or payload.get("status") or payload.get("event")
-    device = _get_device(slot_id)
+    device = _get_device(slot_id, topic_prefix=topic_prefix)
     device.last_seen = timestamp
     device.status = _device_status(status_value)
     device.save(update_fields=["last_seen", "status"])
@@ -331,7 +389,7 @@ def ingest_slot_status(slot_id: str, payload: dict[str, Any]) -> DeviceStatusRes
 
 
 @transaction.atomic
-def ingest_slot_ack(slot_id: str, payload: dict[str, Any]) -> DeviceAckResult:
+def ingest_slot_ack(slot_id: str, payload: dict[str, Any], topic_prefix: str | None = None) -> DeviceAckResult:
     """Persist one ESP32 command acknowledgement for operational traceability."""
     if not slot_id:
         raise ValueError("slot_id est obligatoire.")
@@ -342,7 +400,7 @@ def ingest_slot_ack(slot_id: str, payload: dict[str, Any]) -> DeviceAckResult:
     ack_status = str(payload.get("status") or payload.get("state") or "").strip().lower()
     message = str(payload.get("message") or "").strip()[:255]
     source = str(payload.get("source") or "").strip()[:50]
-    device = _get_device(slot_id)
+    device = _get_device(slot_id, topic_prefix=topic_prefix)
     session = _get_active_session(device.emplacement, payload.get("session_id"))
     device.last_seen = timestamp
     device.last_command_id = command_id
@@ -378,13 +436,13 @@ def ingest_slot_ack(slot_id: str, payload: dict[str, Any]) -> DeviceAckResult:
 
 
 @transaction.atomic
-def ingest_slot_telemetry(slot_id: str, payload: dict[str, Any]) -> TelemetryResult:
+def ingest_slot_telemetry(slot_id: str, payload: dict[str, Any], topic_prefix: str | None = None) -> TelemetryResult:
     """Persist one ESP32 telemetry payload into operational and sensor tables."""
     if not slot_id:
         raise ValueError("slot_id est obligatoire.")
 
     timestamp = _parse_timestamp(payload.get("timestamp"))
-    device = _get_device(slot_id)
+    device = _get_device(slot_id, topic_prefix=topic_prefix)
     device.last_seen = timestamp
     device.status = _device_status(payload.get("state"))
     device.save(update_fields=["last_seen", "status"])

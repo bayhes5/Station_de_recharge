@@ -156,6 +156,13 @@ borne :
 
    station/<station_id>/<borne_id>/<slot_id>/telemetry
 
+Le couple ``<station_id>/<borne_id>`` doit correspondre au ``mqtt_prefix`` de la
+borne en base, sans le préfixe global ``station``. Cette forme est recommandée
+en production, car elle permet au backend de rattacher correctement deux
+emplacements qui auraient le même ``slot_id`` sur deux bornes différentes. Le
+format compact ``station/slot1/telemetry`` reste accepté pour le simulateur et
+les tests locaux, mais il suppose des ``slot_id`` uniques dans l'environnement.
+
 Le bridge backend s'abonne à ``station/#`` puis ne traite que les suffixes
 supervisés ``telemetry``, ``status``, ``ack`` et ``alert``. Les messages de
 diagnostic comme ``station/health`` sont donc ignorés par l'ingestion métier et
