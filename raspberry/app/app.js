@@ -24,6 +24,38 @@ function terminalApiUrl(path) {
     throw new Error("Chemin API locale refusé.");
 }
 
+function renderQrSvg(container, svgText) {
+    container.replaceChildren();
+
+    if (!svgText) {
+        return false;
+    }
+
+    const documentParser = new DOMParser();
+    const parsedDocument = documentParser.parseFromString(svgText, "image/svg+xml");
+    const svg = parsedDocument.documentElement;
+
+    if (!svg || svg.tagName.toLowerCase() !== "svg" || svg.querySelector("script, foreignObject")) {
+        return false;
+    }
+
+    svg.querySelectorAll("*").forEach((element) => {
+        [...element.attributes].forEach((attribute) => {
+            const name = attribute.name.toLowerCase();
+            const value = attribute.value.trim().toLowerCase();
+            if (
+                name.startsWith("on")
+                || ((name === "href" || name === "xlink:href") && value.startsWith("javascript:"))
+            ) {
+                element.removeAttribute(attribute.name);
+            }
+        });
+    });
+
+    container.appendChild(document.importNode(svg, true));
+    return true;
+}
+
 const KIOSK_BASE_PATH = window.location.pathname.startsWith("/kiosk/") ? "/kiosk" : "";
 const API_BASE_URL = resolveApiBaseUrl();
 const EDGE_BASE_URL = `${window.location.origin}${KIOSK_BASE_PATH}`;
@@ -726,7 +758,9 @@ async function startMobilePairing() {
         const result = await createMobileSession();
         const session = result.mobile_session || {};
         mobileSessionToken = session.token || "";
-        mobileQrBox.innerHTML = result.qr_svg || "";
+        if (!renderQrSvg(mobileQrBox, result.qr_svg)) {
+            mobileQrBox.textContent = "QR code indisponible.";
+        }
         mobileUrlOutput.textContent = result.url || "";
         setMobileStatus("Scannez le QR code avec votre téléphone.");
         mobileSessionTimer = window.setInterval(pollMobileSession, 2000);
