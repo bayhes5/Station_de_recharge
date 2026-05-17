@@ -603,6 +603,24 @@ Cette supervision technique complète l'interface web métier. L'application web
 reste destinée aux utilisateurs, administrateurs et techniciens ; Grafana sert à
 visualiser rapidement les séries temporelles et les incidents techniques.
 
+Alertes provisionnées
+---------------------
+
+Le fichier ``grafana/provisioning/alerting/station-alerts.yml`` provisionne les
+alertes Grafana de production. Elles sont évaluées toutes les minutes sur la
+datasource ``station-timescaledb`` :
+
+* ``ESP32 offline`` : un ESP32 ne publie plus de status ou de télémétrie récente ;
+* ``Température ESP32 élevée`` : une mesure DHT22 dépasse le seuil critique ;
+* ``Courant anormal`` : une mesure INA219 dépasse le seuil de courant attendu ;
+* ``Charge sans session active`` : un device remonte ``charging`` sans session
+  backend ouverte ;
+* ``Session active sans télémétrie`` : une session ouverte ne reçoit plus de
+  télémétrie récente.
+
+Ces alertes ne remplacent pas les sécurités locales ESP32 : elles servent à la
+supervision et à l'escalade opérateur.
+
 Sécurité prévue
 ---------------
 
