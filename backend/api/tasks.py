@@ -8,6 +8,7 @@ from django.conf import settings
 from api.realtime import broadcast_supervision_update
 from api.services.email_notifications import notify_pending_alerts
 from api.services.operational_alerts import scan_session_telemetry_gaps
+from api.services.retention import prune_old_telemetry
 from api.services.telemetry import ingest_slot_ack, ingest_slot_status, ingest_slot_telemetry
 
 logger = logging.getLogger(__name__)
@@ -174,7 +175,19 @@ if celery_app:
         """Celery periodic task that sends pending technician notifications."""
         return notify_pending_alerts()
 
+    @celery_app.task(name="api.prune_old_telemetry")
+    def prune_old_telemetry_task():
+        """Celery periodic task that applies the telemetry retention policy."""
+        result = prune_old_telemetry()
+        return {
+            "enabled": result.enabled,
+            "retention_days": result.retention_days,
+            "deleted": result.deleted,
+            "cutoff": result.cutoff.isoformat() if result.cutoff else None,
+        }
+
 else:
     process_mqtt_message_task = None
     scan_session_telemetry_gaps_task = None
     notify_pending_alerts_task = None
+    prune_old_telemetry_task = None

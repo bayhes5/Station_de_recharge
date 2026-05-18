@@ -152,8 +152,12 @@ Adapter les variables suivantes avant le premier démarrage :
    BOOTSTRAP_DEMO_DATA=False
    ALLOWED_HOSTS=station.example.com,192.168.1.50
 
-   TIMESCALEDB_IMAGE=timescale/timescaledb:latest-pg15
-   REDIS_IMAGE=redis:7-alpine
+   TIMESCALEDB_IMAGE=timescale/timescaledb@sha256:<digest valide>
+   REDIS_IMAGE=redis@sha256:<digest valide>
+   MAILPIT_IMAGE=axllent/mailpit@sha256:<digest valide>
+   MOSQUITTO_IMAGE=eclipse-mosquitto@sha256:<digest valide>
+   GRAFANA_IMAGE=grafana/grafana-oss@sha256:<digest valide>
+   NGINX_IMAGE=nginx@sha256:<digest valide>
 
    FRONTEND_BASE_URL=https://station.example.com
    CORS_ALLOWED_ORIGINS=https://station.example.com
@@ -187,6 +191,11 @@ Adapter les variables suivantes avant le premier démarrage :
    CSRF_COOKIE_SECURE=True
    JWT_REFRESH_COOKIE_SECURE=True
    SECURE_HSTS_SECONDS=31536000
+   SECURE_HSTS_INCLUDE_SUBDOMAINS=True
+   SECURE_HSTS_PRELOAD=True
+
+   TELEMETRY_RETENTION_DAYS=90
+   CELERY_BEAT_TELEMETRY_RETENTION_SECONDS=86400
 
    ADMIN_EMAIL=<email admin>
    ADMIN_PASSWORD=<mot de passe admin fort>
@@ -195,6 +204,14 @@ Si le serveur est utilisé uniquement en réseau local sans domaine, remplacer
 ``station.example.com`` par l'adresse IP fixe du serveur. Dans ce cas, HTTPS
 fonctionnera avec un certificat autosigné, mais les navigateurs afficheront un
 avertissement tant que le certificat n'est pas approuvé.
+
+Les options ``SECURE_HSTS_SECONDS``, ``SECURE_HSTS_INCLUDE_SUBDOMAINS`` et
+``SECURE_HSTS_PRELOAD`` ne doivent être activées qu'après validation du
+certificat et des sous-domaines de production. Une politique HSTS préchargée
+est volontairement difficile à annuler côté navigateurs.
+Le profil Nginx production contient également l'en-tête HSTS ; pour une
+démonstration LAN avec certificat autosigné, utilisez plutôt le profil de
+développement ou retirez temporairement cet en-tête.
 
 ``MQTT_PUBLISHED_HOST`` vaut ``127.0.0.1`` par défaut dans le profil production :
 Mosquitto n'est donc pas joignable depuis les ESP32 tant que cette variable n'est
@@ -310,6 +327,14 @@ réglage PostgreSQL/TimescaleDB conservateur : connexions limitées, buffers
 raisonnables, compression WAL et journalisation des requêtes lentes au-delà de
 1 seconde. Ces valeurs doivent être revues si le serveur possède beaucoup plus
 ou beaucoup moins de mémoire que prévu.
+
+Le fichier active aussi ``pg_stat_statements`` pour l'analyse des requêtes et le
+profil production applique une rotation des logs Docker par service avec
+``json-file``, ``max-size=10m`` et ``max-file=5``.
+
+Les images publiques du profil production sont référencées par digest
+``sha256`` via ``.env``. Lors d'une mise à jour volontaire d'image, changer le
+digest, reconstruire, tester, puis commiter le nouveau digest.
 
 Démarrer tous les services :
 
@@ -461,6 +486,12 @@ Pour un réseau Wi-Fi ESP32, vérifier que :
 Sauvegardes
 -----------
 
+Les scripts opérationnels sont versionnés :
+
+* ``scripts/backup-prod.sh`` produit un dump SQL compressé avec checksum SHA-256 ;
+* ``scripts/restore-prod.sh`` restaure un dump et exige
+  ``RESTORE_CONFIRM=YES`` pour éviter une restauration accidentelle.
+
 Créer un dossier de sauvegarde :
 
 .. code-block:: bash
@@ -472,13 +503,16 @@ Sauvegarder la base PostgreSQL/TimescaleDB :
 
 .. code-block:: bash
 
-   DB_USER_VALUE=$(grep '^POSTGRES_USER=' .env | cut -d= -f2-)
-   DB_NAME_VALUE=$(grep '^POSTGRES_DB=' .env | cut -d= -f2-)
+   BACKUP_DIR=/opt/station/backups scripts/backup-prod.sh
 
-   docker compose -f docker-compose.prod.yml exec -T db pg_dump \
-     -U "$DB_USER_VALUE" \
-     "$DB_NAME_VALUE" \
-     > "/opt/station/backups/station_$(date +%F_%H%M).sql"
+Tester une restauration dans une base de préproduction ou un serveur jetable :
+
+.. code-block:: bash
+
+   RESTORE_CONFIRM=YES scripts/restore-prod.sh /opt/station/backups/station_YYYYMMDDTHHMMSSZ.sql.gz
+
+Ne jamais tester une restauration directement sur la production active sans
+fenêtre de maintenance, sauvegarde récente et validation manuelle.
 
 Lister les volumes Docker pour identifier le nom exact des volumes :
 
@@ -494,7 +528,27 @@ Les volumes importants sont :
 * ``mailpit_data`` pour les emails capturés.
 
 Planifier au minimum une sauvegarde quotidienne de la base et une sauvegarde
-régulière des volumes Grafana/Mosquitto.
+régulière des volumes Grafana/Mosquitto. Exemple de cron quotidien à 02:15 :
+
+.. code-block:: cron
+
+   15 2 * * * cd /opt/station && BACKUP_DIR=/opt/station/backups scripts/backup-prod.sh >> /var/log/station-backup.log 2>&1
+
+Rétention télémétrie
+--------------------
+
+La télémétrie applicative est purgée par Celery Beat avec
+``api.prune_old_telemetry``. Par défaut :
+
+* ``TELEMETRY_RETENTION_DAYS=90`` ;
+* ``CELERY_BEAT_TELEMETRY_RETENTION_SECONDS=86400``.
+
+La politique supprime les anciens enregistrements ``CapteurData`` et laisse les
+alertes existantes en place grâce au ``SET_NULL`` côté modèle. La migration
+``0026_pg_stat_statements_and_timescale_policies`` active ``pg_stat_statements``
+et prépare des politiques TimescaleDB conditionnelles. Ces politiques natives ne
+s'appliquent que si ``capteur_data`` est convertie plus tard en hypertable, car
+le schéma Django actuel conserve une clé primaire UUID simple.
 
 Mise à jour applicative
 -----------------------

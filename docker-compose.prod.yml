@@ -1,8 +1,15 @@
+x-prod-logging: &prod-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   db:
-    image: ${TIMESCALEDB_IMAGE:-timescale/timescaledb:latest-pg15}
+    image: ${TIMESCALEDB_IMAGE:-timescale/timescaledb@sha256:867dc9cbb3232dece516122d49e56ce472754fe31cbffb54d64920f8d2ed79b6}
     container_name: station_postgres_db
     restart: unless-stopped
+    logging: *prod-logging
     env_file:
       - .env
     volumes:
@@ -18,9 +25,10 @@ services:
       retries: 5
 
   redis:
-    image: ${REDIS_IMAGE:-redis:7-alpine}
+    image: ${REDIS_IMAGE:-redis@sha256:7aec734b2bb298a1d769fd8729f13b8514a41bf90fcdd1f38ec52267fbaa8ee6}
     container_name: station_redis_cache
     restart: unless-stopped
+    logging: *prod-logging
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
@@ -33,9 +41,10 @@ services:
       retries: 5
 
   mailpit:
-    image: axllent/mailpit:v1.30.0
+    image: ${MAILPIT_IMAGE:-axllent/mailpit@sha256:0059ef81e492a7192af3816281eed6859eb078bd7bdc58b76757c13e10e53a7d}
     container_name: station_mailpit
     restart: unless-stopped
+    logging: *prod-logging
     environment:
       MP_MAX_MESSAGES: 5000
       MP_DATABASE: /data/mailpit.db
@@ -47,9 +56,10 @@ services:
       - "1025"
 
   mqtt:
-    image: eclipse-mosquitto:2
+    image: ${MOSQUITTO_IMAGE:-eclipse-mosquitto@sha256:a908c65cc8e67ec9d292ef27c2c0360dbaaee7eb1b935cdd194e67697f15dea1}
     container_name: station_mqtt_broker
     restart: unless-stopped
+    logging: *prod-logging
     env_file:
       - .env
     volumes:
@@ -74,6 +84,7 @@ services:
       target: runtime
     container_name: station_django_app
     restart: unless-stopped
+    logging: *prod-logging
     env_file:
       - .env
     environment:
@@ -118,6 +129,7 @@ services:
       target: runtime
     container_name: station_celery_worker
     restart: unless-stopped
+    logging: *prod-logging
     env_file:
       - .env
     environment:
@@ -149,6 +161,7 @@ services:
       target: runtime
     container_name: station_celery_beat
     restart: unless-stopped
+    logging: *prod-logging
     env_file:
       - .env
     environment:
@@ -174,6 +187,7 @@ services:
       target: runtime
     container_name: station_mqtt_bridge
     restart: unless-stopped
+    logging: *prod-logging
     env_file:
       - .env
     environment:
@@ -204,6 +218,7 @@ services:
       context: ./frontend
     container_name: station_frontend
     restart: unless-stopped
+    logging: *prod-logging
     expose:
       - "80"
     healthcheck:
@@ -217,6 +232,7 @@ services:
       context: ./raspberry
     container_name: station_raspberry_kiosk
     restart: unless-stopped
+    logging: *prod-logging
     working_dir: /app
     volumes:
       - ./raspberry/app:/app:ro
@@ -241,9 +257,10 @@ services:
       - mqtt
 
   grafana:
-    image: grafana/grafana-oss:12.1.0
+    image: ${GRAFANA_IMAGE:-grafana/grafana-oss@sha256:6ac590e7cabc2fbe8d7b8fc1ce9c9f0582177b334e0df9c927ebd9670469440f}
     container_name: station_grafana_supervision
     restart: unless-stopped
+    logging: *prod-logging
     env_file:
       - .env
     environment:
@@ -264,9 +281,10 @@ services:
         condition: service_healthy
 
   reverse-proxy:
-    image: nginx:1.27-alpine
+    image: ${NGINX_IMAGE:-nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10}
     container_name: station_nginx_reverse_proxy
     restart: unless-stopped
+    logging: *prod-logging
     volumes:
       - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/prod.conf.d:/etc/nginx/conf.d:ro
