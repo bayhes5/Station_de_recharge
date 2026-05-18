@@ -336,6 +336,40 @@ Les images publiques du profil production sont référencées par digest
 ``sha256`` via ``.env``. Lors d'une mise à jour volontaire d'image, changer le
 digest, reconstruire, tester, puis commiter le nouveau digest.
 
+Initialisation PostgreSQL et création des tables
+------------------------------------------------
+
+Avec le profil Docker production, il n'y a pas de commande SQL manuelle à lancer
+pour créer la base au premier démarrage. Le conteneur PostgreSQL/TimescaleDB
+utilise les variables suivantes du fichier ``.env`` :
+
+* ``POSTGRES_DB`` : nom de la base créée automatiquement si le volume
+  ``postgres_data`` est vide ;
+* ``POSTGRES_USER`` : rôle propriétaire créé automatiquement ;
+* ``POSTGRES_PASSWORD`` : mot de passe du rôle ;
+* ``DB_NAME``, ``DB_USER`` et ``DB_PASSWORD`` : identifiants utilisés par Django
+  pour se connecter à cette base.
+
+Au premier ``docker compose up -d --build``, PostgreSQL crée donc la base
+``POSTGRES_DB`` si aucun volume existant ne contient déjà un cluster. Ensuite,
+le conteneur ``backend`` exécute automatiquement :
+
+.. code-block:: bash
+
+   python manage.py migrate --noinput
+   python manage.py collectstatic --noinput
+   python manage.py bootstrap_superuser
+
+Les migrations Django créent toutes les tables applicatives, vues SQL, index,
+contraintes et extensions optionnelles disponibles, notamment TimescaleDB,
+``pg_stat_statements`` et PostgreSQL Anonymizer lorsque l'image les fournit.
+
+Attention : si le volume ``postgres_data`` existe déjà, PostgreSQL ne recrée pas
+la base à partir des variables ``POSTGRES_*``. Modifier ``POSTGRES_DB`` ou
+``POSTGRES_USER`` après le premier démarrage ne renomme pas une base existante.
+Pour une réinstallation complète, il faut sauvegarder puis recréer le volume, ou
+créer la nouvelle base manuellement avec un compte administrateur PostgreSQL.
+
 Démarrer tous les services :
 
 .. code-block:: bash
