@@ -80,6 +80,8 @@ jobs:
           MQTT_TLS_ENABLED: "True"
           MQTT_USERNAME: station-backend
           SECRET_KEY: station-production-secret-key-with-enough-random-length
+          SECURE_HSTS_INCLUDE_SUBDOMAINS: "True"
+          SECURE_HSTS_PRELOAD: "True"
           SECURE_HSTS_SECONDS: "31536000"
           SESSION_COOKIE_SECURE: "True"
           SMS_BACKEND: brevo
@@ -167,6 +169,11 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Audit frontend dependencies
+        if: steps.frontend_changes.outputs.run == 'true'
+        working-directory: frontend
+        run: npm audit --audit-level=high
+
       - name: Install Playwright browsers
         if: steps.frontend_changes.outputs.run == 'true'
         working-directory: frontend
@@ -176,6 +183,25 @@ jobs:
         if: steps.frontend_changes.outputs.run == 'true'
         working-directory: frontend
         run: npm run verify
+
+  production-config:
+    name: Production configuration
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare production environment file
+        run: cp .env.example .env
+
+      - name: Validate production Docker Compose
+        run: docker compose --env-file .env.example -f docker-compose.prod.yml config --quiet
+
+      - name: Validate production shell scripts
+        run: |
+          bash -n scripts/backup-prod.sh
+          bash -n scripts/restore-prod.sh
 
   docs-build:
     name: Documentation build

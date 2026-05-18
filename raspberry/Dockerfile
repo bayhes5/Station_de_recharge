@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM python:3.11-slim
+FROM python:3.11-slim@sha256:b1b81d67b8df73bf6067191790c233ef9e598b863fc1ccf447956138ca466d99
 
 WORKDIR /app
 
@@ -11,7 +11,8 @@ COPY app/ .
 
 RUN addgroup --system station \
     && adduser --system --ingroup station station \
-    && chown -R station:station /app /tmp
+    && mkdir -p /var/lib/station \
+    && chown -R station:station /app /tmp /var/lib/station
 
 USER station
 

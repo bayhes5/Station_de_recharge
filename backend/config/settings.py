@@ -240,6 +240,7 @@ ALERT_TECHNICIAN_EMAIL_TYPES = env_list(
     ],
 )
 SESSION_TELEMETRY_STALE_MINUTES = env_int("SESSION_TELEMETRY_STALE_MINUTES", 2)
+TELEMETRY_RETENTION_DAYS = env_int("TELEMETRY_RETENTION_DAYS", 90)
 EXPECTED_ESP32_FIRMWARE_VERSION = os.environ.get("EXPECTED_ESP32_FIRMWARE_VERSION", "").strip()
 
 if CACHE_URL:
@@ -273,6 +274,10 @@ CELERY_BEAT_ALERT_NOTIFICATIONS_SECONDS = env_int(
     "CELERY_BEAT_ALERT_NOTIFICATIONS_SECONDS",
     60,
 )
+CELERY_BEAT_TELEMETRY_RETENTION_SECONDS = env_int(
+    "CELERY_BEAT_TELEMETRY_RETENTION_SECONDS",
+    24 * 60 * 60,
+)
 CELERY_BEAT_SCHEDULE = {
     "scan-session-telemetry-gaps": {
         "task": "api.scan_session_telemetry_gaps",
@@ -281,6 +286,10 @@ CELERY_BEAT_SCHEDULE = {
     "send-pending-alert-notifications": {
         "task": "api.notify_pending_alerts",
         "schedule": CELERY_BEAT_ALERT_NOTIFICATIONS_SECONDS,
+    },
+    "prune-old-telemetry": {
+        "task": "api.prune_old_telemetry",
+        "schedule": CELERY_BEAT_TELEMETRY_RETENTION_SECONDS,
     },
 }
 
@@ -354,6 +363,7 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

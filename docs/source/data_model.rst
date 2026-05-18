@@ -409,9 +409,12 @@ Le projet implémente déjà une partie de ce besoin côté API :
 * journalisation des actions sensibles ;
 * conservation possible d’événements techniques sans lien personnel direct.
 
-Les vues SQL et l’anonymisation PostgreSQL pourront être ajoutées plus tard si le
-projet doit fournir des exports directs depuis la base ou une séparation stricte
-entre rôles SQL.
+Les vues SQL et l’anonymisation PostgreSQL sont traitées progressivement. La vue
+``session_anonyme`` est toujours disponible sur PostgreSQL. La migration
+``0027_optional_postgresql_anonymizer`` active aussi l’extension ``anon`` et ses
+``SECURITY LABEL`` quand le serveur PostgreSQL fournit PostgreSQL Anonymizer.
+Cette migration est volontairement optionnelle : elle ne casse pas SQLite, ni une
+image TimescaleDB qui ne contient pas encore l’extension système.
 
 Vue ``session_anonyme``
 ------------------------
@@ -440,6 +443,24 @@ La migration est volontairement limitee a PostgreSQL. Les tests unitaires du
 projet utilisent SQLite ; la migration devient donc un no-op sur SQLite afin de
 garder la suite rapide et portable.
 
+Extension PostgreSQL Anonymizer
+-------------------------------
+
+Quand l’extension ``anon`` est disponible dans PostgreSQL, la migration
+``0027_optional_postgresql_anonymizer`` pose des règles de masquage sur les
+colonnes personnelles suivantes :
+
+* ``utilisateur.pseudo`` et ``utilisateur.email`` ;
+* ``profil_utilisateur.nom`` et ``profil_utilisateur.telephone`` ;
+* ``journal_securite.ip`` ;
+* ``technicien.nom``, ``technicien.email`` et ``technicien.telephone``.
+
+L’objectif n’est pas de masquer les données dans l’application de production,
+mais de permettre des exports, jeux de tests ou accès SQL restreints sans
+exposer directement les données personnelles. L’installation de l’extension
+reste une décision d’infrastructure : l’image TimescaleDB standard du projet ne
+garantit pas sa présence.
+
 Synthèse
 --------
 
@@ -462,4 +483,6 @@ La trajectoire reste progressive :
    clairement identifié ;
 3. enrichir les vues SQL pour les exports ou statistiques ;
 4. activer les hypertables TimescaleDB quand le volume de télémétrie augmente ;
-5. envisager RLS, anonymizer, compression et retention pour une version durcie.
+5. activer l’image PostgreSQL/TimescaleDB incluant ``anon`` lorsque des dumps
+   anonymisés ou des rôles SQL masqués deviennent nécessaires ;
+6. envisager RLS, compression et rétention native pour une version durcie.
