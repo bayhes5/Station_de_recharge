@@ -220,8 +220,8 @@ def init_adc_current_sensor():
         adc.atten(ADC.ATTN_11DB)
         try:
             adc.width(ADC.WIDTH_12BIT)
-        except Exception:
-            pass
+        except Exception as exc:
+            print("ADC width configuration skipped:", exc)
         print("Analog current sensor ready on GPIO{}".format(ADC_CURRENT_PIN))
         return adc
     except Exception as exc:
