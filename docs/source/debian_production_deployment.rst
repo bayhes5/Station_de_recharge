@@ -550,6 +550,21 @@ et prépare des politiques TimescaleDB conditionnelles. Ces politiques natives n
 s'appliquent que si ``capteur_data`` est convertie plus tard en hypertable, car
 le schéma Django actuel conserve une clé primaire UUID simple.
 
+Anonymisation PostgreSQL
+------------------------
+
+La migration ``0027_optional_postgresql_anonymizer`` active l'extension
+``anon`` et ses ``SECURITY LABEL`` uniquement si PostgreSQL Anonymizer est
+installé dans l'image de base de données. Cette extension n'est pas garantie par
+l'image TimescaleDB standard ; en production, il faut donc choisir explicitement
+une image PostgreSQL/TimescaleDB qui contient ``anon`` ou construire une image
+interne validée.
+
+Ne pas ajouter ``anon`` dans ``shared_preload_libraries`` tant que la bibliothèque
+n'est pas présente dans l'image, sinon PostgreSQL peut refuser de démarrer. Une
+fois l'image validée, les règles de masquage versionnées couvrent les colonnes
+personnelles des comptes, profils, techniciens et journaux de sécurité.
+
 Mise à jour applicative
 -----------------------
 

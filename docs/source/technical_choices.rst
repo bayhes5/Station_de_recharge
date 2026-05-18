@@ -71,6 +71,11 @@ hypertables est gardé pour une étape dédiée, car les tables de télémétrie
 utilisent aujourd'hui des clés primaires UUID simples ; TimescaleDB exige que les
 contraintes uniques incluent la colonne temporelle de partitionnement.
 
+Une autre migration prépare l'extension PostgreSQL Anonymizer ``anon``. Elle est
+conditionnelle : si l'image PostgreSQL/TimescaleDB ne fournit pas l'extension,
+elle reste sans effet ; si l'extension est disponible, les règles de masquage
+SQL sont versionnées avec le schéma.
+
 Modèle utilisateur personnalisé
 -------------------------------
 

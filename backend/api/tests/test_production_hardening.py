@@ -65,6 +65,19 @@ def test_postgres_prod_config_enables_query_statistics_and_slow_query_logs():
     assert "wal_compression = on" in config
 
 
+def test_postgresql_anonymizer_migration_is_optional_and_versioned():
+    """Keep PostgreSQL Anonymizer rules ready without breaking dev databases."""
+    migration = _require_repo_file(
+        REPO_ROOT / "backend" / "api" / "migrations" / "0027_optional_postgresql_anonymizer.py"
+    ).read_text(encoding="utf-8")
+
+    assert '_extension_available(cursor, "anon")' in migration
+    assert "CREATE EXTENSION IF NOT EXISTS anon CASCADE;" in migration
+    assert "SECURITY LABEL FOR anon ON COLUMN utilisateur.email" in migration
+    assert "SECURITY LABEL FOR anon ON COLUMN profil_utilisateur.telephone" in migration
+    assert "SECURITY LABEL FOR anon ON COLUMN technicien.email" in migration
+
+
 def test_backup_and_restore_scripts_have_guardrails():
     """Ensure operational scripts are versioned with restore confirmation."""
     backup_script = _require_repo_file(REPO_ROOT / "scripts" / "backup-prod.sh").read_text(encoding="utf-8")
