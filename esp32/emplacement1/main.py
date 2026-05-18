@@ -1,63 +1,117 @@
-"""MicroPython firmware prototype for one charging slot ESP32.
+"""MicroPython firmware for one ESP32 charging slot.
 
-The same file can be reused by the three physical slots by changing SLOT_ID.
-In production the ESP32 connects to the Mosquitto broker hosted on the local
-Raspberry Pi kiosk, publishes telemetry, and listens for Raspberry commands.
+This version is adapted for the current hardware test:
+- DHT22 on GPIO25 for temperature and humidity.
+- Analog current sensor on GPIO15, using the calibration from the prototype.
+- Door, cable, relay and lock are optional and disabled by default until wired.
+
+It speaks the project MQTT contract:
+station/<mqtt_prefix>/<slot_id>/cmd
+station/<mqtt_prefix>/<slot_id>/ack
+station/<mqtt_prefix>/<slot_id>/status
+station/<mqtt_prefix>/<slot_id>/telemetry
+station/<mqtt_prefix>/<slot_id>/alert
 """
 
 import time
 import ujson
 import network
-from machine import I2C, Pin
+from machine import ADC, I2C, Pin
 from umqtt.simple import MQTTClient
 
+
+# ---------------------------------------------------------------------------
+# Local configuration to adjust before flashing with Thonny.
+# ---------------------------------------------------------------------------
 
 WIFI_SSID = "WIFI_SSID"
 WIFI_PASSWORD = "WIFI_PASSWORD"
 
-# Production target: IP address or hostname of the Raspberry Pi running Mosquitto.
-# Development target: Wi-Fi IP address of the PC running the Docker MQTT broker.
+# For local tests, use the Wi-Fi IP of the PC/Raspberry running Mosquitto.
 MQTT_HOST = "192.168.1.10"
 MQTT_PORT = 1883
 MQTT_USER = None
 MQTT_PASSWORD = None
-MQTT_BASE_TOPIC = "station"
-SLOT_ID = "slot1"
-CLIENT_ID = "esp32-slot1"
-FIRMWARE_VERSION = "1.0.0"
 MQTT_KEEPALIVE_SECONDS = 60
+MQTT_BASE_TOPIC = "station"
 
-HALL_PIN = 19
-DOOR_PIN = 18
-LOCK_PIN = 23
-CHARGE_PIN = 22
-DHT_PIN = 4
+# Must match the borne mqtt_prefix in the backend demo data.
+# For the current demo this gives:
+# station/station-demo/borne-1/slot1/telemetry
+MQTT_TOPIC_PREFIX = "station-demo/borne-1"
+SLOT_ID = "slot1"
+CLIENT_ID = "esp32-station-demo-borne-1-slot1"
+FIRMWARE_VERSION = "1.1.0-sensors"
+
+# Only temperature and current are wired for now.
+PHYSICAL_INPUTS_ENABLED = False
+OUTPUTS_ENABLED = False
+SIMULATE_MISSING_SENSORS = False
+
+# DHT22 prototype wiring from TEMPERATUREHUMIDY.txt.
+DHT_PIN = 25
+
+# Current prototype wiring from CURRENT.txt.
+# This is an analog current sensor, not an INA219.
+CURRENT_SENSOR_MODE = "adc"  # "adc" now, "ina219" later if the INA219 is wired.
+ADC_CURRENT_PIN = 15
+ADC_VREF = 3.3
+ADC_RESOLUTION = 4095
+ADC_ZERO_CURRENT_VOLTAGE = ADC_VREF / 2
+ADC_SENSITIVITY_V_PER_A = 0.100
+ADC_NOISE_FLOOR_A = 0.05
+
+# Optional future INA219 wiring.
 INA219_SDA_PIN = 21
-INA219_SCL_PIN = 25
+INA219_SCL_PIN = 22
 INA219_ADDRESS = 0x40
 INA219_SHUNT_OHMS = 0.1
 
-TELEMETRY_INTERVAL_SECONDS = 2
+# Optional future physical wiring.
+HALL_PIN = 19
+DOOR_PIN = 18
+LOCK_PIN = 23
+CHARGE_RELAY_PIN = 22
+
+TELEMETRY_ACTIVE_INTERVAL_SECONDS = 5
+TELEMETRY_IDLE_INTERVAL_SECONDS = 30
+STATUS_INTERVAL_SECONDS = 15
 MAX_CURRENT_A = 3.0
 MAX_TEMPERATURE_C = 50.0
-SIMULATE_SENSORS_ON_ERROR = True
 
-
-hall = Pin(HALL_PIN, Pin.IN, Pin.PULL_UP)
-door = Pin(DOOR_PIN, Pin.IN, Pin.PULL_UP)
-lock = Pin(LOCK_PIN, Pin.OUT)
-charge_relay = Pin(CHARGE_PIN, Pin.OUT)
 
 state = "idle"
 session_id = ""
-last_telemetry = 0
-last_environment = {"read_at": -999, "temperature": None, "humidity": None}
-last_power_sample = {"read_at": -999, "current": None, "voltage": None, "power": None}
+last_telemetry_at = 0
+last_status_at = 0
+last_power_at = 0
+energy_kwh = 0.0
+
+dht_sensor = None
+current_adc = None
+ina219_i2c = None
+hall = None
+door = None
+lock = None
+charge_relay = None
+mqtt_client = None
+wlan = None
+
+
+def normalized_topic_root():
+    """Return the station/borne MQTT root used by this ESP32."""
+    base = str(MQTT_BASE_TOPIC or "station").strip("/")
+    prefix = str(MQTT_TOPIC_PREFIX or "").strip("/")
+    if not prefix:
+        return base
+    if prefix == base or prefix.startswith(base + "/"):
+        return prefix
+    return "{}/{}".format(base, prefix)
 
 
 def topic(suffix):
-    """Build an MQTT topic for this slot."""
-    return "{}/{}/{}".format(MQTT_BASE_TOPIC, SLOT_ID, suffix)
+    """Build one MQTT topic for this slot."""
+    return "{}/{}/{}".format(normalized_topic_root(), SLOT_ID, suffix)
 
 
 TOPIC_CMD = topic("cmd")
@@ -67,17 +121,16 @@ TOPIC_ALERT = topic("alert")
 TOPIC_TELEMETRY = topic("telemetry")
 
 
-def connect_wifi():
-    """Connect the ESP32 to WiFi."""
-    wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
-    if wlan.isconnected():
-        return wlan
+def now_seconds():
+    """Return a monotonic-ish timestamp available on MicroPython."""
+    return time.time()
 
-    wlan.connect(WIFI_SSID, WIFI_PASSWORD)
-    while not wlan.isconnected():
-        time.sleep(1)
-    return wlan
+
+def round_value(value, digits=3):
+    """Round numeric telemetry while keeping None values readable."""
+    if value is None:
+        return None
+    return round(float(value), digits)
 
 
 def format_mac(mac_bytes):
@@ -85,21 +138,39 @@ def format_mac(mac_bytes):
     return ":".join("{:02X}".format(value) for value in mac_bytes)
 
 
+def connect_wifi():
+    """Connect to Wi-Fi and print the network identity."""
+    station = network.WLAN(network.STA_IF)
+    station.active(True)
+
+    if not station.isconnected():
+        print("Connecting to WiFi...")
+        station.connect(WIFI_SSID, WIFI_PASSWORD)
+        max_wait = 20
+        while max_wait > 0 and not station.isconnected():
+            max_wait -= 1
+            time.sleep(1)
+
+    if not station.isconnected():
+        raise RuntimeError("WiFi connection failed")
+
+    print("Connected to WiFi:", station.ifconfig())
+    return station
+
+
 def device_identity():
-    """Return ESP32 inventory fields attached to status and telemetry payloads."""
-    wlan = network.WLAN(network.STA_IF)
+    """Return ESP32 identity fields ingested by the backend inventory."""
     ip_address = ""
     hardware_mac = ""
     try:
-        if wlan.isconnected():
+        if wlan and wlan.isconnected():
             ip_address = wlan.ifconfig()[0]
-    except Exception:
-        ip_address = ""
-    try:
-        hardware_mac = format_mac(wlan.config("mac"))
-    except Exception:
-        hardware_mac = ""
+            hardware_mac = format_mac(wlan.config("mac"))
+    except Exception as exc:
+        print("Device identity read failed:", exc)
+
     return {
+        "slot_id": SLOT_ID,
         "client_id": CLIENT_ID,
         "firmware_version": FIRMWARE_VERSION,
         "hardware_mac": hardware_mac,
@@ -107,41 +178,75 @@ def device_identity():
     }
 
 
-def read_cable_present():
-    """Return True when the Hall sensor sees the charging cable."""
-    return hall.value() == 0
+def init_outputs():
+    """Initialize optional relay outputs only when they are wired."""
+    global lock, charge_relay
+    if not OUTPUTS_ENABLED:
+        print("Outputs disabled: lock and charge relay are not driven.")
+        return
+    lock = Pin(LOCK_PIN, Pin.OUT)
+    charge_relay = Pin(CHARGE_RELAY_PIN, Pin.OUT)
+    lock.value(1)
+    charge_relay.value(0)
 
 
-def read_door_closed():
-    """Return True when the enclosure contact reports closed."""
-    return door.value() == 0
+def init_physical_inputs():
+    """Initialize optional door and cable inputs only when they are wired."""
+    global hall, door
+    if not PHYSICAL_INPUTS_ENABLED:
+        print("Physical inputs disabled: cable and door are assumed valid.")
+        return
+    hall = Pin(HALL_PIN, Pin.IN, Pin.PULL_UP)
+    door = Pin(DOOR_PIN, Pin.IN, Pin.PULL_UP)
 
 
 def init_dht22():
-    """Initialize the DHT22 if the MicroPython module is available."""
+    """Initialize DHT22 on the pin used by the colleague prototype."""
     try:
-        from dht import DHT22 as Dht22Sensor
-    except ImportError:
-        print("DHT module not available; using simulated environment values.")
-        return None
-    try:
-        return Dht22Sensor(Pin(DHT_PIN))
+        from dht import DHT22
+        sensor = DHT22(Pin(DHT_PIN))
+        print("DHT22 ready on GPIO{}".format(DHT_PIN))
+        return sensor
     except Exception as exc:
         print("DHT22 init failed:", exc)
         return None
 
 
+def init_adc_current_sensor():
+    """Initialize the analog current sensor used in CURRENT.txt."""
+    try:
+        adc = ADC(Pin(ADC_CURRENT_PIN))
+        adc.atten(ADC.ATTN_11DB)
+        try:
+            adc.width(ADC.WIDTH_12BIT)
+        except Exception:
+            pass
+        print("Analog current sensor ready on GPIO{}".format(ADC_CURRENT_PIN))
+        return adc
+    except Exception as exc:
+        print("ADC current sensor init failed:", exc)
+        return None
+
+
 def init_ina219():
-    """Initialize the INA219 I2C bus if the sensor answers."""
+    """Initialize optional INA219 I2C mode for future wiring."""
     try:
         bus = I2C(0, sda=Pin(INA219_SDA_PIN), scl=Pin(INA219_SCL_PIN), freq=400000)
         if INA219_ADDRESS not in bus.scan():
-            print("INA219 not found on I2C; using simulated electrical values.")
+            print("INA219 not found on I2C.")
             return None
+        print("INA219 ready on I2C address 0x{:02X}".format(INA219_ADDRESS))
         return bus
     except Exception as exc:
         print("INA219 init failed:", exc)
         return None
+
+
+def init_current_sensor():
+    """Initialize the configured current sensor backend."""
+    if CURRENT_SENSOR_MODE == "ina219":
+        return None, init_ina219()
+    return init_adc_current_sensor(), None
 
 
 def read_u16_register(i2c, address, register):
@@ -155,241 +260,237 @@ def signed_16(value):
     return value - 65536 if value & 0x8000 else value
 
 
-def simulated_current_a():
-    """Return a simulated current when INA219 is absent."""
-    return 1.2 if state == "charging" else 0.0
-
-
-def simulated_voltage_v():
-    """Return a simulated voltage when INA219 is absent."""
-    return 41.5 if state == "charging" else 0.0
-
-
-def simulated_temperature_c():
-    """Return a simulated temperature when DHT22 is absent."""
-    return 28.0
-
-
-def simulated_humidity_percent():
-    """Return a simulated humidity when DHT22 is absent."""
-    return 45.0
-
-
 def read_environment():
-    """Return cached DHT22 temperature/humidity, with simulation fallback."""
-    global last_environment
+    """Read temperature and humidity from DHT22."""
+    if dht_sensor is None:
+        if SIMULATE_MISSING_SENSORS:
+            return {"temperature": 28.0, "humidity": 45.0, "heat_index": 42.85}
+        return {"temperature": None, "humidity": None, "heat_index": None}
 
-    now = time.time()
-    if now - last_environment["read_at"] < 2 and last_environment["temperature"] is not None:
-        return last_environment
+    try:
+        dht_sensor.measure()
+        humidity = float(dht_sensor.humidity())
+        temperature = float(dht_sensor.temperature())
+        heat_index = temperature + 0.33 * humidity
+        print(
+            "Humidity: {}% Temperature: {:.1f}C Heat index: {:.1f}C".format(
+                humidity,
+                temperature,
+                heat_index,
+            )
+        )
+        if temperature > MAX_TEMPERATURE_C:
+            print("ALERT temperature above {}C: {:.1f}C".format(MAX_TEMPERATURE_C, temperature))
+        return {
+            "temperature": temperature,
+            "humidity": humidity,
+            "heat_index": heat_index,
+        }
+    except Exception as exc:
+        print("DHT22 read failed:", exc)
+        if SIMULATE_MISSING_SENSORS:
+            return {"temperature": 28.0, "humidity": 45.0, "heat_index": 42.85}
+        return {"temperature": None, "humidity": None, "heat_index": None}
 
-    if dht_sensor is not None:
-        try:
-            dht_sensor.measure()
-            last_environment = {
-                "read_at": now,
-                "temperature": float(dht_sensor.temperature()),
-                "humidity": float(dht_sensor.humidity()),
-            }
-            return last_environment
-        except Exception as exc:
-            print("DHT22 read failed:", exc)
 
-    if last_environment["temperature"] is not None and not SIMULATE_SENSORS_ON_ERROR:
-        return last_environment
+def read_adc_current():
+    """Read current from the analog current sensor used by the prototype."""
+    if current_adc is None:
+        return None
+    raw = current_adc.read()
+    voltage = (raw / ADC_RESOLUTION) * ADC_VREF
+    current = (voltage - ADC_ZERO_CURRENT_VOLTAGE) / ADC_SENSITIVITY_V_PER_A
+    if abs(current) < ADC_NOISE_FLOOR_A:
+        current = 0.0
+    current = max(0.0, current)
+    print("Current ADC raw={} voltage={:.3f}V current={:.2f}A".format(raw, voltage, current))
+    return current
 
-    last_environment = {
-        "read_at": now,
-        "temperature": simulated_temperature_c(),
-        "humidity": simulated_humidity_percent(),
-    }
-    return last_environment
+
+def read_ina219_power():
+    """Read voltage/current/power from optional INA219 mode."""
+    if ina219_i2c is None:
+        return {"current": None, "voltage": None, "power": None}
+
+    shunt_raw = signed_16(read_u16_register(ina219_i2c, INA219_ADDRESS, 0x01))
+    bus_raw = read_u16_register(ina219_i2c, INA219_ADDRESS, 0x02)
+    voltage = (bus_raw >> 3) * 0.004
+    current = (shunt_raw * 0.00001) / INA219_SHUNT_OHMS
+    current = max(0.0, current)
+    return {"current": current, "voltage": voltage, "power": voltage * current}
 
 
 def read_power_sample():
-    """Return cached INA219 current/voltage/power, with simulation fallback."""
-    global last_power_sample
+    """Read electrical telemetry in the shape expected by the backend."""
+    if CURRENT_SENSOR_MODE == "ina219":
+        sample = read_ina219_power()
+        if sample["current"] is not None:
+            return sample
 
-    now = time.time()
-    if now - last_power_sample["read_at"] < 1 and last_power_sample["current"] is not None:
-        return last_power_sample
+    current = read_adc_current()
+    if current is None and SIMULATE_MISSING_SENSORS:
+        current = 1.2 if state == "charging" else 0.0
 
-    if ina219_i2c is not None:
-        try:
-            shunt_raw = signed_16(read_u16_register(ina219_i2c, INA219_ADDRESS, 0x01))
-            bus_raw = read_u16_register(ina219_i2c, INA219_ADDRESS, 0x02)
-            voltage = ((bus_raw >> 3) * 0.004)
-            current = (shunt_raw * 0.00001) / INA219_SHUNT_OHMS
-            power = voltage * current
-            last_power_sample = {
-                "read_at": now,
-                "current": current,
-                "voltage": voltage,
-                "power": power,
-            }
-            return last_power_sample
-        except Exception as exc:
-            print("INA219 read failed:", exc)
-
-    if last_power_sample["current"] is not None and not SIMULATE_SENSORS_ON_ERROR:
-        return last_power_sample
-
-    voltage = simulated_voltage_v()
-    current = simulated_current_a()
-    last_power_sample = {
-        "read_at": now,
-        "current": current,
-        "voltage": voltage,
-        "power": voltage * current,
-    }
-    return last_power_sample
+    # The analog current prototype does not measure bus voltage yet.
+    voltage = 0.0
+    power = 0.0 if current is None else voltage * current
+    return {"current": current, "voltage": voltage, "power": power}
 
 
-def read_current_a():
-    """Return current measured by INA219, or a simulated value."""
-    return read_power_sample()["current"]
+def read_cable_present():
+    """Return cable state. Until wired, assume it is present for START tests."""
+    if not PHYSICAL_INPUTS_ENABLED or hall is None:
+        return True
+    return hall.value() == 0
 
 
-def read_voltage_v():
-    """Return voltage measured by INA219, or a simulated value."""
-    return read_power_sample()["voltage"]
-
-
-def read_temperature_c():
-    """Return temperature measured by DHT22, or a simulated value."""
-    return read_environment()["temperature"]
-
-
-def read_humidity_percent():
-    """Return humidity measured by DHT22, or a simulated value."""
-    return read_environment()["humidity"]
+def read_door_closed():
+    """Return door state. Until wired, assume it is closed for START tests."""
+    if not PHYSICAL_INPUTS_ENABLED or door is None:
+        return True
+    return door.value() == 0
 
 
 def lock_slot():
-    """Lock the enclosure."""
-    lock.value(1)
+    """Lock the slot when the output is wired."""
+    if lock is not None:
+        lock.value(1)
 
 
 def unlock_slot():
-    """Unlock the enclosure."""
-    lock.value(0)
+    """Unlock the slot when the output is wired."""
+    if lock is not None:
+        lock.value(0)
 
 
-def start_charge():
-    """Enable the simulated charge relay."""
-    charge_relay.value(1)
+def start_charge_output():
+    """Enable the charge relay when it is wired."""
+    if charge_relay is not None:
+        charge_relay.value(1)
 
 
-def stop_charge():
-    """Disable the simulated charge relay."""
-    charge_relay.value(0)
+def stop_charge_output():
+    """Disable the charge relay when it is wired."""
+    if charge_relay is not None:
+        charge_relay.value(0)
 
 
 def publish_json(client, mqtt_topic, payload):
-    """Publish a JSON payload."""
+    """Publish one JSON message on MQTT."""
     client.publish(mqtt_topic, ujson.dumps(payload))
 
 
 def publish_status(client, event, reason=""):
-    """Publish one status event."""
+    """Publish a status event consumed by the backend supervision bridge."""
     payload = {
-        "slot_id": SLOT_ID,
         "event": event,
         "reason": reason,
         "state": state,
         "session_id": session_id,
+        "door": read_door_closed(),
+        "cable": read_cable_present(),
+        "uptime_seconds": now_seconds(),
     }
     payload.update(device_identity())
-    publish_json(
-        client,
-        TOPIC_STATUS,
-        payload,
-    )
+    publish_json(client, TOPIC_STATUS, payload)
 
 
-def publish_ack(client, payload, status, message=""):
-    """Confirm command execution to the Raspberry kiosk."""
-    ack_payload = {
-        "command_id": payload.get("command_id") or "",
-        "action": str(payload.get("action") or "").upper(),
+def publish_ack(client, command_payload, status, message=""):
+    """Publish an ACK matching the Raspberry command_id/action contract."""
+    payload = {
+        "command_id": str(command_payload.get("command_id") or ""),
+        "action": str(command_payload.get("action") or "").upper(),
         "status": status,
         "message": message,
         "state": state,
-        "slot_id": SLOT_ID,
-        "session_id": session_id,
+        "session_id": session_id or str(command_payload.get("session_id") or ""),
+        "uptime_seconds": now_seconds(),
     }
-    ack_payload.update(device_identity())
-    publish_json(
-        client,
-        TOPIC_ACK,
-        ack_payload,
-    )
+    payload.update(device_identity())
+    publish_json(client, TOPIC_ACK, payload)
 
 
-def stop_session(client, reason):
-    """Stop charge and report an alert/status event."""
-    global state
-
-    stop_charge()
-    unlock_slot()
-    state = "idle"
-    publish_json(
-        client,
-        TOPIC_ALERT,
-        {
-            "slot_id": SLOT_ID,
-            "type": reason,
-            "state": "error",
-            "session_id": session_id,
-        },
-    )
-    publish_status(client, "stopped", reason)
+def publish_alert(client, alert_type, message=""):
+    """Publish a local safety alert."""
+    payload = {
+        "type": alert_type,
+        "message": message,
+        "state": "error",
+        "session_id": session_id,
+        "uptime_seconds": now_seconds(),
+    }
+    payload.update(device_identity())
+    publish_json(client, TOPIC_ALERT, payload)
 
 
-def handle_start(client, payload):
-    """Accept a START command and wait for physical conditions."""
+def accept_start(client, payload):
+    """Accept START and move to charging for the current communication test."""
     global state, session_id
 
-    session_id = payload.get("session_id") or ""
+    if state == "charging" and session_id and payload.get("session_id") != session_id:
+        publish_ack(client, payload, "denied", "Une charge est deja active.")
+        return
+
+    session_id = str(payload.get("session_id") or "")
     unlock_slot()
-    stop_charge()
-    state = "reserved"
-    publish_status(client, "reserved")
+    if read_cable_present() and read_door_closed():
+        start_charge_output()
+        lock_slot()
+        state = "charging"
+        publish_status(client, "charging_started")
+        publish_ack(client, payload, "charging", "Charge demarree.")
+        publish_telemetry_now(client)
+    else:
+        stop_charge_output()
+        state = "waiting_plug"
+        publish_status(client, "waiting_plug")
+        publish_ack(client, payload, "accepted", "En attente du cable et du boitier.")
+        publish_telemetry_now(client)
 
 
-def handle_stop(client, reason="remote_stop"):
-    """Accept a STOP command."""
-    stop_session(client, reason)
+def accept_stop(client, payload, reason="remote_stop"):
+    """Accept STOP and move back to idle."""
+    global state, session_id
+
+    stop_charge_output()
+    unlock_slot()
+    state = "idle"
+    publish_status(client, "stopped", reason)
+    publish_ack(client, payload, "stopped", "Charge arretee.")
+    publish_telemetry_now(client)
+    session_id = ""
 
 
-def on_message(topic_bytes, message):
-    """Handle Raspberry commands received through the local MQTT broker."""
+def handle_command(topic_bytes, message):
+    """Handle commands received from Raspberry over MQTT."""
     try:
         payload = ujson.loads(message)
     except ValueError:
         payload = {"action": message.decode().upper()}
 
-    action = str(payload.get("action", "")).upper()
+    action = str(payload.get("action") or "").upper()
+    print("MQTT command received:", action, payload)
+
     if action == "START":
-        handle_start(mqtt_client, payload)
-        publish_ack(mqtt_client, payload, "accepted", "Emplacement reserve.")
+        accept_start(mqtt_client, payload)
     elif action == "STOP":
-        handle_stop(mqtt_client)
-        publish_ack(mqtt_client, payload, "stopped", "Charge arretee.")
+        accept_stop(mqtt_client, payload)
     elif action == "LOCK":
         lock_slot()
         publish_status(mqtt_client, "locked")
         publish_ack(mqtt_client, payload, "locked", "Boitier verrouille.")
+        publish_telemetry_now(mqtt_client)
     elif action == "UNLOCK":
         unlock_slot()
         publish_status(mqtt_client, "unlocked")
         publish_ack(mqtt_client, payload, "unlocked", "Boitier deverrouille.")
+        publish_telemetry_now(mqtt_client)
     else:
         publish_ack(mqtt_client, payload, "error", "Commande inconnue.")
 
 
 def connect_mqtt():
-    """Connect and subscribe to command topic."""
+    """Connect MQTT and subscribe to the command topic."""
     client = MQTTClient(
         CLIENT_ID,
         MQTT_HOST,
@@ -398,75 +499,131 @@ def connect_mqtt():
         password=MQTT_PASSWORD,
         keepalive=MQTT_KEEPALIVE_SECONDS,
     )
-    client.set_callback(on_message)
+    client.set_callback(handle_command)
     client.connect()
     client.subscribe(TOPIC_CMD)
+    print("MQTT connected to {}:{}.".format(MQTT_HOST, MQTT_PORT))
+    print("Listening:", TOPIC_CMD)
+    print("Telemetry:", TOPIC_TELEMETRY)
     return client
 
 
-def update_state(client):
-    """Run the local slot state machine."""
-    global state
+def update_energy(power_watts):
+    """Integrate power into kWh when voltage is available."""
+    global energy_kwh, last_power_at
 
-    cable = read_cable_present()
-    door_closed = read_door_closed()
-    current = read_current_a()
-    temperature = read_temperature_c()
+    now = now_seconds()
+    if last_power_at:
+        elapsed = max(0, now - last_power_at)
+        if state == "charging" and power_watts is not None:
+            energy_kwh += (float(power_watts) * elapsed) / 3600000
+    last_power_at = now
 
-    if state == "reserved" and cable and door_closed:
-        lock_slot()
-        start_charge()
-        state = "charging"
-        publish_status(client, "charging_started")
 
-    if state == "charging":
-        if not door_closed:
-            stop_session(client, "intrusion")
-        elif not cable:
-            stop_session(client, "cable_removed")
-        elif current > MAX_CURRENT_A:
-            stop_session(client, "overcurrent")
-        elif temperature > MAX_TEMPERATURE_C:
-            stop_session(client, "overheat")
+def safety_check(client, power_sample, environment):
+    """Stop locally on wired safety conditions."""
+    if state != "charging":
+        return
+
+    current = power_sample.get("current")
+    temperature = environment.get("temperature")
+
+    if PHYSICAL_INPUTS_ENABLED and not read_door_closed():
+        publish_alert(client, "intrusion", "Boitier ouvert pendant la charge.")
+        accept_stop(client, {"action": "STOP", "command_id": "local-intrusion"}, "intrusion")
+    elif PHYSICAL_INPUTS_ENABLED and not read_cable_present():
+        publish_alert(client, "cable_removed", "Cable retire pendant la charge.")
+        accept_stop(client, {"action": "STOP", "command_id": "local-cable"}, "cable_removed")
+    elif current is not None and current > MAX_CURRENT_A:
+        publish_alert(client, "overcurrent", "Courant trop eleve.")
+        accept_stop(client, {"action": "STOP", "command_id": "local-overcurrent"}, "overcurrent")
+    elif temperature is not None and temperature > MAX_TEMPERATURE_C:
+        publish_alert(client, "overheat", "Temperature trop elevee.")
+        accept_stop(client, {"action": "STOP", "command_id": "local-overheat"}, "overheat")
 
 
 def publish_telemetry(client):
-    """Publish the current telemetry sample."""
-    power_sample = read_power_sample()
+    """Publish one telemetry payload compatible with backend/Grafana."""
     environment = read_environment()
+    power_sample = read_power_sample()
+    update_energy(power_sample.get("power"))
+    safety_check(client, power_sample, environment)
+
     payload = {
-        "slot_id": SLOT_ID,
         "session_id": session_id,
         "state": state,
-        "current": power_sample["current"],
-        "voltage": power_sample["voltage"],
-        "power": power_sample["power"],
-        "energy_kwh": 0.0,
-        "temperature": environment["temperature"],
-        "humidity": environment["humidity"],
+        "current": round_value(power_sample.get("current")),
+        "voltage": round_value(power_sample.get("voltage"), 2),
+        "power": round_value(power_sample.get("power"), 2),
+        "energy_kwh": round_value(energy_kwh, 6),
+        "temperature": round_value(environment.get("temperature"), 2),
+        "humidity": round_value(environment.get("humidity"), 2),
+        "heat_index": round_value(environment.get("heat_index"), 2),
         "door": read_door_closed(),
         "cable": read_cable_present(),
+        "uptime_seconds": now_seconds(),
     }
     payload.update(device_identity())
     publish_json(client, TOPIC_TELEMETRY, payload)
 
 
-dht_sensor = init_dht22()
-ina219_i2c = init_ina219()
+def publish_telemetry_now(client):
+    """Publish telemetry immediately and reset the periodic timer."""
+    global last_telemetry_at
+    publish_telemetry(client)
+    last_telemetry_at = now_seconds()
 
-connect_wifi()
-mqtt_client = connect_mqtt()
-stop_charge()
-lock_slot()
-publish_status(mqtt_client, "boot")
 
-while True:
-    mqtt_client.check_msg()
-    update_state(mqtt_client)
+def current_telemetry_interval():
+    """Return the telemetry interval adapted to the current operating state."""
+    if state in ("charging", "waiting_plug", "stopping", "error"):
+        return TELEMETRY_ACTIVE_INTERVAL_SECONDS
+    return TELEMETRY_IDLE_INTERVAL_SECONDS
 
-    now = time.time()
-    if now - last_telemetry >= TELEMETRY_INTERVAL_SECONDS:
-        publish_telemetry(mqtt_client)
-        last_telemetry = now
 
-    time.sleep(0.2)
+def setup_hardware():
+    """Initialize the sensors and optional physical I/O."""
+    global dht_sensor, current_adc, ina219_i2c
+    init_outputs()
+    init_physical_inputs()
+    dht_sensor = init_dht22()
+    current_adc, ina219_i2c = init_current_sensor()
+    stop_charge_output()
+    lock_slot()
+
+
+def main():
+    """Main firmware loop."""
+    global wlan, mqtt_client, last_telemetry_at, last_status_at
+
+    setup_hardware()
+    wlan = connect_wifi()
+    mqtt_client = connect_mqtt()
+    publish_status(mqtt_client, "boot")
+
+    while True:
+        try:
+            mqtt_client.check_msg()
+            now = now_seconds()
+
+            if now - last_telemetry_at >= current_telemetry_interval():
+                publish_telemetry_now(mqtt_client)
+
+            if now - last_status_at >= STATUS_INTERVAL_SECONDS:
+                publish_status(mqtt_client, "heartbeat")
+                last_status_at = now
+
+            time.sleep(0.2)
+        except Exception as exc:
+            print("Main loop error:", exc)
+            time.sleep(2)
+            try:
+                if wlan is None or not wlan.isconnected():
+                    wlan = connect_wifi()
+                mqtt_client = connect_mqtt()
+                publish_status(mqtt_client, "reconnected")
+            except Exception as reconnect_exc:
+                print("MQTT reconnect failed:", reconnect_exc)
+
+
+main()

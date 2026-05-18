@@ -66,11 +66,11 @@
           },
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT cd.timestamp AS time, cd.valeur AS value, COALESCE(s.nom, 'Station') || ' / ' || COALESCE(b.nom, 'Borne') || ' / ' || COALESCE(NULLIF(d.mac_address, ''), 'emplacement ' || e.numero::text) AS metric\nFROM capteur_data cd\nJOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement e ON e.id_emplacement = d.id_emplacement\nLEFT JOIN borne b ON b.id_borne = e.id_borne\nLEFT JOIN station s ON s.id_station = e.id_station\nWHERE c.type = 'temperature' AND $__timeFilter(cd.timestamp)\n  AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nORDER BY cd.timestamp;",
+          "rawSql": "SELECT cd.timestamp AS time, cd.valeur AS value, COALESCE(s.nom, 'Station') || ' / ' || COALESCE(b.nom, 'Borne') || ' / emplacement ' || COALESCE(e.numero::text, '-') AS metric\nFROM capteur_data cd\nJOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement e ON e.id_emplacement = d.id_emplacement\nLEFT JOIN borne b ON b.id_borne = e.id_borne\nLEFT JOIN station s ON s.id_station = e.id_station\nWHERE c.type = 'temperature' AND $__timeFilter(cd.timestamp)\n  AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nORDER BY cd.timestamp;",
           "refId": "A"
         }
       ],
-      "title": "Temperature",
+      "title": "Température",
       "type": "timeseries"
     },
     {
@@ -118,7 +118,7 @@
           },
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT cd.timestamp AS time, cd.valeur AS value, COALESCE(s.nom, 'Station') || ' / ' || COALESCE(b.nom, 'Borne') || ' / ' || COALESCE(NULLIF(d.mac_address, ''), 'emplacement ' || e.numero::text) AS metric\nFROM capteur_data cd\nJOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement e ON e.id_emplacement = d.id_emplacement\nLEFT JOIN borne b ON b.id_borne = e.id_borne\nLEFT JOIN station s ON s.id_station = e.id_station\nWHERE c.type = 'current' AND $__timeFilter(cd.timestamp)\n  AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nORDER BY cd.timestamp;",
+          "rawSql": "SELECT cd.timestamp AS time, cd.valeur AS value, COALESCE(s.nom, 'Station') || ' / ' || COALESCE(b.nom, 'Borne') || ' / emplacement ' || COALESCE(e.numero::text, '-') AS metric\nFROM capteur_data cd\nJOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement e ON e.id_emplacement = d.id_emplacement\nLEFT JOIN borne b ON b.id_borne = e.id_borne\nLEFT JOIN station s ON s.id_station = e.id_station\nWHERE c.type = 'current' AND $__timeFilter(cd.timestamp)\n  AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nORDER BY cd.timestamp;",
           "refId": "A"
         }
       ],
@@ -170,11 +170,11 @@
           },
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT cd.timestamp AS time, cd.valeur / 100.0 AS value, COALESCE(s.nom, 'Station') || ' / ' || COALESCE(b.nom, 'Borne') || ' / ' || COALESCE(NULLIF(d.mac_address, ''), 'emplacement ' || e.numero::text) AS metric\nFROM capteur_data cd\nJOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement e ON e.id_emplacement = d.id_emplacement\nLEFT JOIN borne b ON b.id_borne = e.id_borne\nLEFT JOIN station s ON s.id_station = e.id_station\nWHERE c.type = 'humidity' AND $__timeFilter(cd.timestamp)\n  AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nORDER BY cd.timestamp;",
+          "rawSql": "SELECT cd.timestamp AS time, cd.valeur / 100.0 AS value, COALESCE(s.nom, 'Station') || ' / ' || COALESCE(b.nom, 'Borne') || ' / emplacement ' || COALESCE(e.numero::text, '-') AS metric\nFROM capteur_data cd\nJOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement e ON e.id_emplacement = d.id_emplacement\nLEFT JOIN borne b ON b.id_borne = e.id_borne\nLEFT JOIN station s ON s.id_station = e.id_station\nWHERE c.type = 'humidity' AND $__timeFilter(cd.timestamp)\n  AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nORDER BY cd.timestamp;",
           "refId": "A"
         }
       ],
-      "title": "Humidite",
+      "title": "Humidité",
       "type": "timeseries"
     },
     {
@@ -222,7 +222,7 @@
           },
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT cd.timestamp AS time, cd.valeur AS value, COALESCE(s.nom, 'Station') || ' / ' || COALESCE(b.nom, 'Borne') || ' / ' || COALESCE(NULLIF(d.mac_address, ''), 'emplacement ' || e.numero::text) AS metric\nFROM capteur_data cd\nJOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement e ON e.id_emplacement = d.id_emplacement\nLEFT JOIN borne b ON b.id_borne = e.id_borne\nLEFT JOIN station s ON s.id_station = e.id_station\nWHERE c.type = 'voltage' AND $__timeFilter(cd.timestamp)\n  AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nORDER BY cd.timestamp;",
+          "rawSql": "SELECT cd.timestamp AS time, cd.valeur AS value, COALESCE(s.nom, 'Station') || ' / ' || COALESCE(b.nom, 'Borne') || ' / emplacement ' || COALESCE(e.numero::text, '-') AS metric\nFROM capteur_data cd\nJOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement e ON e.id_emplacement = d.id_emplacement\nLEFT JOIN borne b ON b.id_borne = e.id_borne\nLEFT JOIN station s ON s.id_station = e.id_station\nWHERE c.type = 'voltage' AND $__timeFilter(cd.timestamp)\n  AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nORDER BY cd.timestamp;",
           "refId": "A"
         }
       ],
@@ -274,7 +274,7 @@
           },
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT cd.timestamp AS time, cd.valeur AS value, COALESCE(s.nom, 'Station') || ' / ' || COALESCE(b.nom, 'Borne') || ' / ' || COALESCE(NULLIF(d.mac_address, ''), 'emplacement ' || e.numero::text) AS metric\nFROM capteur_data cd\nJOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement e ON e.id_emplacement = d.id_emplacement\nLEFT JOIN borne b ON b.id_borne = e.id_borne\nLEFT JOIN station s ON s.id_station = e.id_station\nWHERE c.type = 'power' AND $__timeFilter(cd.timestamp)\n  AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nORDER BY cd.timestamp;",
+          "rawSql": "SELECT cd.timestamp AS time, cd.valeur AS value, COALESCE(s.nom, 'Station') || ' / ' || COALESCE(b.nom, 'Borne') || ' / emplacement ' || COALESCE(e.numero::text, '-') AS metric\nFROM capteur_data cd\nJOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement e ON e.id_emplacement = d.id_emplacement\nLEFT JOIN borne b ON b.id_borne = e.id_borne\nLEFT JOIN station s ON s.id_station = e.id_station\nWHERE c.type = 'power' AND $__timeFilter(cd.timestamp)\n  AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nORDER BY cd.timestamp;",
           "refId": "A"
         }
       ],
@@ -312,7 +312,7 @@
           "refId": "A"
         }
       ],
-      "title": "Alertes recentes",
+      "title": "Alertes récentes",
       "type": "table"
     },
     {
@@ -342,11 +342,11 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(NULLIF(d.mac_address, ''), e.numero::text) AS slot, d.status, d.last_seen, e.numero AS emplacement, b.nom AS borne, s.nom AS station\nFROM device d\nJOIN emplacement e ON e.id_emplacement = d.id_emplacement\nJOIN borne b ON b.id_borne = e.id_borne\nJOIN station s ON s.id_station = e.id_station\nWHERE ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nORDER BY d.last_seen DESC NULLS LAST;",
+          "rawSql": "SELECT s.nom AS station, b.nom AS borne, e.numero AS emplacement, COALESCE(NULLIF(d.slot_id, ''), NULLIF(d.mac_address, ''), 'emplacement ' || e.numero::text) AS controleur, d.status AS etat, d.last_seen AS dernier_signal, d.firmware_version AS firmware, d.ip_address AS adresse_ip\nFROM device d\nJOIN emplacement e ON e.id_emplacement = d.id_emplacement\nJOIN borne b ON b.id_borne = e.id_borne\nJOIN station s ON s.id_station = e.id_station\nWHERE ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nORDER BY d.last_seen DESC NULLS LAST;",
           "refId": "A"
         }
       ],
-      "title": "Etat des ESP32",
+      "title": "État des contrôleurs d'emplacement",
       "type": "table"
     }
   ],
