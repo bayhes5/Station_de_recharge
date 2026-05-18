@@ -27,8 +27,8 @@
       "keepTime": true,
       "tags": [],
       "targetBlank": false,
-      "title": "Ouvrir le detail technique",
-      "tooltip": "Courbes capteurs et etat ESP32",
+      "title": "Ouvrir le détail technique",
+      "tooltip": "Courbes capteurs et état des contrôleurs",
       "type": "link",
       "url": "/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=$__from&to=$__to&var-station=$station&var-borne=$borne&var-emplacement=$emplacement"
     }
@@ -169,7 +169,7 @@
           "refId": "A"
         }
       ],
-      "title": "ESP32 hors ligne",
+      "title": "Emplacements sans signal",
       "type": "stat"
     },
     {
@@ -261,7 +261,7 @@
           "refId": "A"
         }
       ],
-      "title": "Puissance instantanee",
+      "title": "Puissance instantanée",
       "type": "stat"
     },
     {
@@ -307,7 +307,7 @@
           "refId": "A"
         }
       ],
-      "title": "Energie aujourd'hui",
+      "title": "Énergie aujourd'hui",
       "type": "stat"
     },
     {
@@ -371,11 +371,11 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT s.nom AS station, s.localisation AS localisation, s.statut, COUNT(DISTINCT d.id_device) AS devices, COUNT(DISTINCT d.id_device) FILTER (WHERE d.last_seen IS NULL OR d.last_seen < now() - interval '5 minutes') AS esp32_hors_ligne, COUNT(DISTINCT cs.id_session) AS sessions_en_cours, MAX(d.last_seen) AS dernier_signal\nFROM station s\nLEFT JOIN borne b ON b.id_station = s.id_station\nLEFT JOIN emplacement e ON e.id_borne = b.id_borne\nLEFT JOIN device d ON d.id_emplacement = e.id_emplacement\nLEFT JOIN charging_session cs ON cs.id_emplacement = e.id_emplacement AND cs.end_time IS NULL\nWHERE ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nGROUP BY s.id_station, s.nom, s.localisation, s.statut\nORDER BY esp32_hors_ligne DESC, sessions_en_cours DESC, station;",
+          "rawSql": "SELECT s.nom AS station, s.localisation AS localisation, s.statut, COUNT(DISTINCT d.id_device) AS controleurs, COUNT(DISTINCT d.id_device) FILTER (WHERE d.last_seen IS NULL OR d.last_seen < now() - interval '5 minutes') AS emplacements_sans_signal, COUNT(DISTINCT cs.id_session) AS sessions_en_cours, MAX(d.last_seen) AS dernier_signal\nFROM station s\nLEFT JOIN borne b ON b.id_station = s.id_station\nLEFT JOIN emplacement e ON e.id_borne = b.id_borne\nLEFT JOIN device d ON d.id_emplacement = e.id_emplacement\nLEFT JOIN charging_session cs ON cs.id_emplacement = e.id_emplacement AND cs.end_time IS NULL\nWHERE ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nGROUP BY s.id_station, s.nom, s.localisation, s.statut\nORDER BY emplacements_sans_signal DESC, sessions_en_cours DESC, station;",
           "refId": "A"
         }
       ],
-      "title": "Stations a surveiller",
+      "title": "Stations à surveiller",
       "type": "table"
     },
     {
@@ -409,7 +409,7 @@
           "refId": "A"
         }
       ],
-      "title": "Dernieres alertes",
+      "title": "Dernières alertes",
       "type": "table"
     },
     {
@@ -439,11 +439,11 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT dcl.timestamp AS time, s.nom AS station, b.nom AS borne, e.numero AS emplacement, COALESCE(NULLIF(d.mac_address, ''), e.numero::text) AS slot, dcl.action, dcl.status, dcl.message, dcl.id_session AS session_id\nFROM device_command_log dcl\nJOIN device d ON d.id_device = dcl.id_device\nJOIN emplacement e ON e.id_emplacement = d.id_emplacement\nJOIN borne b ON b.id_borne = e.id_borne\nJOIN station s ON s.id_station = e.id_station\nWHERE $__timeFilter(dcl.timestamp)\n  AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nORDER BY dcl.timestamp DESC\nLIMIT 50;",
+          "rawSql": "SELECT dcl.timestamp AS time, s.nom AS station, b.nom AS borne, e.numero AS emplacement, COALESCE(NULLIF(d.slot_id, ''), NULLIF(d.mac_address, ''), 'emplacement ' || e.numero::text) AS controleur, dcl.action, dcl.status AS reponse, dcl.message, dcl.id_session AS id_session\nFROM device_command_log dcl\nJOIN device d ON d.id_device = dcl.id_device\nJOIN emplacement e ON e.id_emplacement = d.id_emplacement\nJOIN borne b ON b.id_borne = e.id_borne\nJOIN station s ON s.id_station = e.id_station\nWHERE $__timeFilter(dcl.timestamp)\n  AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nORDER BY dcl.timestamp DESC\nLIMIT 50;",
           "refId": "A"
         }
       ],
-      "title": "Derniers ACK ESP32",
+      "title": "Dernières réponses de commande",
       "type": "table"
     }
   ],
@@ -529,7 +529,7 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Station - Vue globale supervision",
+  "title": "Station - Vue globale de supervision",
   "uid": "station-overview",
   "version": 1,
   "weekStart": ""

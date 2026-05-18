@@ -5,6 +5,27 @@ Cette page relie les exigences fonctionnelles aux composants de la solution. Ell
 formalise la couverture actuelle, les choix techniques retenus et les points à
 finaliser avant une exploitation complète.
 
+Sources contractuelles analysées
+--------------------------------
+
+La traçabilité ci-dessous s'appuie sur les documents de cadrage fournis au début
+du projet :
+
+* ``Fiche présentation Station de recharge intelligente.pdf`` ;
+* ``Station de recharge intelligente_BAYOU_Said.pdf`` ;
+* ``Station de recharge intelligente_ROTA Celian.pdf`` ;
+* ``Station de recharge intelligente_CANDIDAT03.pdf`` ;
+* ``UML_Diagrammes_Cas_Utilisation.pdf``.
+
+Ces documents fixent une station de recharge intelligente pour vélos
+électriques, automatisée, connectée et sécurisée. Le système cible associe un
+site web de réservation, une borne tactile Raspberry Pi, des emplacements
+pilotés par ESP32 et une supervision locale.
+
+Le diagramme de cas d'utilisation est utilisé comme support de validation des
+parcours principaux. Il n'est pas repris en détail ici afin de garder cette page
+centrée sur la conformité fonctionnelle.
+
 Contexte fonctionnel
 --------------------
 
@@ -17,6 +38,32 @@ La solution doit permettre :
 * l'archivage des usages et statistiques ;
 * la supervision distante ;
 * la sécurisation physique par serrure électromagnétique pilotée.
+
+Répartition initiale par partie
+-------------------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 38 38
+
+   * - Partie
+     - Responsabilités demandées
+     - Critères de réussite attendus
+   * - Partie 1 : web, base de données et supervision
+     - Site web responsive, gestion des utilisateurs, réservations, base de
+       données sécurisée, statistiques, historique et supervision locale.
+     - Base cohérente, accès aux données fonctionnel, historique visible,
+       destinataires d'alertes présents et sécurité web/base de données assurée.
+   * - Partie 2 : Raspberry et interface de borne
+     - IHM tactile locale, identification sur site, vérification par code SMS,
+       QR code et badge RFID, puis validation de l'ordre d'ouverture.
+     - IHM opérationnelle, communication avec la base, concordance
+       code/réservation et QR/réservation, ordre serrure validé après contrôle.
+   * - Partie 3 : ESP32 et emplacements
+     - Pilotage serrure et port de charge, mesure température/courant/tension,
+       détection intrusion, câble branché et état du boîtier.
+     - Boîtier opérationnel, mesures remontées au superviseur et alarmes
+       correctement transmises.
 
 Couverture par partie
 ---------------------
@@ -59,9 +106,11 @@ Couverture par partie
      - Remplacer les sorties LED/simulation par relais et câblage physique.
    * - Télémétrie
      - ESP32 publie température, humidité, courant, tension, énergie, porte,
-       câble et état de l'emplacement.
-     - Brancher INA219 et capteurs réels dans le firmware, puis ajouter le
-       journal local LittleFS pour rejouer les événements après coupure réseau.
+       câble et état de l'emplacement. Le test matériel actuel couvre
+       uniquement température/humidité DHT22 et identité ESP32
+       (firmware, adresse IP, adresse MAC).
+     - Brancher INA219, porte, câble, serrure et relais réels, puis décider si
+       un journal local ESP32 est nécessaire en complément du cache Raspberry.
    * - Alertes
      - Détection intrusion, câble retiré, surconsommation et surchauffe.
        Stockage dans ``Alerte`` avec cycle ``nouvelle`` -> ``active`` ->
@@ -101,11 +150,47 @@ Supervision et alertes
 .. code-block:: text
 
    ESP32
-      -> publie température/courant/intrusion/câble
+      -> publie température/humidité et identité du contrôleur
       -> le bridge d'ingestion traite le message
       -> Celery stocke les capteurs et crée/met à jour/résout les alertes
       -> Grafana affiche les mesures
       -> interface métier expose les alertes administrateur/technicien
+
+Choix et écarts assumés
+-----------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 35 35
+
+   * - Sujet
+     - Demande initiale
+     - Choix actuel
+   * - QR code
+     - QR code envoyé par mail et lu par un lecteur USB à la borne.
+     - QR de réservation conservé. Ajout d'un QR de session mobile affiché par
+       la borne pour permettre à la PWA de confirmer une réservation sans
+       clavier physique.
+   * - Code alphanumérique
+     - Code envoyé par SMS et saisi au clavier.
+     - Code SMS temporaire généré côté backend, stocké sans clair et saisi sur
+       clavier tactile.
+   * - RFID
+     - Badge RFID avec lecteur MFRC522 ou équivalent.
+     - Lecteur ACR122U retenu. Le badge identifie l'utilisateur, puis le backend
+       vérifie la réservation active et l'emplacement attendu.
+   * - Topologie matérielle
+     - Le contrat parle surtout de borne et d'emplacements.
+     - Le modèle distingue ``Station > Borne > Emplacement`` pour représenter le
+       matériel réel et préparer plusieurs bornes par station.
+   * - Supervision
+     - Interface web de supervision locale.
+     - Deux niveaux : supervision métier dans l'application et supervision
+       technique dans Grafana.
+   * - Notifications
+     - Email/SMS au technicien en cas d'alerte.
+     - Politique d'alertes documentée ; Mailpit et le mode console/log
+       permettent une démonstration gratuite et open source.
 
 Contraintes projet
 ------------------
@@ -115,8 +200,8 @@ Contraintes projet
   et supervision.
 * **Sécurité** : mots de passe hashés, JWT, cookies ``HttpOnly``, journalisation
   des actions sensibles, source de vérité backend, préparation TLS/reverse proxy.
-* **Continuité de service** : cache local limité côté Raspberry et journal local
-  ESP32 pour résister aux coupures temporaires sans déplacer l'autorité métier.
+* **Continuité de service** : cache local limité côté Raspberry pour résister
+  aux coupures temporaires sans déplacer l'autorité métier.
 * **Qualité** : tests backend/frontend, documentation Sphinx, CI GitHub Actions,
   CodeQL et rapports supply chain.
 * **Matériel imposé** : Raspberry Pi 4, écran 7 pouces ``1024x600``, ESP32,
@@ -127,6 +212,6 @@ Contraintes projet
 
 La version logicielle couvre le parcours complet de réservation, validation
 d'accès, commande MQTT, télémétrie et supervision. Les éléments actuellement
-simulés sont clairement identifiés : capteurs, charge, serrure et lecteurs
-physiques. La simulation Wokwi permet de tester le flux de télémétrie avant le
-câblage définitif.
+simulés sont clairement identifiés : charge, serrure, porte, câble, tension et
+courant, ainsi que certains lecteurs physiques. Le test matériel actuel couvre
+déjà la remontée DHT22 et l'identité ESP32 vers MQTT, backend et Grafana.
