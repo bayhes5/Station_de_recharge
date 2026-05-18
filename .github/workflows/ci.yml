@@ -192,6 +192,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare production environment file
+        run: cp .env.example .env
+
       - name: Validate production Docker Compose
         run: docker compose --env-file .env.example -f docker-compose.prod.yml config --quiet
 

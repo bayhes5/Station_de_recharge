@@ -73,9 +73,10 @@ def test_postgresql_anonymizer_migration_is_optional_and_versioned():
 
     assert '_extension_available(cursor, "anon")' in migration
     assert "CREATE EXTENSION IF NOT EXISTS anon CASCADE;" in migration
-    assert "SECURITY LABEL FOR anon ON COLUMN utilisateur.email" in migration
-    assert "SECURITY LABEL FOR anon ON COLUMN profil_utilisateur.telephone" in migration
-    assert "SECURITY LABEL FOR anon ON COLUMN technicien.email" in migration
+    assert '"utilisateur",\n        "email"' in migration
+    assert '"profil_utilisateur",\n        "telephone"' in migration
+    assert '"technicien",\n        "email"' in migration
+    assert "SECURITY LABEL FOR anon ON COLUMN {table_name}.{column_name}" in migration
 
 
 def test_backup_and_restore_scripts_have_guardrails():
