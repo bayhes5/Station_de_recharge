@@ -22,6 +22,7 @@ https://bayhes5.github.io/Station_de_recharge/
    requirements_traceability
    station_supervision
    operations_runbook
+   debian_production_deployment
    testing_strategy
    git_github_workflow
    technical_choices

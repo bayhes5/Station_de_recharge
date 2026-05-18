@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
 import re
 
@@ -461,11 +461,13 @@ class DeviceAdminSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Statut firmware inconnu.")
         return value
 
-    def get_firmware_update_required(self, obj):
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_firmware_update_required(self, obj) -> bool:
         """Return whether the device firmware differs from the expected version."""
         return firmware_update_required(obj)
 
-    def get_effective_expected_firmware_version(self, obj):
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_effective_expected_firmware_version(self, obj) -> str:
         """Return the device override or global firmware target."""
         return expected_firmware_version(obj)
 

@@ -11,7 +11,8 @@ COPY app/ .
 
 RUN addgroup --system station \
     && adduser --system --ingroup station station \
-    && chown -R station:station /app /tmp
+    && mkdir -p /var/lib/station \
+    && chown -R station:station /app /tmp /var/lib/station
 
 USER station
 

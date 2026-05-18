@@ -13,6 +13,7 @@ FROM base AS dev
 
 RUN addgroup --system station \
     && adduser --system --ingroup station station \
+    && mkdir -p /app/staticfiles \
     && chown -R station:station /app /tmp
 USER station
 CMD ["sleep", "infinity"]
@@ -29,6 +30,7 @@ FROM base AS runtime
 COPY --from=test /tmp/pytest-passed /tmp/pytest-passed
 RUN addgroup --system station \
     && adduser --system --ingroup station station \
+    && mkdir -p /app/staticfiles \
     && chown -R station:station /app /tmp
 USER station
 

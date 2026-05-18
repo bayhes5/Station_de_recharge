@@ -1,0 +1,292 @@
+services:
+  db:
+    image: ${TIMESCALEDB_IMAGE:-timescale/timescaledb:latest-pg15}
+    container_name: station_postgres_db
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgresql/prod/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:7-alpine}
+    container_name: station_redis_cache
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  mailpit:
+    image: axllent/mailpit:v1.30.0
+    container_name: station_mailpit
+    restart: unless-stopped
+    environment:
+      MP_MAX_MESSAGES: 5000
+      MP_DATABASE: /data/mailpit.db
+    volumes:
+      - mailpit_data:/data
+    ports:
+      - "127.0.0.1:8025:8025"
+    expose:
+      - "1025"
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: station_mqtt_broker
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+      - mqtt_data:/mosquitto/data
+      - mqtt_log:/mosquitto/log
+    ports:
+      - "${MQTT_PUBLISHED_HOST:-127.0.0.1}:1883:1883"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "AUTH=''; if [ -n \"$$MQTT_USERNAME\" ]; then AUTH=\"-u $$MQTT_USERNAME -P $$MQTT_PASSWORD\"; fi; mosquitto_pub -h localhost $$AUTH -t 'station/health' -m 'ok' >/dev/null 2>&1 || exit 1"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      target: runtime
+    container_name: station_django_app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
+      EMAIL_HOST: ${EMAIL_HOST:-mailpit}
+      EMAIL_PORT: ${EMAIL_PORT:-1025}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-false}
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Station <no-reply@station.local>}
+      ALERT_EMAIL_NOTIFICATIONS_ENABLED: ${ALERT_EMAIL_NOTIFICATIONS_ENABLED:-true}
+      TERMINAL_API_SECRET: ${TERMINAL_API_SECRET}
+    volumes:
+      - static_data:/app/staticfiles
+    expose:
+      - "8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mqtt:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; request=urllib.request.Request('http://localhost:8000/api/health/ready/', headers={'X-Forwarded-Proto':'https'}); urllib.request.urlopen(request, timeout=3).read()"
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    command: sh /app/docker-entrypoint.prod.sh
+
+  celery:
+    build:
+      context: ./backend
+      target: runtime
+    container_name: station_celery_worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
+      EMAIL_HOST: ${EMAIL_HOST:-mailpit}
+      EMAIL_PORT: ${EMAIL_PORT:-1025}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-false}
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Station <no-reply@station.local>}
+      ALERT_EMAIL_NOTIFICATIONS_ENABLED: ${ALERT_EMAIL_NOTIFICATIONS_ENABLED:-true}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config inspect ping --timeout=3 >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 8s
+      retries: 5
+      start_period: 30s
+    command: celery -A config worker -l info --concurrency=${CELERY_WORKER_CONCURRENCY:-2}
+
+  celery-beat:
+    build:
+      context: ./backend
+      target: runtime
+    container_name: station_celery_beat
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
+      EMAIL_HOST: ${EMAIL_HOST:-mailpit}
+      EMAIL_PORT: ${EMAIL_PORT:-1025}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-false}
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Station <no-reply@station.local>}
+      ALERT_EMAIL_NOTIFICATIONS_ENABLED: ${ALERT_EMAIL_NOTIFICATIONS_ENABLED:-true}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    command: celery -A config beat -l info --schedule /tmp/celerybeat-schedule
+
+  mqtt-bridge:
+    build:
+      context: ./backend
+      target: runtime
+    container_name: station_mqtt_bridge
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
+      EMAIL_HOST: ${EMAIL_HOST:-mailpit}
+      EMAIL_PORT: ${EMAIL_PORT:-1025}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-false}
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Station <no-reply@station.local>}
+      ALERT_EMAIL_NOTIFICATIONS_ENABLED: ${ALERT_EMAIL_NOTIFICATIONS_ENABLED:-true}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mqtt:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "manage.py", "check_mqtt_bridge_health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    command: python manage.py run_mqtt_bridge
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: station_frontend
+    restart: unless-stopped
+    expose:
+      - "80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  raspberry:
+    build:
+      context: ./raspberry
+    container_name: station_raspberry_kiosk
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./raspberry/app:/app:ro
+      - raspberry_state:/var/lib/station
+    expose:
+      - "9000"
+    environment:
+      MQTT_HOST: mqtt
+      MQTT_PORT: 1883
+      MQTT_BASE_TOPIC: station
+      MQTT_RASPBERRY_CLIENT_ID: ${MQTT_RASPBERRY_CLIENT_ID:-raspberry-kiosk}
+      MQTT_ACK_TIMEOUT_SECONDS: ${MQTT_ACK_TIMEOUT_SECONDS:-2.5}
+      MQTT_ACK_REQUIRED: ${MQTT_ACK_REQUIRED:-true}
+      BACKEND_API_BASE_URL: http://backend:8000/api
+      TERMINAL_API_SECRET: ${TERMINAL_API_SECRET}
+      TERMINAL_STATION_ID: ${TERMINAL_STATION_ID:-}
+      TERMINAL_BORNE_ID: ${TERMINAL_BORNE_ID:-}
+      OFFLINE_DB_PATH: /var/lib/station/offline_cache.sqlite3
+      CHARGE_STATE_DB_PATH: /var/lib/station/charge_state.sqlite3
+    depends_on:
+      - backend
+      - mqtt
+
+  grafana:
+    image: grafana/grafana-oss:12.1.0
+    container_name: station_grafana_supervision
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL}
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    expose:
+      - "3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  reverse-proxy:
+    image: nginx:1.27-alpine
+    container_name: station_nginx_reverse_proxy
+    restart: unless-stopped
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/prod.conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+      - static_data:/var/www/backend-static:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - backend
+      - frontend
+      - grafana
+      - raspberry
+
+volumes:
+  grafana_data:
+  mailpit_data:
+  mqtt_data:
+  mqtt_log:
+  postgres_data:
+  raspberry_state:
+  redis_data:
+  static_data:
