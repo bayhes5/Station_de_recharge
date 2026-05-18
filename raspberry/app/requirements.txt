@@ -3,3 +3,6 @@ paho-mqtt==2.1.0
 # pyscard==2.3.1
 # Optional for real NFC readers when RFID_READER_BACKEND=nfcpy.
 # nfcpy==1.0.4
+# Optional if a USB QR scanner must be captured directly from /dev/input.
+# Most QR scanners work as keyboards and do not need this dependency.
+# evdev==1.9.2

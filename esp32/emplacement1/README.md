@@ -5,14 +5,17 @@ Ce dossier contient le firmware MicroPython à flasher avec Thonny sur l'ESP32 d
 ## Câblage pris en compte
 
 - DHT22 sur `GPIO25` pour température et humidité.
-- Capteur de courant analogique sur `GPIO15`, d'après le prototype `CURRENT.txt`.
-- Serrure, relais, détection de câble et contact de porte non câblés pour l'instant.
+- Identité ESP32 remontée automatiquement : version firmware, adresse IP et
+  adresse MAC.
+- Courant, tension, serrure, relais, détection de câble et contact de porte non
+  câblés pour l'instant.
 
 Le fichier [main.py](main.py) désactive donc par défaut les entrées/sorties physiques non câblées :
 
 ```python
 PHYSICAL_INPUTS_ENABLED = False
 OUTPUTS_ENABLED = False
+CURRENT_SENSOR_MODE = "none"
 ```
 
 ## Paramètres à modifier avant flash
@@ -46,7 +49,14 @@ station/station-demo/borne-1/slot1/cmd
 
 ## Courant ADC ou INA219
 
-Pour le test actuel, le courant est en mode ADC :
+Pour le test actuel, le courant est désactivé afin de ne pas publier de fausse
+mesure :
+
+```python
+CURRENT_SENSOR_MODE = "none"
+```
+
+Si le capteur analogique de `CURRENT.txt` est câblé plus tard, passer à :
 
 ```python
 CURRENT_SENSOR_MODE = "adc"
@@ -74,7 +84,15 @@ Listening: station/station-demo/borne-1/slot1/cmd
 Telemetry: station/station-demo/borne-1/slot1/telemetry
 ```
 
-La supervision backend/Grafana reçoit ensuite les mesures DHT22 et courant avec un rythme adapté à l'état de l'emplacement :
+La supervision backend/Grafana reçoit ensuite :
+
+- température DHT22 ;
+- humidité DHT22 ;
+- version firmware ESP32 ;
+- adresse IP Wi-Fi ;
+- adresse MAC.
+
+Le rythme de publication reste adapté à l'état de l'emplacement :
 
 - toutes les `5` secondes pendant une charge ou une attente de branchement ;
 - toutes les `30` secondes lorsque l'emplacement est au repos ;

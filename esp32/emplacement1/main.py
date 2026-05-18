@@ -2,8 +2,9 @@
 
 This version is adapted for the current hardware test:
 - DHT22 on GPIO25 for temperature and humidity.
-- Analog current sensor on GPIO15, using the calibration from the prototype.
-- Door, cable, relay and lock are optional and disabled by default until wired.
+- ESP32 identity fields: firmware version, IP address and MAC address.
+- Current, voltage, door, cable, relay and lock are optional and disabled by
+  default until wired.
 
 It speaks the project MQTT contract:
 station/<mqtt_prefix>/<slot_id>/cmd
@@ -43,7 +44,7 @@ SLOT_ID = "slot1"
 CLIENT_ID = "esp32-station-demo-borne-1-slot1"
 FIRMWARE_VERSION = "1.1.0-sensors"
 
-# Only temperature and current are wired for now.
+# Only DHT22 and ESP32 identity are wired/reported for now.
 PHYSICAL_INPUTS_ENABLED = False
 OUTPUTS_ENABLED = False
 SIMULATE_MISSING_SENSORS = False
@@ -53,7 +54,7 @@ DHT_PIN = 25
 
 # Current prototype wiring from CURRENT.txt.
 # This is an analog current sensor, not an INA219.
-CURRENT_SENSOR_MODE = "adc"  # "adc" now, "ina219" later if the INA219 is wired.
+CURRENT_SENSOR_MODE = "none"  # "none" now, "adc" or "ina219" when wired.
 ADC_CURRENT_PIN = 15
 ADC_VREF = 3.3
 ADC_RESOLUTION = 4095
@@ -246,7 +247,10 @@ def init_current_sensor():
     """Initialize the configured current sensor backend."""
     if CURRENT_SENSOR_MODE == "ina219":
         return None, init_ina219()
-    return init_adc_current_sensor(), None
+    if CURRENT_SENSOR_MODE == "adc":
+        return init_adc_current_sensor(), None
+    print("Current sensor disabled.")
+    return None, None
 
 
 def read_u16_register(i2c, address, register):
@@ -327,13 +331,12 @@ def read_power_sample():
         if sample["current"] is not None:
             return sample
 
-    current = read_adc_current()
-    if current is None and SIMULATE_MISSING_SENSORS:
+    current = read_adc_current() if CURRENT_SENSOR_MODE == "adc" else None
+    if current is None and CURRENT_SENSOR_MODE != "none" and SIMULATE_MISSING_SENSORS:
         current = 1.2 if state == "charging" else 0.0
 
-    # The analog current prototype does not measure bus voltage yet.
-    voltage = 0.0
-    power = 0.0 if current is None else voltage * current
+    voltage = None
+    power = None
     return {"current": current, "voltage": voltage, "power": power}
 
 
@@ -349,6 +352,20 @@ def read_door_closed():
     if not PHYSICAL_INPUTS_ENABLED or door is None:
         return True
     return door.value() == 0
+
+
+def reported_cable_present():
+    """Return the cable telemetry value, or None when the sensor is not wired."""
+    if not PHYSICAL_INPUTS_ENABLED or hall is None:
+        return None
+    return read_cable_present()
+
+
+def reported_door_closed():
+    """Return the door telemetry value, or None when the sensor is not wired."""
+    if not PHYSICAL_INPUTS_ENABLED or door is None:
+        return None
+    return read_door_closed()
 
 
 def lock_slot():
@@ -387,8 +404,8 @@ def publish_status(client, event, reason=""):
         "reason": reason,
         "state": state,
         "session_id": session_id,
-        "door": read_door_closed(),
-        "cable": read_cable_present(),
+        "door": reported_door_closed(),
+        "cable": reported_cable_present(),
         "uptime_seconds": now_seconds(),
     }
     payload.update(device_identity())
@@ -559,8 +576,8 @@ def publish_telemetry(client):
         "temperature": round_value(environment.get("temperature"), 2),
         "humidity": round_value(environment.get("humidity"), 2),
         "heat_index": round_value(environment.get("heat_index"), 2),
-        "door": read_door_closed(),
-        "cable": read_cable_present(),
+        "door": reported_door_closed(),
+        "cable": reported_cable_present(),
         "uptime_seconds": now_seconds(),
     }
     payload.update(device_identity())
