@@ -5,13 +5,15 @@ import json
 import logging
 import secrets
 import string
-from datetime import datetime, timedelta, timezone as datetime_timezone
+from datetime import datetime, timedelta
+from datetime import timezone as datetime_timezone
 from io import BytesIO
 
 from django.conf import settings
-from django.contrib.auth import authenticate
-from django.contrib.auth import get_user_model
-from django.contrib.auth.password_validation import validate_password as validate_django_password
+from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth.password_validation import (
+    validate_password as validate_django_password,
+)
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
@@ -21,9 +23,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import status
-from rest_framework.decorators import api_view
-from rest_framework.decorators import permission_classes
-from rest_framework.decorators import throttle_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -41,19 +41,39 @@ from .models import (
     Maintenance,
     ProfilUtilisateur,
     Reservation,
-    Session as ChargingSession,
     Station,
     Technicien,
     TechnicienStation,
     UserStatus,
 )
+from .models import (
+    Session as ChargingSession,
+)
 from .permissions import IsStaffUser
-from .services.auth_methods import (
-    RfidCredentialConflict,
-    ensure_rfid_auth as _ensure_rfid_auth,
-    get_saved_rfid_auth as _get_saved_rfid_auth,
-    get_type_auth as _get_type_auth,
-    hash_secret as _hash_secret,
+from .reservation_rules import (
+    RESERVATION_DURATION_MINUTES,
+    RESERVATION_STEP_MINUTES,
+    reservation_duration_error_message,
+    reservation_duration_is_allowed,
+    reservation_duration_minutes,
+)
+from .serializers import (
+    AdminUserSerializer,
+    AdminUserUpdateSerializer,
+    BorneSerializer,
+    ConsentPreferenceSerializer,
+    DeviceAdminSerializer,
+    EmplacementSerializer,
+    MaintenanceAdminSerializer,
+    PasswordChangeSerializer,
+    ProfileSerializer,
+    RegisterSerializer,
+    ReservationCreateSerializer,
+    ReservationSerializer,
+    StationSerializer,
+    TechnicianMaintenanceSerializer,
+    TechnicianSerializer,
+    TechnicianStationAssignmentSerializer,
 )
 from .services.alert_workflow import (
     AlertWorkflowError,
@@ -61,6 +81,21 @@ from .services.alert_workflow import (
     alert_queryset,
     alert_station_id,
     resolve_alert,
+)
+from .services.auth_methods import (
+    RfidCredentialConflict,
+)
+from .services.auth_methods import (
+    ensure_rfid_auth as _ensure_rfid_auth,
+)
+from .services.auth_methods import (
+    get_saved_rfid_auth as _get_saved_rfid_auth,
+)
+from .services.auth_methods import (
+    get_type_auth as _get_type_auth,
+)
+from .services.auth_methods import (
+    hash_secret as _hash_secret,
 )
 from .services.charge_session_state import (
     ChargeSessionStateError,
@@ -80,31 +115,6 @@ from .services.sms_access_policy import (
 from .services.supervision import (
     build_admin_supervision_payload,
     serialize_alert_supervision,
-)
-from .serializers import (
-    AdminUserUpdateSerializer,
-    AdminUserSerializer,
-    BorneSerializer,
-    ConsentPreferenceSerializer,
-    DeviceAdminSerializer,
-    EmplacementSerializer,
-    MaintenanceAdminSerializer,
-    PasswordChangeSerializer,
-    ProfileSerializer,
-    ReservationCreateSerializer,
-    ReservationSerializer,
-    RegisterSerializer,
-    StationSerializer,
-    TechnicianSerializer,
-    TechnicianStationAssignmentSerializer,
-    TechnicianMaintenanceSerializer,
-)
-from .reservation_rules import (
-    RESERVATION_DURATION_MINUTES,
-    RESERVATION_STEP_MINUTES,
-    reservation_duration_error_message,
-    reservation_duration_is_allowed,
-    reservation_duration_minutes,
 )
 from .throttles import (
     AuthFactorRateThrottle,
@@ -129,6 +139,8 @@ KEYPAD_CODE_ALPHABET = configured_sms_access_code_alphabet()
 RESERVATION_CODE_LENGTH = 8
 TEMPORARY_CODE_LENGTH = configured_sms_access_code_length()
 SMS_ACCESS_CODE_MAX_ATTEMPTS = configured_sms_access_code_max_attempts()
+ALERT_WORKFLOW_ERROR_DETAIL = "Transition d'alerte refusee."
+CHARGE_SESSION_STATE_ERROR_DETAIL = "Transition de session de charge refusee."
 RFID_LINK_CODE_LENGTH = 4
 RFID_LINK_CODE_TTL_SECONDS = 10 * 60
 MOBILE_SESSION_TTL_SECONDS = getattr(settings, "MOBILE_SESSION_TTL_SECONDS", 10 * 60)
@@ -1332,8 +1344,8 @@ def _reconcile_offline_session_started(request, event, station_id, borne_id=""):
         )
         try:
             mark_access_validated(session, now=start_time)
-        except ChargeSessionStateError as error:
-            return None, str(error)
+        except ChargeSessionStateError:
+            return None, CHARGE_SESSION_STATE_ERROR_DETAIL
         if reservation.statut != "active":
             reservation.statut = "active"
             reservation.save(update_fields=["statut"])
@@ -1901,8 +1913,11 @@ def technician_acknowledge_alert(request, alert_id):
 
     try:
         alert = acknowledge_alert(alert, technicien)
-    except AlertWorkflowError as error:
-        return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+    except AlertWorkflowError:
+        return Response(
+            {"detail": ALERT_WORKFLOW_ERROR_DETAIL},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     return Response({"alert": serialize_alert_supervision(alert)})
 
@@ -1923,8 +1938,11 @@ def technician_resolve_alert(request, alert_id):
     note = str(request.data.get("note") or "").strip()
     try:
         alert = resolve_alert(alert, technicien, note=note)
-    except AlertWorkflowError as error:
-        return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+    except AlertWorkflowError:
+        return Response(
+            {"detail": ALERT_WORKFLOW_ERROR_DETAIL},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     return Response({"alert": serialize_alert_supervision(alert)})
 
@@ -3655,8 +3673,11 @@ def _terminal_consume_mobile_session_response(request, token):
     )
     try:
         mark_access_validated(session, now=now)
-    except ChargeSessionStateError as error:
-        return Response({"detail": str(error)}, status=status.HTTP_409_CONFLICT)
+    except ChargeSessionStateError:
+        return Response(
+            {"detail": CHARGE_SESSION_STATE_ERROR_DETAIL},
+            status=status.HTTP_409_CONFLICT,
+        )
 
     if reservation.statut != "active":
         reservation.statut = "active"
@@ -3895,8 +3916,11 @@ def terminal_authenticate(request):
     )
     try:
         mark_access_validated(session, now=now)
-    except ChargeSessionStateError as error:
-        return Response({"detail": str(error)}, status=status.HTTP_409_CONFLICT)
+    except ChargeSessionStateError:
+        return Response(
+            {"detail": CHARGE_SESSION_STATE_ERROR_DETAIL},
+            status=status.HTTP_409_CONFLICT,
+        )
 
     if reservation.statut != "active":
         reservation.statut = "active"

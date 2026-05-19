@@ -1257,7 +1257,7 @@ def test_terminal_authenticate_rejects_duplicate_start_when_session_is_charging(
     )
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.data["detail"] == "Une charge est déjà en cours sur cette session."
+    assert response.data["detail"] == "Transition de session de charge refusee."
 
 
 @pytest.mark.django_db
