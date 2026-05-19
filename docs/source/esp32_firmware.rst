@@ -36,7 +36,7 @@ Extrait de configuration :
 
    WIFI_SSID = "WIFI_SSID"
    WIFI_PASSWORD = "WIFI_PASSWORD"
-   MQTT_HOST = "192.168.1.10"  # IP du Raspberry Pi qui héberge Mosquitto
+   MQTT_HOST = "192.168.1.10"  # IP du serveur Mosquitto
    MQTT_PORT = 1883
    MQTT_USER = "esp32_slot1"
    MQTT_PASSWORD = "mot-de-passe-mqtt"

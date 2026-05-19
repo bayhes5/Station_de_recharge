@@ -3,6 +3,7 @@ import re
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -11,6 +12,7 @@ from rest_framework import status
 from api.models import JournalSecurite, ProfilUtilisateur, Reservation
 
 KEYPAD_CODE_ALPHABET = set("0123456789ABCD")
+SMS_ACCESS_CODE_LENGTH = 8
 
 
 @pytest.mark.django_db
@@ -426,6 +428,15 @@ def test_access_payload_display_does_not_rotate_code(authenticated_client, stati
     assert set(reservation_code) <= KEYPAD_CODE_ALPHABET
     assert create_response.data["access_payload"]["mode"] == "code"
     assert create_response.data["access_payload"]["delivery_channel"] == "sms"
+    assert create_response.data["access_payload"]["code_policy"] == {
+        "alphabet": "0123456789ABCD",
+        "alphabet_size": 14,
+        "length": SMS_ACCESS_CODE_LENGTH,
+        "max_attempts": 5,
+        "input_device": "matrix_keypad_4x4",
+        "combinations": 14**SMS_ACCESS_CODE_LENGTH,
+        "entropy_bits": 30.46,
+    }
     assert "value" not in create_response.data["access_payload"]
 
     first_display = authenticated_client.post(
@@ -522,7 +533,7 @@ def test_sms_code_can_be_sent_and_used(
     assert send_response.data["sms"]["recipient_hint"] == "******0000"
     assert "value" not in send_response.data["access_payload"]
     assert sent_messages[0][0] == "+33600000000"
-    sms_code = re.search(r"\b[0-9A-D]{12}\b", sent_messages[0][1]).group(0)
+    sms_code = re.search(rf"\b[0-9A-D]{{{SMS_ACCESS_CODE_LENGTH}}}\b", sent_messages[0][1]).group(0)
     Reservation.objects.filter(id_reservation=reservation_id).update(
         date_debut=timezone.now() - timedelta(minutes=5),
         date_fin=timezone.now() + timedelta(minutes=25),
@@ -604,3 +615,44 @@ def test_access_payload_display_does_not_rotate_qr(authenticated_client, station
     assert display_response.status_code == status.HTTP_200_OK
     assert display_response.data["access_payload"]["value"] == created_value
     assert display_response.data["access_payload"]["qr_svg"]
+
+
+@pytest.mark.django_db
+def test_qr_reservation_sends_email_with_qr_payload(
+    authenticated_client,
+    station,
+    emplacements,
+    reservation_start,
+    django_capture_on_commit_callbacks,
+):
+    """Send a Mailpit-compatible QR email when a QR reservation is created."""
+    with django_capture_on_commit_callbacks(execute=True):
+        response = authenticated_client.post(
+            reverse("api-reservations"),
+            {
+                "station": str(station.id_station),
+                "date_debut": reservation_start.isoformat(),
+                "auth_mode": "qr",
+            },
+            format="json",
+        )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert len(mail.outbox) == 1
+    message = mail.outbox[0]
+    assert message.to == ["user@example.com"]
+    assert response.data["reservation_code"] in message.subject
+    assert response.data["reservation_code"] in message.body
+    assert "Station Centre" in message.body
+    assert message.alternatives
+
+    reservation = Reservation.objects.select_related("authentification").get(
+        id_reservation=response.data["reservation"]["id_reservation"]
+    )
+    metadata = reservation.authentification.metadata
+    assert metadata["delivery_channel"] == "email"
+    assert metadata["qr_email_recipient"] == "user@example.com"
+    assert JournalSecurite.objects.filter(
+        utilisateur=reservation.utilisateur,
+        action__contains="qr_access_email_sent",
+    ).exists()

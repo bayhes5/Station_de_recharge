@@ -280,12 +280,28 @@ Le script crée ``mosquitto/config/passwords`` avec les comptes :
 * ``esp32_station_demo_borne_1_slot2`` ;
 * ``esp32_station_demo_borne_1_slot3``.
 
-Activer ensuite ``mosquitto/config/mosquitto.secure.conf`` comme configuration
-Mosquitto et redémarrer le service. Les règles dans ``mosquitto/config/acl``
-doivent garantir qu'un ESP32 ne peut publier que sur son propre emplacement.
+Avec ``docker-compose.prod.yml``, ``mosquitto/config/mosquitto.secure.conf`` est
+monté explicitement comme configuration Mosquitto. Le service refuse donc de
+démarrer si ``mosquitto/config/passwords`` n'a pas été généré. Les règles dans
+``mosquitto/config/acl`` doivent garantir qu'un ESP32 ne peut publier que sur
+son propre emplacement.
 Les comptes ``esp32_slotX`` servent aux tests locaux historiques
 ``station/slotX/...``. Les comptes ``esp32_station_demo_borne_1_slotX`` servent
 au routage plus réaliste ``station/station-demo/borne-1/slotX/...``.
+
+Variables de production recommandées :
+
+.. code-block:: text
+
+   MQTT_USERNAME=station_backend
+   MQTT_PASSWORD=<mot de passe station_backend>
+   MQTT_RASPBERRY_USERNAME=raspberry_kiosk
+   MQTT_RASPBERRY_PASSWORD=<mot de passe raspberry_kiosk>
+   MQTT_ACK_REQUIRED=True
+
+Le compte backend et le compte Raspberry doivent rester distincts. Le backend
+ingère la supervision, tandis que le Raspberry orchestre les commandes physiques
+locales.
 
 Contrôle recommandé avec Mosquitto sécurisé :
 
@@ -392,6 +408,8 @@ Configuration locale attendue :
 
 Les emails utiles au projet académique sont envoyés vers Mailpit :
 
+* QR code de réservation envoyé automatiquement à l'utilisateur lorsque le mode
+  d'accès choisi est ``qr`` ;
 * notification des techniciens assignés lorsqu'une alerte terrain active dépasse
   le délai de persistance configuré ;
 * futurs emails de vérification de compte ou de réinitialisation de mot de
@@ -399,6 +417,11 @@ Les emails utiles au projet académique sont envoyés vers Mailpit :
 
 Mailpit n'est pas un fournisseur d'envoi de production : il capture les messages
 pour les tests et la soutenance.
+
+Le scénario QR email est activé par ``RESERVATION_QR_EMAIL_ENABLED=True``. Le
+message contient le code de réservation, la station, la borne, l'emplacement, le
+créneau et une version HTML du QR code. L'envoi réussi est journalisé dans
+``JournalSecurite`` avec l'action ``qr_access_email_sent``.
 
 Politique d'alertes
 -------------------
@@ -408,7 +431,15 @@ alerte terrain suit le cycle suivant :
 
 * ``nouvelle`` : premier signal reçu, aucune notification immédiate ;
 * ``active`` : même anomalie observée à nouveau ;
+* ``prise_en_charge`` : un technicien affecté à la station a accepté
+  l'intervention ;
 * ``resolue`` : retour à une télémétrie normale.
+
+La prise en charge et la résolution manuelle sont disponibles dans le tableau de
+bord technicien. Le backend enregistre le technicien, les dates
+``acknowledged_at`` / ``resolved_at`` et la note de résolution. Un technicien ne
+peut agir que sur les alertes rattachées à ses stations ; l'administrateur garde
+une portée globale pour arbitrer les cas transverses.
 
 Les notifications email sont envoyées uniquement aux techniciens actifs affectés
 à la station concernée, et seulement pour les types listés dans
@@ -497,6 +528,11 @@ Réglages recommandés avant ouverture du service :
 * ``SMS_REQUIRE_VERIFIED_PHONE=True`` pour bloquer l'envoi vers un téléphone non
   vérifié ;
 * ``SMS_RESEND_COOLDOWN_SECONDS=60`` ou plus pour limiter le bouton de renvoi ;
+* ``SMS_ACCESS_CODE_ALPHABET=0123456789ABCD`` pour rester compatible avec un
+  clavier matriciel 4x4 ;
+* ``SMS_ACCESS_CODE_LENGTH=8`` pour éviter les codes trop courts ;
+* ``SMS_ACCESS_CODE_MAX_ATTEMPTS=5`` pour verrouiller un code après trop
+  d'erreurs ;
 * ``SMS_HTTP_TIMEOUT_SECONDS=10`` pour éviter de bloquer trop longtemps une
   requête utilisateur si le fournisseur ne répond pas ;
 * ``SMS_SENDER_NAME`` limité à un libellé court compatible avec le fournisseur.

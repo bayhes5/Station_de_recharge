@@ -5,13 +5,15 @@ import json
 import logging
 import secrets
 import string
-from datetime import datetime, timedelta, timezone as datetime_timezone
+from datetime import datetime, timedelta
+from datetime import timezone as datetime_timezone
 from io import BytesIO
 
 from django.conf import settings
-from django.contrib.auth import authenticate
-from django.contrib.auth import get_user_model
-from django.contrib.auth.password_validation import validate_password as validate_django_password
+from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth.password_validation import (
+    validate_password as validate_django_password,
+)
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
@@ -21,9 +23,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import status
-from rest_framework.decorators import api_view
-from rest_framework.decorators import permission_classes
-from rest_framework.decorators import throttle_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -41,25 +41,25 @@ from .models import (
     Maintenance,
     ProfilUtilisateur,
     Reservation,
-    Session as ChargingSession,
     Station,
     Technicien,
     TechnicienStation,
     UserStatus,
 )
-from .permissions import IsStaffUser
-from .services.auth_methods import (
-    RfidCredentialConflict,
-    ensure_rfid_auth as _ensure_rfid_auth,
-    get_saved_rfid_auth as _get_saved_rfid_auth,
-    get_type_auth as _get_type_auth,
-    hash_secret as _hash_secret,
+from .models import (
+    Session as ChargingSession,
 )
-from .services.sms import SmsDeliveryError, mask_phone_number, send_sms
-from .services.supervision import build_admin_supervision_payload
+from .permissions import IsStaffUser
+from .reservation_rules import (
+    RESERVATION_DURATION_MINUTES,
+    RESERVATION_STEP_MINUTES,
+    reservation_duration_error_message,
+    reservation_duration_is_allowed,
+    reservation_duration_minutes,
+)
 from .serializers import (
-    AdminUserUpdateSerializer,
     AdminUserSerializer,
+    AdminUserUpdateSerializer,
     BorneSerializer,
     ConsentPreferenceSerializer,
     DeviceAdminSerializer,
@@ -67,21 +67,54 @@ from .serializers import (
     MaintenanceAdminSerializer,
     PasswordChangeSerializer,
     ProfileSerializer,
+    RegisterSerializer,
     ReservationCreateSerializer,
     ReservationSerializer,
-    RegisterSerializer,
     StationSerializer,
+    TechnicianMaintenanceSerializer,
     TechnicianSerializer,
     TechnicianStationAssignmentSerializer,
-    TechnicianMaintenanceSerializer,
 )
+from .services.alert_workflow import (
+    AlertWorkflowError,
+    acknowledge_alert,
+    alert_queryset,
+    alert_station_id,
+    resolve_alert,
+)
+from .services.auth_methods import (
+    RfidCredentialConflict,
+)
+from .services.auth_methods import (
+    ensure_rfid_auth as _ensure_rfid_auth,
+)
+from .services.auth_methods import (
+    get_saved_rfid_auth as _get_saved_rfid_auth,
+)
+from .services.auth_methods import (
+    get_type_auth as _get_type_auth,
+)
+from .services.auth_methods import (
+    hash_secret as _hash_secret,
+)
+from .services.charge_session_state import (
+    ChargeSessionStateError,
+    mark_access_validated,
+    mark_stop_requested,
+    mark_stopped,
+)
+from .services.email_notifications import send_reservation_qr_email
 from .services.firmware import schedule_ota_update, update_firmware_compliance_status
-from .reservation_rules import (
-    RESERVATION_DURATION_MINUTES,
-    RESERVATION_STEP_MINUTES,
-    reservation_duration_error_message,
-    reservation_duration_is_allowed,
-    reservation_duration_minutes,
+from .services.sms import SmsDeliveryError, mask_phone_number, send_sms
+from .services.sms_access_policy import (
+    configured_sms_access_code_alphabet,
+    configured_sms_access_code_length,
+    configured_sms_access_code_max_attempts,
+    sms_access_code_policy_payload,
+)
+from .services.supervision import (
+    build_admin_supervision_payload,
+    serialize_alert_supervision,
 )
 from .throttles import (
     AuthFactorRateThrottle,
@@ -102,9 +135,12 @@ ADMIN_TEMPORARY_PASSWORD_LENGTH = 16
 ADMIN_TEMPORARY_PASSWORD_SPECIALS = "!@#$%&*-_?"
 LIST_PAGINATION_QUERY_PARAMS = {"page", "page_size"}
 STATIONS_CATALOG_CACHE_KEY = "api:stations_catalog:v1"
-KEYPAD_CODE_ALPHABET = "0123456789ABCD"
+KEYPAD_CODE_ALPHABET = configured_sms_access_code_alphabet()
 RESERVATION_CODE_LENGTH = 8
-TEMPORARY_CODE_LENGTH = 12
+TEMPORARY_CODE_LENGTH = configured_sms_access_code_length()
+SMS_ACCESS_CODE_MAX_ATTEMPTS = configured_sms_access_code_max_attempts()
+ALERT_WORKFLOW_ERROR_DETAIL = "Transition d'alerte refusee."
+CHARGE_SESSION_STATE_ERROR_DETAIL = "Transition de session de charge refusee."
 RFID_LINK_CODE_LENGTH = 4
 RFID_LINK_CODE_TTL_SECONDS = 10 * 60
 MOBILE_SESSION_TTL_SECONDS = getattr(settings, "MOBILE_SESSION_TTL_SECONDS", 10 * 60)
@@ -440,6 +476,8 @@ def _serialize_session(session):
         "slot_id": _device_slot_id(device, session.emplacement),
         "start_time": session.start_time.isoformat(),
         "end_time": session.end_time.isoformat() if session.end_time else None,
+        "charge_state": session.charge_state,
+        "charge_state_display": session.get_charge_state_display(),
         "status": "active" if session.end_time is None else "closed",
     }
 
@@ -450,8 +488,11 @@ def _close_charging_session(session, now=None):
     updated = False
     if session.end_time is None:
         session.end_time = max(closed_at, session.start_time + timedelta(seconds=1))
-        session.save(update_fields=["end_time"])
+        mark_stopped(session, now=closed_at, save=False)
+        session.save(update_fields=["end_time", "charge_state", "charge_state_updated_at"])
         updated = True
+    else:
+        mark_stopped(session, now=closed_at)
 
     reservation = session.reservation
     if reservation.statut != "terminee":
@@ -620,6 +661,32 @@ def _station_ids_for_technician(technicien):
     )
 
 
+def _technician_can_manage_alert(user, alert):
+    """Return the technician profile allowed to operate on an alert."""
+    if user.is_staff:
+        return _technician_for_user(user), None
+
+    technicien = _technician_for_user(user)
+    if technicien is None:
+        return None, Response(
+            {"detail": "Aucun profil technicien associe a ce compte."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    station_id = alert_station_id(alert)
+    if station_id is None:
+        return None, Response(
+            {"detail": "Impossible de rattacher cette alerte a une station."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if station_id not in set(_station_ids_for_technician(technicien)):
+        return None, Response(
+            {"detail": "Cette alerte ne fait pas partie de vos stations."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    return technicien, None
+
+
 def _generate_reservation_code():
     """Generate a short unique reservation reference code."""
     for _ in range(20):
@@ -755,6 +822,53 @@ def _mask_secret(secret):
     return f"****{secret[-4:]}"
 
 
+def _sms_access_is_locked(auth_method):
+    """Return whether the SMS code is locked after too many failed attempts."""
+    if not auth_method:
+        return False
+    metadata = auth_method.metadata or {}
+    attempts = int(metadata.get("sms_failed_attempts") or 0)
+    return bool(metadata.get("sms_locked_at")) or attempts >= SMS_ACCESS_CODE_MAX_ATTEMPTS
+
+
+def _record_sms_access_failure(auth_method):
+    """Increment failed SMS-code attempts and lock the credential if needed."""
+    metadata = dict(auth_method.metadata or {})
+    failed_attempts = int(metadata.get("sms_failed_attempts") or 0) + 1
+    metadata["sms_failed_attempts"] = failed_attempts
+    metadata["sms_last_failed_at"] = timezone.now().isoformat()
+    metadata["sms_max_attempts"] = SMS_ACCESS_CODE_MAX_ATTEMPTS
+    update_fields = ["metadata"]
+    if failed_attempts >= SMS_ACCESS_CODE_MAX_ATTEMPTS:
+        metadata["sms_locked_at"] = timezone.now().isoformat()
+        metadata["sms_locked_reason"] = "too_many_attempts"
+        auth_method.is_active = False
+        update_fields.append("is_active")
+    auth_method.metadata = metadata
+    auth_method.save(update_fields=update_fields)
+    return failed_attempts >= SMS_ACCESS_CODE_MAX_ATTEMPTS
+
+
+def _reset_sms_access_failures(auth_method):
+    """Clear failed-attempt metadata after a valid SMS code entry."""
+    if not auth_method:
+        return
+    metadata = dict(auth_method.metadata or {})
+    changed = False
+    for key in (
+        "sms_failed_attempts",
+        "sms_last_failed_at",
+        "sms_locked_at",
+        "sms_locked_reason",
+    ):
+        if key in metadata:
+            metadata.pop(key, None)
+            changed = True
+    if changed:
+        auth_method.metadata = metadata
+        auth_method.save(update_fields=["metadata"])
+
+
 def _user_phone_number(user):
     """Return the phone number stored on a user's profile."""
     profile = getattr(user, "profil", None)
@@ -871,6 +985,13 @@ def _temporary_auth_metadata(auth_mode, expiration, reservation_code, display_va
         "token_hint": display_value,
         "expires_at": expiration.isoformat(),
     }
+    if auth_mode == "code":
+        metadata.update(
+            {
+                "delivery_channel": "sms",
+                "code_policy": sms_access_code_policy_payload(),
+            }
+        )
     if auth_mode == "qr":
         metadata.update(
             {
@@ -898,6 +1019,7 @@ def _build_access_payload(auth_mode, access_value, auth_method, expiration):
         payload["delivery_channel"] = "sms"
         payload["recipient_hint"] = metadata.get("sms_recipient_hint", "")
         payload["sent_at"] = metadata.get("sms_last_sent_at", "")
+        payload["code_policy"] = metadata.get("code_policy") or sms_access_code_policy_payload()
     return payload
 
 
@@ -958,6 +1080,36 @@ def _send_reservation_sms_code(request, reservation, auth_method, access_value):
         },
         None,
     )
+
+
+def _schedule_reservation_qr_email(request, reservation, auth_method, access_payload):
+    """Send the reservation QR email after the reservation transaction commits."""
+    if not getattr(settings, "RESERVATION_QR_EMAIL_ENABLED", True):
+        return
+
+    def _send_after_commit():
+        try:
+            sent_count = send_reservation_qr_email(reservation, access_payload)
+        except Exception as error:  # pragma: no cover - depends on SMTP availability
+            logger.warning("QR email delivery failed for reservation %s: %s", reservation.id_reservation, error)
+            return
+        if not sent_count:
+            return
+        sent_at = timezone.now()
+        auth_method.metadata = {
+            **(auth_method.metadata or {}),
+            "delivery_channel": "email",
+            "qr_email_last_sent_at": sent_at.isoformat(),
+            "qr_email_recipient": reservation.utilisateur.email,
+        }
+        auth_method.save(update_fields=["metadata"])
+        _log_security_event(
+            request,
+            reservation.utilisateur,
+            f"user:{reservation.utilisateur.pseudo}:qr_access_email_sent:{reservation.reference_code}",
+        )
+
+    transaction.on_commit(_send_after_commit)
 
 
 def _create_temporary_auth(user, auth_mode, expiration, reservation_code):
@@ -1190,6 +1342,10 @@ def _reconcile_offline_session_started(request, event, station_id, borne_id=""):
                 "start_time": start_time,
             },
         )
+        try:
+            mark_access_validated(session, now=start_time)
+        except ChargeSessionStateError:
+            return None, CHARGE_SESSION_STATE_ERROR_DETAIL
         if reservation.statut != "active":
             reservation.statut = "active"
             reservation.save(update_fields=["statut"])
@@ -1740,6 +1896,55 @@ def technician_supervision(request):
         )
 
     return Response(build_admin_supervision_payload(station_ids=_station_ids_for_technician(technicien)))
+
+
+@_schema("Prendre en charge une alerte", tags=["Technicien"])
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def technician_acknowledge_alert(request, alert_id):
+    """Mark one scoped alert as taken in charge by the current technician."""
+    alert = alert_queryset().filter(id_alerte=alert_id).first()
+    if alert is None:
+        return Response({"detail": "Alerte introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    technicien, error_response = _technician_can_manage_alert(request.user, alert)
+    if error_response is not None:
+        return error_response
+
+    try:
+        alert = acknowledge_alert(alert, technicien)
+    except AlertWorkflowError:
+        return Response(
+            {"detail": ALERT_WORKFLOW_ERROR_DETAIL},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Response({"alert": serialize_alert_supervision(alert)})
+
+
+@_schema("Résoudre une alerte", tags=["Technicien"])
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def technician_resolve_alert(request, alert_id):
+    """Resolve one scoped alert after intervention or operational verification."""
+    alert = alert_queryset().filter(id_alerte=alert_id).first()
+    if alert is None:
+        return Response({"detail": "Alerte introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    technicien, error_response = _technician_can_manage_alert(request.user, alert)
+    if error_response is not None:
+        return error_response
+
+    note = str(request.data.get("note") or "").strip()
+    try:
+        alert = resolve_alert(alert, technicien, note=note)
+    except AlertWorkflowError:
+        return Response(
+            {"detail": ALERT_WORKFLOW_ERROR_DETAIL},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Response({"alert": serialize_alert_supervision(alert)})
 
 
 @_schema("Lister les reservations administrateur", tags=["Administration"])
@@ -2593,12 +2798,15 @@ def reservations(request):
             "reservation": ReservationSerializer(reservation).data,
         }
         if clear_value:
-            response["access_payload"] = _build_access_payload(
+            access_payload = _build_access_payload(
                 auth_mode,
                 clear_value,
                 auth_method,
                 data["date_fin"],
             )
+            response["access_payload"] = access_payload
+            if auth_mode == "qr":
+                _schedule_reservation_qr_email(request, reservation, auth_method, access_payload)
         response["reservation_code"] = reservation.reference_code
         return Response(response, status=status.HTTP_201_CREATED)
 
@@ -3463,6 +3671,14 @@ def _terminal_consume_mobile_session_response(request, token):
             "start_time": now,
         },
     )
+    try:
+        mark_access_validated(session, now=now)
+    except ChargeSessionStateError:
+        return Response(
+            {"detail": CHARGE_SESSION_STATE_ERROR_DETAIL},
+            status=status.HTTP_409_CONFLICT,
+        )
+
     if reservation.statut != "active":
         reservation.statut = "active"
         reservation.save(update_fields=["statut"])
@@ -3640,6 +3856,11 @@ def terminal_authenticate(request):
 
     if auth_method is None:
         return Response({"detail": "Aucun moyen d'authentification associe a cette reservation."}, status=status.HTTP_400_BAD_REQUEST)
+    if auth_mode == "code" and _sms_access_is_locked(auth_method):
+        return Response(
+            {"detail": "Code SMS temporaire verrouille apres trop d'essais."},
+            status=status.HTTP_423_LOCKED,
+        )
     if not auth_method.is_active:
         return Response({"detail": "Le moyen d'authentification est revoque."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -3675,7 +3896,16 @@ def terminal_authenticate(request):
 
     provided_hash = _hash_secret(auth_value)
     if not direct_rfid and provided_hash != auth_method.hash_valeur:
+        if auth_mode == "code":
+            if _record_sms_access_failure(auth_method):
+                return Response(
+                    {"detail": "Code SMS temporaire verrouille apres trop d'essais."},
+                    status=status.HTTP_423_LOCKED,
+                )
         return Response({"detail": "Authentification refusee."}, status=status.HTTP_401_UNAUTHORIZED)
+
+    if auth_mode == "code":
+        _reset_sms_access_failures(auth_method)
 
     session, created = ChargingSession.objects.get_or_create(
         reservation=reservation,
@@ -3684,6 +3914,14 @@ def terminal_authenticate(request):
             "start_time": now,
         },
     )
+    try:
+        mark_access_validated(session, now=now)
+    except ChargeSessionStateError:
+        return Response(
+            {"detail": CHARGE_SESSION_STATE_ERROR_DETAIL},
+            status=status.HTTP_409_CONFLICT,
+        )
+
     if reservation.statut != "active":
         reservation.statut = "active"
         reservation.save(update_fields=["statut"])
@@ -3754,6 +3992,7 @@ def terminal_stop_session(request):
             status=status.HTTP_409_CONFLICT,
         )
 
+    mark_stop_requested(session)
     closed = _close_charging_session(session)
     session.refresh_from_db()
 

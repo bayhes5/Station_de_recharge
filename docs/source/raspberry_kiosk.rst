@@ -153,7 +153,8 @@ Le kiosque doit couvrir les situations suivantes :
 * badge inconnu, badge révoqué ou réservation absente, accès refusé ;
 * QR de réservation scanné par un lecteur physique, puis validation par Django ;
 * téléphone utilisateur scannant le QR de session affiché par la borne ;
-* code SMS temporaire saisi avec le code de réservation ;
+* code SMS temporaire de 8 caractères ``0-9/A-D`` saisi avec le code de
+  réservation ;
 * association d'un badge avec un code court généré depuis le profil web ;
 * mauvaise station, mauvaise borne ou mauvais emplacement, avec message explicite ;
 * backend indisponible, avec bascule limitée vers le cache local si le droit a

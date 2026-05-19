@@ -54,11 +54,14 @@ Déroulement
    5. Le backend crée la réservation, génère le secret QR et stocke uniquement son
       hash.
    6. Le QR devient consultable dans le dashboard ou la page des réservations.
+   7. Le backend envoie aussi un email contenant le QR, le code de réservation,
+      la station, la borne, l'emplacement et le créneau.
 
 Résultat attendu
    La réservation est confirmée. Le QR est affichable immédiatement, mais il n'est
    accepté à la borne que sur la bonne station, dans la fenêtre de réservation et
-   tant qu'il n'a pas été révoqué.
+   tant qu'il n'a pas été révoqué. En environnement académique, l'email est
+   capturé dans Mailpit et consultable sur ``http://localhost:8025``.
 
 Cas d'erreur
    Si aucun emplacement n'est disponible, la réservation est refusée. Si le QR est
@@ -82,13 +85,16 @@ Déroulement
       ``qr``.
    5. Django vérifie le token, la réservation, la station, la borne,
       l'emplacement, la révocation et l'expiration.
-   6. Django crée ou retrouve la session de charge.
+   6. Django crée ou retrouve la session de charge et passe ``charge_state`` à
+      ``access_validated``.
    7. Le Raspberry publie ``START`` sur ``station/<slot_id>/cmd``.
-   8. L'ESP32 acquitte la commande et démarre l'état local de charge.
+   8. L'ESP32 acquitte la commande ; le backend passe la session à
+      ``waiting_plug`` ou ``charging`` selon l'ACK et la télémétrie.
 
 Résultat attendu
    Le kiosque affiche une confirmation. L'ESP32 passe en état réservé ou charge
-   selon sa logique locale.
+   selon sa logique locale. Un nouveau ``START`` est refusé si la session est
+   déjà engagée.
 
 Cas d'erreur
    Un QR d'une autre station ou d'une autre borne, un QR expiré, un QR révoqué ou
@@ -149,6 +155,12 @@ Préconditions
    téléphone renseigné. En production, ce numéro est vérifié. Le code SMS a été
    envoyé avant le passage ou à la demande.
 
+Politique du code
+   Le code SMS temporaire contient 8 caractères issus de l'alphabet
+   ``0123456789ABCD``. Ce choix reste compatible avec un clavier matriciel 4x4
+   tout en offrant ``14^8`` combinaisons. Le backend limite les renvois SMS et
+   verrouille le code après 5 mauvaises saisies.
+
 Déroulement
    1. L'utilisateur choisit ``Code SMS`` sur le kiosque.
    2. Il saisit le code de réservation.
@@ -170,7 +182,8 @@ Cas d'erreur
    Si ``SMS_REQUIRE_VERIFIED_PHONE`` est activé, elle est aussi refusée si le
    téléphone n'est pas vérifié. Un renvoi trop rapproché retourne une erreur de
    limitation avec un délai d'attente. Un code SMS expiré, révoqué ou mal saisi
-   est refusé. Un code associé à une autre station ou une autre borne est refusé.
+   est refusé. Après 5 mauvaises saisies, le code est verrouillé et doit être
+   régénéré. Un code associé à une autre station ou une autre borne est refusé.
 
 Scénario 5 : accès direct avec badge RFID
 -----------------------------------------
@@ -323,11 +336,16 @@ Déroulement
       charge.
    4. Il publie un statut ou une alerte MQTT.
    5. Le backend et Grafana affichent l'incident.
+   6. Le technicien affecté à la station prend l'alerte en charge depuis son
+      tableau de bord.
+   7. Après contrôle ou intervention, il résout l'alerte avec une note
+      d'intervention.
 
 Résultat attendu
    La sécurité locale ne dépend pas d'un aller-retour backend. L'ESP32 reste un
    exécutant local, mais il garde la responsabilité de couper la charge en cas de
-   danger matériel.
+   danger matériel. La partie métier trace qui a pris en charge l'incident, quand
+   il a été résolu et avec quelle conclusion.
 
 Scénario 11 : choix du moyen d'accès à la réservation
 -----------------------------------------------------

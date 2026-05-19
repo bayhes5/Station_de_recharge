@@ -63,7 +63,9 @@ services:
     env_file:
       - .env
     volumes:
-      - ./mosquitto/config:/mosquitto/config:ro
+      - ./mosquitto/config/mosquitto.secure.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/config/acl:/mosquitto/config/acl:ro
+      - ./mosquitto/config/passwords:/mosquitto/config/passwords:ro
       - mqtt_data:/mosquitto/data
       - mqtt_log:/mosquitto/log
     ports:
@@ -244,6 +246,10 @@ services:
       MQTT_PORT: 1883
       MQTT_BASE_TOPIC: station
       MQTT_RASPBERRY_CLIENT_ID: ${MQTT_RASPBERRY_CLIENT_ID:-raspberry-kiosk}
+      MQTT_USERNAME: ${MQTT_RASPBERRY_USERNAME:?Set MQTT_RASPBERRY_USERNAME}
+      MQTT_PASSWORD: ${MQTT_RASPBERRY_PASSWORD:?Set MQTT_RASPBERRY_PASSWORD}
+      MQTT_TLS_ENABLED: ${MQTT_TLS_ENABLED:-false}
+      MQTT_QOS: ${MQTT_QOS:-1}
       MQTT_ACK_TIMEOUT_SECONDS: ${MQTT_ACK_TIMEOUT_SECONDS:-2.5}
       MQTT_ACK_REQUIRED: ${MQTT_ACK_REQUIRED:-true}
       BACKEND_API_BASE_URL: http://backend:8000/api

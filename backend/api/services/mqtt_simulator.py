@@ -5,7 +5,16 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 
-SCENARIOS = ("normal", "intrusion", "cable_removed", "overheat", "overcurrent", "fault", "mixed")
+SCENARIOS = (
+    "normal",
+    "intrusion",
+    "cable_removed",
+    "lock_unlocked",
+    "overheat",
+    "overcurrent",
+    "fault",
+    "mixed",
+)
 
 
 def telemetry_topic(base_topic: str, slot_id: str, topic_prefix: str = "") -> str:
@@ -38,12 +47,17 @@ def build_telemetry_payload(
     humidity = _wave(base=45.0, amplitude=4.0, tick=tick, period=25)
     door = True
     cable = True
+    lock = True
+    intrusion = False
     state = "charging"
 
     if scenario == "intrusion":
         door = False
+        intrusion = True
     elif scenario == "cable_removed":
         cable = False
+    elif scenario == "lock_unlocked":
+        lock = False
     elif scenario == "overheat":
         temperature = 64.0
     elif scenario == "overcurrent":
@@ -65,6 +79,8 @@ def build_telemetry_payload(
         "humidity": round(humidity, 2),
         "door": door,
         "cable": cable,
+        "lock": lock,
+        "intrusion": intrusion,
         "timestamp": timestamp.isoformat().replace("+00:00", "Z"),
     }
 
@@ -79,6 +95,8 @@ def _scenario_for_tick(scenario: str, tick: int) -> str:
     if 20 <= cycle < 24:
         return "overheat"
     if 30 <= cycle < 34:
+        return "lock_unlocked"
+    if 34 <= cycle < 37:
         return "overcurrent"
     return "normal"
 

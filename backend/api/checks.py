@@ -7,6 +7,7 @@ import os
 from django.conf import settings
 from django.core.checks import Error, Tags, Warning, register
 
+from api.services.sms_access_policy import validate_sms_access_code_policy
 
 INSECURE_SECRET_KEYS = {
     "dev-key",
@@ -110,6 +111,23 @@ def station_deployment_checks(app_configs, **kwargs):
             )
         )
 
+    raspberry_mqtt_username = _setting_text("MQTT_RASPBERRY_USERNAME")
+    raspberry_mqtt_password = _setting_text("MQTT_RASPBERRY_PASSWORD")
+    if not raspberry_mqtt_username or not raspberry_mqtt_password:
+        messages.append(
+            Error(
+                "MQTT_RASPBERRY_USERNAME and MQTT_RASPBERRY_PASSWORD must be configured for the production kiosk.",
+                id="api.E009",
+            )
+        )
+    elif raspberry_mqtt_username == _setting_text("MQTT_USERNAME"):
+        messages.append(
+            Error(
+                "MQTT_RASPBERRY_USERNAME must be distinct from MQTT_USERNAME to preserve least privilege.",
+                id="api.E010",
+            )
+        )
+
     if not getattr(settings, "MQTT_TLS_ENABLED", False):
         messages.append(
             Warning(
@@ -166,6 +184,9 @@ def station_deployment_checks(app_configs, **kwargs):
                 id="api.W007",
             )
         )
+
+    for check_id, message in validate_sms_access_code_policy():
+        messages.append(Error(message, id=check_id))
 
     if not _setting_text("EXPECTED_ESP32_FIRMWARE_VERSION"):
         messages.append(

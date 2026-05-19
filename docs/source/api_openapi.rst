@@ -69,6 +69,10 @@ l'application. Le code SMS n'est pas renvoyé en clair par l'endpoint d'affichag
 il est transmis par le canal SMS et l'envoi est journalisé dans
 ``JournalSecurite``.
 
+Le code SMS temporaire suit une politique compatible clavier matriciel :
+8 caractères sur l'alphabet ``0123456789ABCD``, stockage haché, expiration,
+limitation de renvoi et verrouillage après 5 mauvaises saisies.
+
 Le jeton de rafraîchissement JWT n'est pas exposé au JavaScript du frontend. Les
 endpoints ``/api/register/`` et ``/api/login/`` renvoient le jeton d'accès et
 posent le refresh token dans un cookie ``HttpOnly``. ``/api/token/refresh/`` lit

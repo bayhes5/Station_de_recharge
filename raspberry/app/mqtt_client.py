@@ -10,14 +10,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-
-CONFIRMED_ACK_STATUSES = {
-    "START": {"accepted", "reserved", "ready", "charging", "charging_started"},
-    "STOP": {"accepted", "stopped", "idle"},
-    "LOCK": {"accepted", "locked"},
-    "UNLOCK": {"accepted", "unlocked"},
-}
-REJECTED_ACK_STATUSES = {"denied", "error", "failed", "fault", "rejected"}
+from mqtt_contract import REJECTED_ACK_STATUSES
+from mqtt_contract import ack_confirms_command
+from mqtt_contract import ack_status
+from mqtt_contract import validate_command_payload
 
 
 @dataclass(frozen=True)
@@ -94,9 +90,7 @@ def _ack_matches(ack_payload: dict[str, Any], command_id: str, action: str) -> b
 
 def _ack_status(ack_payload: dict[str, Any] | None) -> str:
     """Return the normalized status carried by an ESP32 ACK."""
-    if not ack_payload:
-        return ""
-    return str(ack_payload.get("status") or ack_payload.get("state") or "").strip().lower()
+    return ack_status(ack_payload)
 
 
 def _ack_message(ack_payload: dict[str, Any] | None) -> str:
@@ -108,10 +102,7 @@ def _ack_message(ack_payload: dict[str, Any] | None) -> str:
 
 def _ack_confirms_command(ack_payload: dict[str, Any] | None, action: str) -> bool:
     """Return whether an ACK is an operational confirmation."""
-    status = _ack_status(ack_payload)
-    if not status or status in REJECTED_ACK_STATUSES:
-        return False
-    return status in CONFIRMED_ACK_STATUSES.get(action.upper(), {"accepted"})
+    return ack_confirms_command(ack_payload, action)
 
 
 def publish_slot_command(slot_id: str, action: str, topic_prefix: str | None = None, **metadata: Any) -> dict[str, Any]:
@@ -131,6 +122,10 @@ def publish_slot_command(slot_id: str, action: str, topic_prefix: str | None = N
         "issued_at": datetime.now(timezone.utc).isoformat(),
         **metadata,
     }
+    payload_errors = validate_command_payload(payload)
+    if payload_errors:
+        raise RuntimeError(f"Commande MQTT invalide: {'; '.join(payload_errors)}")
+
     command_topic = slot_topic(slot_id, settings=settings, topic_prefix=topic_prefix)
     ack_topic = slot_topic(slot_id, suffix="ack", settings=settings, topic_prefix=topic_prefix)
     ack_event = threading.Event()

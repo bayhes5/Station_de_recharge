@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from html import escape
 import logging
 
 from django.conf import settings
+from django.core.mail import EmailMultiAlternatives
 from django.core.mail import send_mail
 from django.utils import timezone
 
@@ -12,6 +14,78 @@ from api.models import Alerte, TechnicienStation
 logger = logging.getLogger(__name__)
 NOTIFIABLE_ALERT_STATUSES = {"active"}
 CRITICAL_SEVERITIES = {"critique", "critical"}
+
+
+def send_reservation_qr_email(reservation, access_payload):
+    """Send the reservation QR code by email to the reservation owner."""
+    if not getattr(settings, "RESERVATION_QR_EMAIL_ENABLED", True):
+        return 0
+
+    user = reservation.utilisateur
+    recipient = (getattr(user, "email", "") or "").strip()
+    if not recipient:
+        logger.info("Reservation QR email skipped: reservation %s has no user email", reservation.id_reservation)
+        return 0
+
+    station = reservation.emplacement.station
+    borne = reservation.emplacement.borne
+    starts_at = timezone.localtime(reservation.date_debut).strftime("%d/%m/%Y %H:%M")
+    ends_at = timezone.localtime(reservation.date_fin).strftime("%d/%m/%Y %H:%M")
+    subject = f"Votre QR code de reservation {reservation.reference_code}"
+    body = "\n".join(
+        [
+            "Votre reservation de recharge est confirmee.",
+            "",
+            f"Code de reservation: {reservation.reference_code}",
+            f"Station: {station.nom}",
+            f"Borne: {borne.nom}",
+            f"Emplacement: {reservation.emplacement.numero}",
+            f"Creneau: {starts_at} - {ends_at}",
+            "",
+            "Presentez le QR code depuis votre espace utilisateur ou ce message.",
+            "Le QR code reste accepte uniquement sur le bon creneau, la bonne borne et tant que la reservation reste active.",
+        ]
+    )
+    html = _reservation_qr_html(
+        reservation,
+        access_payload,
+        starts_at=starts_at,
+        ends_at=ends_at,
+    )
+    message = EmailMultiAlternatives(
+        subject,
+        body,
+        getattr(settings, "DEFAULT_FROM_EMAIL", "Station <no-reply@station.local>"),
+        [recipient],
+    )
+    message.attach_alternative(html, "text/html")
+    return message.send(fail_silently=False)
+
+
+def _reservation_qr_html(reservation, access_payload, *, starts_at, ends_at):
+    """Build the HTML variant of the reservation QR email."""
+    station = escape(reservation.emplacement.station.nom)
+    borne = escape(reservation.emplacement.borne.nom)
+    qr_svg = access_payload.get("qr_svg") or ""
+    qr_block = qr_svg if qr_svg else "<p>QR code indisponible. Consultez votre espace utilisateur.</p>"
+    return f"""<!doctype html>
+<html lang="fr">
+<body style="font-family:Arial,sans-serif;color:#17202e;line-height:1.5">
+  <h1 style="font-size:22px">Reservation de recharge confirmee</h1>
+  <p>Votre QR code d'acces est pret.</p>
+  <div style="max-width:260px;margin:16px 0;padding:12px;border:1px solid #d0d5dd;border-radius:8px">
+    {qr_block}
+  </div>
+  <table style="border-collapse:collapse">
+    <tr><td style="padding:4px 12px 4px 0;color:#667085">Code</td><td><strong>{escape(reservation.reference_code)}</strong></td></tr>
+    <tr><td style="padding:4px 12px 4px 0;color:#667085">Station</td><td>{station}</td></tr>
+    <tr><td style="padding:4px 12px 4px 0;color:#667085">Borne</td><td>{borne}</td></tr>
+    <tr><td style="padding:4px 12px 4px 0;color:#667085">Emplacement</td><td>{reservation.emplacement.numero}</td></tr>
+    <tr><td style="padding:4px 12px 4px 0;color:#667085">Creneau</td><td>{escape(starts_at)} - {escape(ends_at)}</td></tr>
+  </table>
+  <p style="color:#667085">Ce QR code est valable uniquement pour cette reservation.</p>
+</body>
+</html>"""
 
 
 def _alert_location(alert):

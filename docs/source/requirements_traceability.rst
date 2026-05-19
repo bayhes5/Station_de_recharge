@@ -114,9 +114,10 @@ Couverture par partie
    * - Alertes
      - Détection intrusion, câble retiré, surconsommation et surchauffe.
        Stockage dans ``Alerte`` avec cycle ``nouvelle`` -> ``active`` ->
-       ``resolue`` selon le retour à la normale.
-     - Ajouter notification email/SMS technicien et acquittement manuel si
-       besoin métier.
+       ``prise_en_charge`` -> ``resolue`` selon le retour à la normale ou
+       l'intervention terrain.
+     - Ajouter éventuellement un canal SMS technicien réel si le projet dépasse
+       le périmètre académique gratuit.
    * - Supervision
      - Grafana provisionné, datasource TimescaleDB/PostgreSQL, dashboard
        technique initial, interface admin de supervision et simulateur de télémétrie
@@ -168,13 +169,16 @@ Choix et écarts assumés
      - Choix actuel
    * - QR code
      - QR code envoyé par mail et lu par un lecteur USB à la borne.
-     - QR de réservation conservé. Ajout d'un QR de session mobile affiché par
-       la borne pour permettre à la PWA de confirmer une réservation sans
-       clavier physique.
+     - QR de réservation généré dès la réservation, visible dans l'espace
+       utilisateur et envoyé par email via Mailpit en environnement académique.
+       Ajout d'un QR de session mobile affiché par la borne pour permettre à la
+       PWA de confirmer une réservation sans clavier physique.
    * - Code alphanumérique
      - Code envoyé par SMS et saisi au clavier.
      - Code SMS temporaire généré côté backend, stocké sans clair et saisi sur
-       clavier tactile.
+       clavier tactile. La politique retient 8 caractères ``0-9/A-D`` pour
+       rester compatible avec un clavier matriciel 4x4, avec verrouillage après
+       5 mauvaises saisies.
    * - RFID
      - Badge RFID avec lecteur MFRC522 ou équivalent.
      - Lecteur ACR122U retenu. Le badge identifie l'utilisateur, puis le backend
@@ -189,8 +193,9 @@ Choix et écarts assumés
        technique dans Grafana.
    * - Notifications
      - Email/SMS au technicien en cas d'alerte.
-     - Politique d'alertes documentée ; Mailpit et le mode console/log
-       permettent une démonstration gratuite et open source.
+     - Politique d'alertes documentée ; Mailpit capture les emails QR et
+       technicien, tandis que le mode SMS console/log permet une démonstration
+       gratuite et open source.
 
 Contraintes projet
 ------------------

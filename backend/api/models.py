@@ -88,6 +88,18 @@ class ReservationStatus(models.TextChoices):
     COMPLETED = "terminee", "Terminée"
 
 
+class ChargeSessionState(models.TextChoices):
+    """Backend lifecycle values for one effective charging session."""
+
+    RESERVED = "reserved", "Réservée"
+    ACCESS_VALIDATED = "access_validated", "Accès validé"
+    WAITING_PLUG = "waiting_plug", "En attente de branchement"
+    CHARGING = "charging", "Charge en cours"
+    STOPPING = "stopping", "Arrêt en cours"
+    STOPPED = "stopped", "Arrêtée"
+    ERROR = "error", "Erreur"
+
+
 class DeviceType(models.TextChoices):
     """Supported embedded device families."""
 
@@ -131,6 +143,7 @@ class AlertStatus(models.TextChoices):
 
     NEW = "nouvelle", "Nouvelle"
     ACTIVE = "active", "Active"
+    IN_PROGRESS = "prise_en_charge", "Prise en charge"
     RESOLVED = "resolue", "Résolue"
     CLOSED = "closed", "Fermée"
     FERMEE = "fermee", "Fermée"
@@ -636,6 +649,12 @@ class Session(models.Model):
     )
     start_time = models.DateTimeField()
     end_time = models.DateTimeField(null=True, blank=True)
+    charge_state = models.CharField(
+        max_length=50,
+        choices=ChargeSessionState.choices,
+        default=ChargeSessionState.RESERVED,
+    )
+    charge_state_updated_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         db_table = "charging_session"
@@ -645,12 +664,17 @@ class Session(models.Model):
                 | Q(end_time__gt=models.F("start_time")),
                 name="session_end_gt_start",
             ),
+            models.CheckConstraint(
+                condition=Q(charge_state__in=ChargeSessionState.values),
+                name="chk_session_charge_state",
+            ),
         ]
         indexes = [
             models.Index(fields=["emplacement"], name="idx_session_emplacement"),
             models.Index(fields=["start_time"], name="idx_session_start"),
             models.Index(fields=["end_time"], name="idx_session_end"),
             models.Index(fields=["start_time", "end_time"], name="idx_session_window"),
+            models.Index(fields=["charge_state", "end_time"], name="idx_session_charge_state"),
         ]
 
 
@@ -857,6 +881,33 @@ class Alerte(models.Model):
     last_seen = models.DateTimeField(default=timezone.now)
     notified_at = models.DateTimeField(null=True, blank=True)
     notification_count = models.PositiveIntegerField(default=0)
+    assigned_technician = models.ForeignKey(
+        "Technicien",
+        on_delete=models.SET_NULL,
+        related_name="assigned_alerts",
+        db_column="assigned_technician_id",
+        null=True,
+        blank=True,
+    )
+    acknowledged_by = models.ForeignKey(
+        "Technicien",
+        on_delete=models.SET_NULL,
+        related_name="acknowledged_alerts",
+        db_column="acknowledged_by_id",
+        null=True,
+        blank=True,
+    )
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    resolved_by = models.ForeignKey(
+        "Technicien",
+        on_delete=models.SET_NULL,
+        related_name="resolved_alerts",
+        db_column="resolved_by_id",
+        null=True,
+        blank=True,
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolution_note = models.TextField(blank=True, default="")
 
     class Meta:
         db_table = "alerte"
@@ -880,6 +931,10 @@ class Alerte(models.Model):
                 fields=["niveau_severite", "timestamp"], name="idx_alert_sev_time"
             ),
             models.Index(fields=["type", "timestamp"], name="idx_alert_type_time"),
+            models.Index(
+                fields=["assigned_technician", "status"],
+                name="idx_alert_tech_status",
+            ),
         ]
 
 

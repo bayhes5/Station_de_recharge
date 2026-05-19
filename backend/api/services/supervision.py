@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from api.models import (
     Alerte,
+    AlertStatus,
     CapteurData,
     Device,
     DeviceCommandLog,
@@ -24,7 +25,16 @@ DEVICE_STATUS_DISPLAY = {
     "error": "Erreur",
     "provisioned": "Provisionné",
 }
-OPEN_ALERT_STATUSES = ["resolved", "resolue", "closed", "fermee"]
+RESOLVED_ALERT_STATUSES = ["resolved", "resolue", "closed", "fermee"]
+ALERT_STATUS_DISPLAY = {
+    AlertStatus.NEW: "Nouvelle",
+    AlertStatus.ACTIVE: "Active",
+    AlertStatus.IN_PROGRESS: "Prise en charge",
+    AlertStatus.RESOLVED: "Résolue",
+    AlertStatus.CLOSED: "Fermée",
+    AlertStatus.FERMEE: "Fermée",
+    "resolved": "Résolue",
+}
 
 
 def device_slot_id(device):
@@ -116,7 +126,19 @@ def serialize_alert_supervision(alert):
         "message": alert.message,
         "niveau_severite": alert.niveau_severite,
         "status": alert.status,
+        "status_display": ALERT_STATUS_DISPLAY.get(alert.status, alert.status),
         "timestamp": alert.timestamp.isoformat() if alert.timestamp else None,
+        "first_seen": alert.first_seen.isoformat() if alert.first_seen else None,
+        "last_seen": alert.last_seen.isoformat() if alert.last_seen else None,
+        "assigned_technician": str(alert.assigned_technician_id) if alert.assigned_technician_id else None,
+        "assigned_technician_nom": alert.assigned_technician.nom if alert.assigned_technician else "",
+        "acknowledged_by": str(alert.acknowledged_by_id) if alert.acknowledged_by_id else None,
+        "acknowledged_by_nom": alert.acknowledged_by.nom if alert.acknowledged_by else "",
+        "acknowledged_at": alert.acknowledged_at.isoformat() if alert.acknowledged_at else None,
+        "resolved_by": str(alert.resolved_by_id) if alert.resolved_by_id else None,
+        "resolved_by_nom": alert.resolved_by.nom if alert.resolved_by else "",
+        "resolved_at": alert.resolved_at.isoformat() if alert.resolved_at else None,
+        "resolution_note": alert.resolution_note,
         "station_nom": station.nom if station else "-",
         "borne_nom": borne.nom if borne else "-",
         "borne_numero": borne.numero if borne else "-",
@@ -233,8 +255,11 @@ def build_admin_supervision_payload(station_ids=None):
         "emplacement__station",
         "emplacement__borne",
     )
-    active_alerts = Alerte.objects.exclude(status__in=OPEN_ALERT_STATUSES)
+    active_alerts = Alerte.objects.exclude(status__in=RESOLVED_ALERT_STATUSES)
     recent_alerts_queryset = Alerte.objects.select_related(
+        "assigned_technician",
+        "acknowledged_by",
+        "resolved_by",
         "data",
         "data__capteur",
         "data__capteur__device",

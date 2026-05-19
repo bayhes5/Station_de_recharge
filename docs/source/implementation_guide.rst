@@ -177,6 +177,14 @@ REST historique repose sur SHA-1. ``SMS_RESEND_COOLDOWN_SECONDS`` limite le
 renvoi manuel du même code pour éviter le spam et les boucles côté interface
 mobile.
 
+La politique du code SMS est formalisée dans
+``backend/api/services/sms_access_policy.py``. Le code utilise uniquement
+``0123456789ABCD`` pour rester saisissable sur un clavier matriciel 4x4. La
+longueur par défaut est de 8 caractères, soit ``14^8`` combinaisons, et le code
+est verrouillé après 5 erreurs de saisie en ligne. Les variables
+``SMS_ACCESS_CODE_ALPHABET``, ``SMS_ACCESS_CODE_LENGTH`` et
+``SMS_ACCESS_CODE_MAX_ATTEMPTS`` sont contrôlées par les checks de déploiement.
+
 L'implantation principale est dans ``backend/api/views.py`` :
 
 * ``_create_temporary_auth`` crée le moyen d'accès ;
@@ -314,11 +322,20 @@ Chaque commande contient un ``command_id`` et l'ESP32 doit répondre sur
 accusé de réception pour confirmer que le relais ou le verrou a bien reçu la
 commande.
 
-La machine d'état embarquée est volontairement simple :
+La machine d'état partagée entre le Raspberry, l'ESP32 et le backend suit un
+cycle explicite :
 
 .. code-block:: text
 
-   idle -> reserved -> charging -> idle
+   reserved -> access_validated -> waiting_plug -> charging -> stopping -> stopped
+                                      \                         /
+                                       ---------- error --------
+
+Le Raspberry protège localement les commandes physiques. Le backend conserve le
+même cycle dans ``charging_session.charge_state`` afin de refuser un deuxième
+``START`` quand une session est déjà en charge, de signaler un ``STOP`` confirmé
+mais pas encore clôturé, et de rendre les états ``error`` visibles en
+supervision.
 
 En charge, l'ESP32 arrête la session simulée si le boîtier s'ouvre, si le câble
 est retiré, si le courant dépasse le seuil ou si la température dépasse le
@@ -384,7 +401,9 @@ Les alertes sont créées depuis ``backend/api/services/telemetry.py``. Les règ
 actuelles sont :
 
 * ``intrusion`` si ``door`` vaut ``false`` pendant ``charging`` ;
+* ``intrusion`` si ``intrusion`` vaut ``true`` pendant ``charging`` ;
 * ``cable_removed`` si ``cable`` vaut ``false`` pendant ``charging`` ;
+* ``lock_unlocked`` si ``lock`` vaut ``false`` pendant ``charging`` ;
 * ``overheat`` si la température est supérieure ou égale à ``60`` ;
 * ``overcurrent`` si le courant est supérieur ou égal à ``3.0`` ;
 * ``state_error`` si l'état vaut ``error``, ``emergency`` ou ``fault`` ;

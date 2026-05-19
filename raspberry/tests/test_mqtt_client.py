@@ -164,6 +164,7 @@ def test_publish_slot_command_does_not_duplicate_prefix_already_in_base(monkeypa
         "slot1",
         "START",
         topic_prefix="station-centre/borne-1",
+        session_id="session-1",
     )
 
     assert result["topic"] == "station/station-centre/borne-1/slot1/cmd"
@@ -181,7 +182,12 @@ def test_publish_slot_command_rejects_negative_ack_even_when_not_required(monkey
     }
 
     with pytest.raises(RuntimeError, match="refusee par ESP32"):
-        mqtt_client.publish_slot_command("slot1", "START", command_id="cmd-denied")
+        mqtt_client.publish_slot_command(
+            "slot1",
+            "START",
+            command_id="cmd-denied",
+            session_id="session-1",
+        )
 
 
 def test_publish_slot_command_rejects_missing_ack_when_required(monkeypatch):
@@ -189,7 +195,7 @@ def test_publish_slot_command_rejects_missing_ack_when_required(monkeypatch):
     mqtt_client = load_mqtt_client(monkeypatch, ack_required="true")
 
     with pytest.raises(RuntimeError, match="sans confirmation ESP32"):
-        mqtt_client.publish_slot_command("slot1", "START")
+        mqtt_client.publish_slot_command("slot1", "START", session_id="session-1")
 
 
 def test_publish_slot_command_rejects_non_confirming_ack_when_required(monkeypatch):
@@ -202,7 +208,12 @@ def test_publish_slot_command_rejects_non_confirming_ack_when_required(monkeypat
     }
 
     with pytest.raises(RuntimeError, match="ACK ESP32 non confirmant"):
-        mqtt_client.publish_slot_command("slot1", "START", command_id="cmd-1")
+        mqtt_client.publish_slot_command(
+            "slot1",
+            "START",
+            command_id="cmd-1",
+            session_id="session-1",
+        )
 
 
 def test_publish_slot_command_ignores_ack_for_other_action(monkeypatch):
@@ -215,7 +226,12 @@ def test_publish_slot_command_ignores_ack_for_other_action(monkeypatch):
     }
 
     with pytest.raises(RuntimeError, match="sans confirmation ESP32"):
-        mqtt_client.publish_slot_command("slot1", "START", command_id="cmd-1")
+        mqtt_client.publish_slot_command(
+            "slot1",
+            "START",
+            command_id="cmd-1",
+            session_id="session-1",
+        )
 
 
 def test_publish_slot_command_accepts_matching_ack_when_required(monkeypatch):
@@ -227,7 +243,12 @@ def test_publish_slot_command_accepts_matching_ack_when_required(monkeypatch):
         "status": "accepted",
     }
 
-    result = mqtt_client.publish_slot_command("slot1", "START", command_id="cmd-1")
+    result = mqtt_client.publish_slot_command(
+        "slot1",
+        "START",
+        command_id="cmd-1",
+        session_id="session-1",
+    )
 
     assert result["ack_received"] is True
     assert result["ack_status"] == "accepted"

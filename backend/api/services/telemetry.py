@@ -12,9 +12,11 @@ from django.utils import timezone
 
 from api.models import (
     Alerte,
+    AlertStatus,
     Borne,
     Capteur,
     CapteurData,
+    ChargeSessionState,
     Device,
     DeviceCommandLog,
     DeviceStatus,
@@ -22,6 +24,7 @@ from api.models import (
     Session,
     SessionTelemetry,
 )
+from api.services.charge_session_state import mark_state_from_ack, mark_state_from_device
 from api.services.firmware import (
     expected_firmware_version,
     firmware_update_required,
@@ -35,6 +38,8 @@ SENSOR_FIELDS = {
     "humidity": ("humidity", "%"),
     "door": ("door", "bool"),
     "cable": ("cable", "bool"),
+    "lock": ("lock", "bool"),
+    "intrusion": ("intrusion", "bool"),
     "state": ("state", "state"),
     "current": ("current", "A"),
     "voltage": ("voltage", "V"),
@@ -42,6 +47,7 @@ SENSOR_FIELDS = {
 }
 
 RESOLVED_ALERT_STATUSES = ["resolved", "resolue", "closed", "fermee"]
+PRESERVED_ACTIVE_ALERT_STATUSES = {AlertStatus.IN_PROGRESS}
 CHARGING_STATES = {"charging", "charging_started", "running"}
 DEVICE_SCOPED_ALERT_TYPES = {
     "state_error",
@@ -199,7 +205,7 @@ def _save_device_report(device: Device, timestamp, status_value: Any, payload: d
 
 def _sensor_value(sensor_type: str, value: Any):
     """Normalize one sensor value before creating a CapteurData record."""
-    if sensor_type in {"door", "cable"}:
+    if sensor_type in {"door", "cable", "lock", "intrusion"}:
         return _bool_as_float(value)
     if sensor_type == "state":
         return None
@@ -315,7 +321,9 @@ def _get_device(slot_id: str, topic_prefix: str | None = None) -> Device:
 
 def _get_active_session(emplacement: Emplacement, session_id: str | None):
     """Find the current charging session for an emplacement."""
-    queryset = Session.objects.filter(emplacement=emplacement, end_time__isnull=True)
+    queryset = Session.objects.filter(emplacement=emplacement, end_time__isnull=True).exclude(
+        charge_state=ChargeSessionState.STOPPED
+    )
     if session_id is not None and str(session_id).strip():
         try:
             session_uuid = UUID(str(session_id))
@@ -370,7 +378,8 @@ def _upsert_active_alert(
         existing.niveau_severite = severity
         existing.timestamp = timestamp
         existing.last_seen = timestamp
-        existing.status = "active"
+        if existing.status not in PRESERVED_ACTIVE_ALERT_STATUSES:
+            existing.status = "active"
         if data:
             existing.data = data
         if session:
@@ -405,7 +414,12 @@ def _upsert_active_alert(
 
 def _resolve_alerts_for_device(device: Device, alert_type: str, timestamp):
     """Mark unresolved alerts as resolved when telemetry returns to normal."""
-    return _open_alerts_for_device(device, alert_type).update(status="resolue", timestamp=timestamp, last_seen=timestamp)
+    return _open_alerts_for_device(device, alert_type).update(
+        status="resolue",
+        timestamp=timestamp,
+        last_seen=timestamp,
+        resolved_at=timestamp,
+    )
 
 
 def _alert_resolution_candidates(payload: dict[str, Any]):
@@ -418,6 +432,10 @@ def _alert_resolution_candidates(payload: dict[str, Any]):
         candidates.append("intrusion")
     if "cable" in payload and (payload.get("cable") is not False or state != "charging"):
         candidates.append("cable_removed")
+    if "lock" in payload and (payload.get("lock") is not False or state != "charging"):
+        candidates.append("lock_unlocked")
+    if "intrusion" in payload and payload.get("intrusion") is not True:
+        candidates.append("intrusion")
     temperature = _as_float(payload.get("temperature"))
     if temperature is not None and temperature < 60:
         candidates.append("overheat")
@@ -457,8 +475,12 @@ def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp, 
             _resolve_alerts_for_device(device, "charge_without_session", timestamp)
     if payload.get("door") is False and state == "charging":
         triggered_alerts.append(("intrusion", "Boitier ouvert pendant une charge active.", "critique", "door"))
+    if payload.get("intrusion") is True and state == "charging":
+        triggered_alerts.append(("intrusion", "Intrusion detectee pendant une charge active.", "critique", "intrusion"))
     if payload.get("cable") is False and state == "charging":
         triggered_alerts.append(("cable_removed", "Cable retire pendant une charge active.", "haute", "cable"))
+    if payload.get("lock") is False and state == "charging":
+        triggered_alerts.append(("lock_unlocked", "Serrure deverrouillee pendant une charge active.", "critique", "lock"))
 
     temperature = _as_float(payload.get("temperature"))
     if temperature is not None and temperature >= 60:
@@ -528,6 +550,11 @@ def ingest_slot_status(slot_id: str, payload: dict[str, Any], topic_prefix: str 
     status_value = payload.get("state") or payload.get("status") or payload.get("event")
     device = _get_device(slot_id, topic_prefix=topic_prefix)
     _save_device_report(device, timestamp, status_value, payload)
+    mark_state_from_device(
+        _get_active_session(device.emplacement, payload.get("session_id")),
+        status_value,
+        now=timestamp,
+    )
     _check_firmware_alert(device, timestamp)
     _create_alert_if_needed(device, payload, timestamp, {})
     return DeviceStatusResult(device=device)
@@ -547,6 +574,7 @@ def ingest_slot_ack(slot_id: str, payload: dict[str, Any], topic_prefix: str | N
     source = str(payload.get("source") or "").strip()[:50]
     device = _get_device(slot_id, topic_prefix=topic_prefix)
     session = _get_active_session(device.emplacement, payload.get("session_id"))
+    mark_state_from_ack(session, action=action, ack_status=ack_status, now=timestamp)
     device.last_seen = timestamp
     device.last_command_id = command_id
     device.last_command_action = action
@@ -612,6 +640,7 @@ def ingest_slot_telemetry(slot_id: str, payload: dict[str, Any], topic_prefix: s
     voltage = _as_float(payload.get("voltage"))
     energy = _as_float(payload.get("energy_kwh"))
     session = _get_active_session(device.emplacement, payload.get("session_id"))
+    mark_state_from_device(session, payload.get("state"), now=timestamp)
     if session and current is not None and voltage is not None:
         SessionTelemetry.objects.create(
             session=session,

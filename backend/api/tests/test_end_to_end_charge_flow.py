@@ -9,6 +9,7 @@ from rest_framework import status
 
 from api.models import (
     CapteurData,
+    ChargeSessionState,
     Device,
     DeviceCommandLog,
     DeviceStatus,
@@ -148,6 +149,7 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
     reservation.refresh_from_db()
     assert reservation.statut == "active"
     assert session.end_time is None
+    assert session.charge_state == ChargeSessionState.ACCESS_VALIDATED
 
     start_ack = process_mqtt_message(
         f"station/{mqtt_prefix}/slot1/ack",
@@ -166,6 +168,8 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
     assert start_ack["message_type"] == "ack"
     assert start_ack["topic_prefix"] == mqtt_prefix
     assert start_ack["command_status"] == "accepted"
+    session.refresh_from_db()
+    assert session.charge_state == ChargeSessionState.WAITING_PLUG
 
     for index in range(3):
         telemetry_result = process_mqtt_message(
@@ -179,6 +183,8 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
         assert telemetry_result["session_telemetry_created"] is True
 
     assert SessionTelemetry.objects.filter(session=session).count() == 3
+    session.refresh_from_db()
+    assert session.charge_state == ChargeSessionState.CHARGING
     assert set(
         CapteurData.objects.values_list("capteur__device__mac_address", flat=True)
     ) == {"slot1"}
@@ -203,6 +209,8 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
     assert stop_ack["message_type"] == "ack"
     assert stop_ack["topic_prefix"] == mqtt_prefix
     assert stop_ack["command_status"] == "stopped"
+    session.refresh_from_db()
+    assert session.charge_state == ChargeSessionState.STOPPING
 
     stop_response = api_client.post(
         reverse("api-terminal-session-stop"),
@@ -219,6 +227,7 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
     session.refresh_from_db()
     reservation.refresh_from_db()
     assert session.end_time is not None
+    assert session.charge_state == ChargeSessionState.STOPPED
     assert reservation.statut == "terminee"
     assert Session.objects.filter(end_time__isnull=True).count() == 0
 

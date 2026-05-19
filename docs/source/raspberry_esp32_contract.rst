@@ -16,6 +16,10 @@ Principes
 * Le backend ingère la télémétrie et les ACK via le bridge MQTT, mais ne doit
   pas être nécessaire pour couper localement une charge dangereuse.
 * En production, ``MQTT_ACK_REQUIRED`` doit être activé sur le Raspberry.
+* Le contrat est aussi présent en code dans
+  ``raspberry/app/mqtt_contract.py``. Les tests utilisent ce module pour éviter
+  qu'un changement de firmware, de kiosque ou de simulateur casse le format des
+  messages sans être détecté.
 
 Topics
 ------
@@ -59,6 +63,10 @@ session backend ou locale.
      "source": "raspberry"
    }
 
+Champs obligatoires : ``command_id``, ``action``, ``issued_at`` et
+``session_id``. Les champs ``station``, ``borne``, ``emplacement`` et
+``source`` sont recommandés pour les logs et le diagnostic terrain.
+
 Comportement attendu côté ESP32 :
 
 * refuser la commande si une charge est déjà active sur l'emplacement ;
@@ -87,6 +95,10 @@ session est clôturée ou lorsqu'une anomalie impose l'arrêt.
      "source": "raspberry"
    }
 
+Champs obligatoires : ``command_id``, ``action``, ``issued_at`` et
+``session_id``. Le ``session_id`` doit être celui de la session active sur
+l'emplacement.
+
 Comportement attendu côté ESP32 :
 
 * couper le relais de charge ;
@@ -110,6 +122,10 @@ Chaque commande doit produire un ACK sur ``.../<slot_id>/ack``.
      "source": "esp32",
      "timestamp": "2026-05-17T14:00:01Z"
    }
+
+Champs obligatoires : ``command_id``, ``action`` et ``status``. Le Raspberry
+compare le ``command_id`` et l'action avec la commande publiée. Un ACK pour une
+autre commande est ignoré.
 
 Statuts acceptés :
 
@@ -142,6 +158,9 @@ Le status est un heartbeat métier léger.
      "timestamp": "2026-05-17T14:01:00Z"
    }
 
+Champ obligatoire : ``state``. Le ``session_id`` devient obligatoire dès que
+``state`` vaut ``charging`` ou ``charging_started``.
+
 États canoniques côté Raspberry :
 
 .. code-block:: text
@@ -152,6 +171,12 @@ Le status est un heartbeat métier léger.
 
 ``waiting_cable`` est encore accepté en lecture comme alias historique de
 ``waiting_plug``.
+
+Le backend conserve le même cycle dans ``charging_session.charge_state``. Les
+ACK et statuts MQTT le font évoluer, puis l'endpoint de clôture de session passe
+l'état à ``stopped`` en même temps que ``end_time``. Cette duplication contrôlée
+est volontaire : le Raspberry protège l'action physique locale, le backend
+protège la cohérence métier et la supervision.
 
 Télémétrie
 ----------
@@ -176,8 +201,16 @@ La télémétrie est publiée régulièrement sur ``.../<slot_id>/telemetry``.
      "humidity": 44.0,
      "door": true,
      "cable": true,
+     "lock": true,
+     "intrusion": false,
      "timestamp": "2026-05-17T14:02:00Z"
    }
+
+Champs minimaux : ``slot_id`` et ``state``. Pendant une charge active,
+``session_id`` doit être présent afin de rattacher les mesures à la bonne
+session. Les champs électriques, serrure, câble et porte peuvent être absents
+tant que le matériel n'est pas câblé, mais ils deviennent obligatoires dans la
+version de production complète.
 
 Le backend crée une télémétrie de session uniquement si ``session_id`` correspond
 à une session active de l'emplacement. Les données capteurs restent stockées
@@ -207,6 +240,14 @@ Incidents attendus
      - ``door=false`` pendant ``charging``
      - couper le relais, publier ``alert`` et ``status``
      - alerte ``intrusion``
+   * - Intrusion explicite
+     - ``intrusion=true`` pendant ``charging``
+     - couper le relais, publier ``alert`` et ``status``
+     - alerte ``intrusion``
+   * - Serrure déverrouillée en charge
+     - ``lock=false`` pendant ``charging``
+     - couper le relais, publier ``alert`` et ``status``
+     - alerte ``lock_unlocked``
    * - Surchauffe
      - ``temperature >= 60``
      - couper le relais si la charge est active
@@ -227,6 +268,8 @@ Les tests automatisés verrouillent déjà les points principaux :
 
 * ``raspberry/tests/test_mqtt_client.py`` vérifie les topics, payloads START/STOP
   et ACK ;
+* ``raspberry/tests/test_mqtt_contract.py`` vérifie les champs obligatoires, les
+  statuts confirmants et les alertes attendues ;
 * ``raspberry/tests/test_charge_state.py`` vérifie la machine d'état locale ;
 * ``backend/api/tests/test_mqtt_ingestion.py`` vérifie l'ingestion des status,
   ACK, télémétries et alertes ;

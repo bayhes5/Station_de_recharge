@@ -285,6 +285,14 @@ l'historique récent des commandes acquittées. Cela permet de distinguer une
 commande publiée, une commande confirmée et une charge réellement active
 remontée ensuite par le statut ou la télémétrie.
 
+Le backend met aussi à jour ``charging_session.charge_state``. Un ACK ``START``
+confirmé fait passer la session à ``waiting_plug`` ou ``charging`` selon le
+statut reçu, une télémétrie ``charging`` confirme la charge active, un ACK
+``STOP`` place la session en ``stopping`` jusqu'à la clôture backend, et
+``terminal/sessions/stop`` termine le cycle en ``stopped``. Ce verrou métier
+complète le verrou local Raspberry et empêche un deuxième ``START`` sur une
+session déjà engagée.
+
 Le Raspberry conserve en parallèle un état local par emplacement. Cet état
 protège la borne contre les doubles ``START`` / ``STOP`` pendant qu'une session
 est en cours. Il ne remplace pas Grafana : Grafana observe la télémétrie et les
@@ -362,12 +370,13 @@ Préparer le fichier de mots de passe :
 
    .\scripts\init-mqtt-auth.ps1
 
-Puis copier le contenu de ``mosquitto.secure.conf`` vers ``mosquitto.conf`` ou
-adapter le montage Docker pour pointer vers la configuration sécurisée. En
-développement, un seul compte ``station_backend`` peut suffire pour le backend,
-le simulateur et le Raspberry. En installation réelle, utiliser des comptes
-séparés : ``station_backend``, ``raspberry_kiosk`` et un compte par ESP32
-(``esp32_slot1``, ``esp32_slot2``, ``esp32_slot3``).
+Avec ``docker-compose.prod.yml``, la configuration sécurisée est montée
+directement comme ``/mosquitto/config/mosquitto.conf``. En développement, un seul
+compte ``station_backend`` peut suffire pour le backend, le simulateur et le
+Raspberry. En installation réelle, utiliser des comptes séparés :
+``station_backend`` pour le backend et le bridge, ``raspberry_kiosk`` pour les
+commandes locales, puis un compte par ESP32 (``esp32_slot1``, ``esp32_slot2``,
+``esp32_slot3`` ou les comptes structurés par station/borne/emplacement).
 
 Vérifier que Django et la base répondent :
 
@@ -397,6 +406,7 @@ des mesures normales et des anomalies pour tester la chaîne d'alertes :
 
 * intrusion : boîtier ouvert pendant une charge ;
 * câble retiré ;
+* serrure déverrouillée pendant une charge ;
 * surchauffe ;
 * surconsommation ;
 * état critique.
@@ -511,17 +521,17 @@ L'ingestion des télémétries alimente actuellement :
 * ``Capteur`` et ``CapteurData`` : valeurs horodatées des capteurs ;
 * ``SessionTelemetry`` : courant, tension et énergie si une session active
   existe sur l'emplacement ;
-* ``Alerte`` : anomalies telles qu'intrusion, câble retiré, surchauffe ou
-  surconsommation.
+* ``Alerte`` : anomalies telles qu'intrusion, câble retiré, serrure déverrouillée
+  en charge, surchauffe ou surconsommation.
 
 L'identité du device est séparée en deux niveaux : ``slot_id`` pour le routage
 MQTT de l'emplacement, et ``hardware_mac`` pour la carte ESP32 physique.
 ``ip_address`` et ``firmware_version`` sont mis à jour automatiquement lorsqu'ils
 sont présents dans les messages ``status``, ``ack`` ou ``telemetry``.
 
-Les capteurs booléens ``door`` et ``cable`` sont stockés numériquement dans
-``CapteurData`` : ``1`` signifie vrai et ``0`` signifie faux. L'API de
-supervision expose en plus un libellé lisible pour l'interface :
+Les capteurs booléens ``door``, ``cable``, ``lock`` et ``intrusion`` sont stockés
+numériquement dans ``CapteurData`` : ``1`` signifie vrai et ``0`` signifie faux.
+L'API de supervision expose en plus un libellé lisible pour l'interface :
 ``Boîtier fermé`` / ``Boîtier ouvert`` et ``Câble présent`` / ``Câble retiré``.
 
 Dans l'interface administrateur, la colonne ``Connexion`` indique si l'ESP32 a
@@ -540,6 +550,15 @@ Si la même anomalie continue sur une télémétrie suivante, l'alerte existante
 mise à jour au statut ``active`` au lieu de créer un doublon. Quand une
 télémétrie normale confirme que la condition a disparu, l'alerte passe
 automatiquement au statut ``resolue``.
+
+Un technicien affecté à la station peut ensuite prendre l'alerte en charge depuis
+son tableau de bord. Le statut devient ``prise_en_charge`` et le backend trace le
+technicien, la date de prise en charge et, lors de la résolution manuelle, la
+note d'intervention. Une nouvelle télémétrie anormale sur la même condition met à
+jour ``last_seen`` sans écraser la prise en charge ; cela évite de perdre le
+travail déjà engagé sur le terrain. Les administrateurs conservent une portée
+globale, tandis que les techniciens restent limités aux stations qui leur sont
+assignées.
 
 L'email technicien n'est pas envoyé au premier signal. La notification part
 uniquement si l'alerte est ``active``, si son type fait partie de
@@ -568,6 +587,8 @@ Les conditions de résolution automatique sont :
 
 * ``intrusion`` : ``door`` repasse à ``true`` ou l'emplacement n'est plus en charge ;
 * ``cable_removed`` : ``cable`` repasse à ``true`` ou l'emplacement n'est plus en
+  charge ;
+* ``lock_unlocked`` : ``lock`` repasse à ``true`` ou l'emplacement n'est plus en
   charge ;
 * ``overheat`` : la température repasse sous ``60 C`` ;
 * ``overcurrent`` : le courant repasse sous ``3.0 A`` ;

@@ -56,10 +56,12 @@ Les champs concernés sont notamment :
 * ``Reservation.auth_choice`` : ``rfid``, ``qr``, ``code`` ;
 * ``Reservation.statut`` : ``en_attente``, ``confirmee``, ``active``,
   ``annulee``, ``terminee`` ;
+* ``Session.charge_state`` : ``reserved``, ``access_validated``,
+  ``waiting_plug``, ``charging``, ``stopping``, ``stopped``, ``error`` ;
 * ``Device.status`` : ``provisioned``, ``online``, ``idle``, ``offline``,
   ``charging``, ``error`` ;
-* ``Alerte.status`` : ``nouvelle``, ``active``, ``resolue``, ``closed``,
-  ``fermee`` ;
+* ``Alerte.status`` : ``nouvelle``, ``active``, ``prise_en_charge``,
+  ``resolue``, ``closed``, ``fermee`` ;
 * ``Maintenance.status`` : ``planifiee``, ``en_cours``, ``realisee``,
   ``annulee``.
 
@@ -265,6 +267,15 @@ La session réelle est rattachée à une réservation et à un emplacement. Elle
 stocke ``start_time`` et ``end_time``. L’utilisateur se retrouve via
 ``session.reservation.utilisateur``.
 
+``charge_state`` formalise le cycle technique de la charge côté backend :
+``reserved`` lorsque la session existe sans commande validée, ``access_validated``
+après authentification, ``waiting_plug`` après ACK ``START``, ``charging`` dès
+que l'ESP32 confirme la charge ou publie de la télémétrie active, ``stopping``
+après ACK ``STOP`` ou retour ``idle`` avant clôture backend, ``stopped`` lorsque
+``end_time`` est renseigné, et ``error`` si l'ESP32 remonte un état de défaut.
+Ce champ complète ``end_time`` : il évite les doubles ``START`` et rend visibles
+les sessions arrêtées physiquement mais pas encore clôturées côté backend.
+
 La consommation instantanee ou cumulee n'est pas stockee directement dans
 ``charging_session``. Elle est portee par ``session_telemetry`` avec
 ``energie_kwh``. Cette séparation garde la session comme un objet métier et la
@@ -293,10 +304,18 @@ Les champs ``first_seen`` et ``last_seen`` encadrent la durée de l'anomalie. Le
 champs ``notified_at`` et ``notification_count`` permettent de tracer les emails
 envoyés et d'appliquer un délai de relance sans dupliquer les alertes.
 
+Le workflow technicien est porté directement par l'alerte. ``assigned_technician``
+identifie l'intervenant responsable, ``acknowledged_by`` et ``acknowledged_at``
+tracent la prise en charge, puis ``resolved_by``, ``resolved_at`` et
+``resolution_note`` documentent la clôture opérationnelle. Les alertes restent
+filtrées par station via ``TechnicienStation`` afin de respecter le principe du
+moindre privilège.
+
 Le cycle actuel est géré côté application :
 
 * ``nouvelle`` à la création ;
 * ``active`` si la même anomalie continue ;
+* ``prise_en_charge`` lorsqu'un technicien accepte l'incident ;
 * ``resolue`` quand la télémétrie revient à la normale.
 
 Maintenance
@@ -339,6 +358,7 @@ Les index déjà présents couvrent les requêtes les plus importantes :
 * télémétrie par session et timestamp ;
 * données capteurs par capteur et timestamp ;
 * alertes par statut, session et timestamp ;
+* alertes par technicien assigné et statut ;
 * affectations technicien-station par technicien, station et statut actif ;
 * maintenances par technicien, station, statut et date planifiée.
 
@@ -360,10 +380,14 @@ des écrans d’exploitation et des filtres API :
   une fenêtre de temps ;
 * ``charging_session(start_time, end_time)`` pour les sessions ouvertes, fermées
   ou analysées par période ;
+* ``charging_session(charge_state, end_time)`` pour identifier les sessions en
+  charge, en arrêt ou en erreur ;
 * ``device(status, last_seen)`` pour détecter les équipements indisponibles ou
   silencieux ;
 * ``alerte(niveau_severite, date)`` pour prioriser les incidents ;
-* ``alerte(type, date)`` pour suivre les familles d’anomalies dans le temps.
+* ``alerte(type, date)`` pour suivre les familles d’anomalies dans le temps ;
+* ``alerte(assigned_technician_id, status)`` pour afficher rapidement les
+  incidents ouverts par technicien.
 
 Ces index ne changent pas le modèle fonctionnel. Ils rendent les parcours
 critiques plus prévisibles lorsque le volume augmente : supervision temps réel,
