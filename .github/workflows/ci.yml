@@ -119,6 +119,7 @@ jobs:
           python -m py_compile \
             raspberry/app/charge_state.py \
             raspberry/app/main.py \
+            raspberry/app/mqtt_contract.py \
             raspberry/app/mqtt_client.py \
             raspberry/app/offline_store.py \
             raspberry/app/rfid_reader.py
