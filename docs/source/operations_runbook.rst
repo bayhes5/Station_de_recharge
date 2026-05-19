@@ -528,6 +528,11 @@ Réglages recommandés avant ouverture du service :
 * ``SMS_REQUIRE_VERIFIED_PHONE=True`` pour bloquer l'envoi vers un téléphone non
   vérifié ;
 * ``SMS_RESEND_COOLDOWN_SECONDS=60`` ou plus pour limiter le bouton de renvoi ;
+* ``SMS_ACCESS_CODE_ALPHABET=0123456789ABCD`` pour rester compatible avec un
+  clavier matriciel 4x4 ;
+* ``SMS_ACCESS_CODE_LENGTH=8`` pour éviter les codes trop courts ;
+* ``SMS_ACCESS_CODE_MAX_ATTEMPTS=5`` pour verrouiller un code après trop
+  d'erreurs ;
 * ``SMS_HTTP_TIMEOUT_SECONDS=10`` pour éviter de bloquer trop longtemps une
   requête utilisateur si le fournisseur ne répond pas ;
 * ``SMS_SENDER_NAME`` limité à un libellé court compatible avec le fournisseur.

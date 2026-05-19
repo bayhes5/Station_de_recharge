@@ -69,8 +69,18 @@ from .services.charge_session_state import (
     mark_stopped,
 )
 from .services.email_notifications import send_reservation_qr_email
+from .services.firmware import schedule_ota_update, update_firmware_compliance_status
 from .services.sms import SmsDeliveryError, mask_phone_number, send_sms
-from .services.supervision import build_admin_supervision_payload, serialize_alert_supervision
+from .services.sms_access_policy import (
+    configured_sms_access_code_alphabet,
+    configured_sms_access_code_length,
+    configured_sms_access_code_max_attempts,
+    sms_access_code_policy_payload,
+)
+from .services.supervision import (
+    build_admin_supervision_payload,
+    serialize_alert_supervision,
+)
 from .serializers import (
     AdminUserUpdateSerializer,
     AdminUserSerializer,
@@ -89,7 +99,6 @@ from .serializers import (
     TechnicianStationAssignmentSerializer,
     TechnicianMaintenanceSerializer,
 )
-from .services.firmware import schedule_ota_update, update_firmware_compliance_status
 from .reservation_rules import (
     RESERVATION_DURATION_MINUTES,
     RESERVATION_STEP_MINUTES,
@@ -116,9 +125,10 @@ ADMIN_TEMPORARY_PASSWORD_LENGTH = 16
 ADMIN_TEMPORARY_PASSWORD_SPECIALS = "!@#$%&*-_?"
 LIST_PAGINATION_QUERY_PARAMS = {"page", "page_size"}
 STATIONS_CATALOG_CACHE_KEY = "api:stations_catalog:v1"
-KEYPAD_CODE_ALPHABET = "0123456789ABCD"
+KEYPAD_CODE_ALPHABET = configured_sms_access_code_alphabet()
 RESERVATION_CODE_LENGTH = 8
-TEMPORARY_CODE_LENGTH = 12
+TEMPORARY_CODE_LENGTH = configured_sms_access_code_length()
+SMS_ACCESS_CODE_MAX_ATTEMPTS = configured_sms_access_code_max_attempts()
 RFID_LINK_CODE_LENGTH = 4
 RFID_LINK_CODE_TTL_SECONDS = 10 * 60
 MOBILE_SESSION_TTL_SECONDS = getattr(settings, "MOBILE_SESSION_TTL_SECONDS", 10 * 60)
@@ -800,6 +810,53 @@ def _mask_secret(secret):
     return f"****{secret[-4:]}"
 
 
+def _sms_access_is_locked(auth_method):
+    """Return whether the SMS code is locked after too many failed attempts."""
+    if not auth_method:
+        return False
+    metadata = auth_method.metadata or {}
+    attempts = int(metadata.get("sms_failed_attempts") or 0)
+    return bool(metadata.get("sms_locked_at")) or attempts >= SMS_ACCESS_CODE_MAX_ATTEMPTS
+
+
+def _record_sms_access_failure(auth_method):
+    """Increment failed SMS-code attempts and lock the credential if needed."""
+    metadata = dict(auth_method.metadata or {})
+    failed_attempts = int(metadata.get("sms_failed_attempts") or 0) + 1
+    metadata["sms_failed_attempts"] = failed_attempts
+    metadata["sms_last_failed_at"] = timezone.now().isoformat()
+    metadata["sms_max_attempts"] = SMS_ACCESS_CODE_MAX_ATTEMPTS
+    update_fields = ["metadata"]
+    if failed_attempts >= SMS_ACCESS_CODE_MAX_ATTEMPTS:
+        metadata["sms_locked_at"] = timezone.now().isoformat()
+        metadata["sms_locked_reason"] = "too_many_attempts"
+        auth_method.is_active = False
+        update_fields.append("is_active")
+    auth_method.metadata = metadata
+    auth_method.save(update_fields=update_fields)
+    return failed_attempts >= SMS_ACCESS_CODE_MAX_ATTEMPTS
+
+
+def _reset_sms_access_failures(auth_method):
+    """Clear failed-attempt metadata after a valid SMS code entry."""
+    if not auth_method:
+        return
+    metadata = dict(auth_method.metadata or {})
+    changed = False
+    for key in (
+        "sms_failed_attempts",
+        "sms_last_failed_at",
+        "sms_locked_at",
+        "sms_locked_reason",
+    ):
+        if key in metadata:
+            metadata.pop(key, None)
+            changed = True
+    if changed:
+        auth_method.metadata = metadata
+        auth_method.save(update_fields=["metadata"])
+
+
 def _user_phone_number(user):
     """Return the phone number stored on a user's profile."""
     profile = getattr(user, "profil", None)
@@ -916,6 +973,13 @@ def _temporary_auth_metadata(auth_mode, expiration, reservation_code, display_va
         "token_hint": display_value,
         "expires_at": expiration.isoformat(),
     }
+    if auth_mode == "code":
+        metadata.update(
+            {
+                "delivery_channel": "sms",
+                "code_policy": sms_access_code_policy_payload(),
+            }
+        )
     if auth_mode == "qr":
         metadata.update(
             {
@@ -943,6 +1007,7 @@ def _build_access_payload(auth_mode, access_value, auth_method, expiration):
         payload["delivery_channel"] = "sms"
         payload["recipient_hint"] = metadata.get("sms_recipient_hint", "")
         payload["sent_at"] = metadata.get("sms_last_sent_at", "")
+        payload["code_policy"] = metadata.get("code_policy") or sms_access_code_policy_payload()
     return payload
 
 
@@ -3770,6 +3835,11 @@ def terminal_authenticate(request):
 
     if auth_method is None:
         return Response({"detail": "Aucun moyen d'authentification associe a cette reservation."}, status=status.HTTP_400_BAD_REQUEST)
+    if auth_mode == "code" and _sms_access_is_locked(auth_method):
+        return Response(
+            {"detail": "Code SMS temporaire verrouille apres trop d'essais."},
+            status=status.HTTP_423_LOCKED,
+        )
     if not auth_method.is_active:
         return Response({"detail": "Le moyen d'authentification est revoque."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -3805,7 +3875,16 @@ def terminal_authenticate(request):
 
     provided_hash = _hash_secret(auth_value)
     if not direct_rfid and provided_hash != auth_method.hash_valeur:
+        if auth_mode == "code":
+            if _record_sms_access_failure(auth_method):
+                return Response(
+                    {"detail": "Code SMS temporaire verrouille apres trop d'essais."},
+                    status=status.HTTP_423_LOCKED,
+                )
         return Response({"detail": "Authentification refusee."}, status=status.HTTP_401_UNAUTHORIZED)
+
+    if auth_mode == "code":
+        _reset_sms_access_failures(auth_method)
 
     session, created = ChargingSession.objects.get_or_create(
         reservation=reservation,

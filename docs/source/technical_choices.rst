@@ -272,6 +272,12 @@ signature REST OVH repose sur SHA-1. Le mode production recommande aussi
 ``SMS_REQUIRE_VERIFIED_PHONE=True`` et un délai de renvoi afin de limiter les
 erreurs de numéro, les abus et les boucles de clic sur l'interface mobile.
 
+Le code SMS reste volontairement compatible avec le matériel : le clavier
+matriciel de borne impose l'alphabet ``0-9`` et ``A-D``. Le projet retient donc
+8 caractères sur ``0123456789ABCD``. Cela représente ``14^8`` combinaisons,
+suffisant avec une expiration courte, un stockage haché, un rate limiting et un
+verrouillage après 5 mauvaises saisies.
+
 Pour les emails, le projet retient Mailpit en environnement académique. Django
 envoie via SMTP vers le service ``mailpit`` du ``docker-compose`` et les messages
 sont consultables dans l'interface web locale. Ce choix reste gratuit, open

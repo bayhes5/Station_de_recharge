@@ -7,6 +7,7 @@ import os
 from django.conf import settings
 from django.core.checks import Error, Tags, Warning, register
 
+from api.services.sms_access_policy import validate_sms_access_code_policy
 
 INSECURE_SECRET_KEYS = {
     "dev-key",
@@ -183,6 +184,9 @@ def station_deployment_checks(app_configs, **kwargs):
                 id="api.W007",
             )
         )
+
+    for check_id, message in validate_sms_access_code_policy():
+        messages.append(Error(message, id=check_id))
 
     if not _setting_text("EXPECTED_ESP32_FIRMWARE_VERSION"):
         messages.append(

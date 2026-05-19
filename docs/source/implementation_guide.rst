@@ -177,6 +177,14 @@ REST historique repose sur SHA-1. ``SMS_RESEND_COOLDOWN_SECONDS`` limite le
 renvoi manuel du même code pour éviter le spam et les boucles côté interface
 mobile.
 
+La politique du code SMS est formalisée dans
+``backend/api/services/sms_access_policy.py``. Le code utilise uniquement
+``0123456789ABCD`` pour rester saisissable sur un clavier matriciel 4x4. La
+longueur par défaut est de 8 caractères, soit ``14^8`` combinaisons, et le code
+est verrouillé après 5 erreurs de saisie en ligne. Les variables
+``SMS_ACCESS_CODE_ALPHABET``, ``SMS_ACCESS_CODE_LENGTH`` et
+``SMS_ACCESS_CODE_MAX_ATTEMPTS`` sont contrôlées par les checks de déploiement.
+
 L'implantation principale est dans ``backend/api/views.py`` :
 
 * ``_create_temporary_auth`` crée le moyen d'accès ;

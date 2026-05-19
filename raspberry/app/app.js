@@ -76,6 +76,8 @@ const API_BASE_URL = resolveApiBaseUrl();
 const EDGE_BASE_URL = `${window.location.origin}${KIOSK_BASE_PATH}`;
 const KEYPAD_PATTERN = /^[0-9A-D]$/;
 const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
+const RESERVATION_CODE_LENGTH = 8;
+const SMS_ACCESS_CODE_LENGTH = 8;
 const TERMINAL_STATION_ID =
     new URLSearchParams(window.location.search).get("station_id")
     || window.localStorage.getItem("terminalStationId")
@@ -241,8 +243,8 @@ function maskValue(value, length) {
 }
 
 function updateDisplays() {
-    reservationDisplay.textContent = maskValue(reservationCodeInput.value, 8);
-    authDisplay.textContent = maskValue(authValueInput.value, 12);
+    reservationDisplay.textContent = maskValue(reservationCodeInput.value, RESERVATION_CODE_LENGTH);
+    authDisplay.textContent = maskValue(authValueInput.value, SMS_ACCESS_CODE_LENGTH);
 }
 
 function updateLinkDisplay() {
@@ -277,10 +279,10 @@ function appendKey(key) {
         return;
     }
     const input = activeInput();
-    const maxLength = input === authValueInput ? 12 : 8;
+    const maxLength = input === authValueInput ? SMS_ACCESS_CODE_LENGTH : RESERVATION_CODE_LENGTH;
     input.value = `${input.value}${key}`.slice(0, maxLength);
     updateDisplays();
-    if (input === reservationCodeInput && input.value.length === 8) {
+    if (input === reservationCodeInput && input.value.length === RESERVATION_CODE_LENGTH) {
         setActiveCodeField("auth");
     }
 }
@@ -841,12 +843,12 @@ async function submitPayload(payload, successMessage) {
 function submitCode() {
     const reservationCode = reservationCodeInput.value.trim().toUpperCase();
     const authValue = authValueInput.value.trim().toUpperCase();
-    if (reservationCode.length < 8) {
+    if (reservationCode.length < RESERVATION_CODE_LENGTH) {
         setActiveCodeField("reservation");
         setStatus("Complétez le code réservation.", true);
         return;
     }
-    if (authValue.length < 12) {
+    if (authValue.length < SMS_ACCESS_CODE_LENGTH) {
         setActiveCodeField("auth");
         setStatus("Complétez le code SMS temporaire.", true);
         return;

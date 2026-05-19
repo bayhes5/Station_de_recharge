@@ -94,3 +94,15 @@ def test_station_deployment_checks_reject_shared_mqtt_accounts():
     ids = _check_ids()
 
     assert "api.E010" in ids
+
+
+@override_settings(
+    SMS_ACCESS_CODE_ALPHABET="0123456789ABCDEF",
+    SMS_ACCESS_CODE_LENGTH=4,
+    SMS_ACCESS_CODE_MAX_ATTEMPTS=6,
+)
+def test_station_deployment_checks_reject_weak_sms_code_policy():
+    """Reject SMS code policies that are too weak or not keypad-compatible."""
+    ids = _check_ids()
+
+    assert {"api.E011", "api.E013", "api.E014"}.issubset(ids)

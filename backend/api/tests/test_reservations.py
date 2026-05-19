@@ -12,6 +12,7 @@ from rest_framework import status
 from api.models import JournalSecurite, ProfilUtilisateur, Reservation
 
 KEYPAD_CODE_ALPHABET = set("0123456789ABCD")
+SMS_ACCESS_CODE_LENGTH = 8
 
 
 @pytest.mark.django_db
@@ -427,6 +428,15 @@ def test_access_payload_display_does_not_rotate_code(authenticated_client, stati
     assert set(reservation_code) <= KEYPAD_CODE_ALPHABET
     assert create_response.data["access_payload"]["mode"] == "code"
     assert create_response.data["access_payload"]["delivery_channel"] == "sms"
+    assert create_response.data["access_payload"]["code_policy"] == {
+        "alphabet": "0123456789ABCD",
+        "alphabet_size": 14,
+        "length": SMS_ACCESS_CODE_LENGTH,
+        "max_attempts": 5,
+        "input_device": "matrix_keypad_4x4",
+        "combinations": 14**SMS_ACCESS_CODE_LENGTH,
+        "entropy_bits": 30.46,
+    }
     assert "value" not in create_response.data["access_payload"]
 
     first_display = authenticated_client.post(
@@ -523,7 +533,7 @@ def test_sms_code_can_be_sent_and_used(
     assert send_response.data["sms"]["recipient_hint"] == "******0000"
     assert "value" not in send_response.data["access_payload"]
     assert sent_messages[0][0] == "+33600000000"
-    sms_code = re.search(r"\b[0-9A-D]{12}\b", sent_messages[0][1]).group(0)
+    sms_code = re.search(rf"\b[0-9A-D]{{{SMS_ACCESS_CODE_LENGTH}}}\b", sent_messages[0][1]).group(0)
     Reservation.objects.filter(id_reservation=reservation_id).update(
         date_debut=timezone.now() - timedelta(minutes=5),
         date_fin=timezone.now() + timedelta(minutes=25),

@@ -155,6 +155,12 @@ Préconditions
    téléphone renseigné. En production, ce numéro est vérifié. Le code SMS a été
    envoyé avant le passage ou à la demande.
 
+Politique du code
+   Le code SMS temporaire contient 8 caractères issus de l'alphabet
+   ``0123456789ABCD``. Ce choix reste compatible avec un clavier matriciel 4x4
+   tout en offrant ``14^8`` combinaisons. Le backend limite les renvois SMS et
+   verrouille le code après 5 mauvaises saisies.
+
 Déroulement
    1. L'utilisateur choisit ``Code SMS`` sur le kiosque.
    2. Il saisit le code de réservation.
@@ -176,7 +182,8 @@ Cas d'erreur
    Si ``SMS_REQUIRE_VERIFIED_PHONE`` est activé, elle est aussi refusée si le
    téléphone n'est pas vérifié. Un renvoi trop rapproché retourne une erreur de
    limitation avec un délai d'attente. Un code SMS expiré, révoqué ou mal saisi
-   est refusé. Un code associé à une autre station ou une autre borne est refusé.
+   est refusé. Après 5 mauvaises saisies, le code est verrouillé et doit être
+   régénéré. Un code associé à une autre station ou une autre borne est refusé.
 
 Scénario 5 : accès direct avec badge RFID
 -----------------------------------------

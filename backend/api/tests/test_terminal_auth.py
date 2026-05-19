@@ -636,6 +636,59 @@ def test_terminal_authenticate_rejects_wrong_secret(api_client, user, station, e
 
 
 @pytest.mark.django_db
+def test_terminal_authenticate_locks_sms_code_after_max_attempts(api_client, user, station, emplacements):
+    type_auth = TypeAuth.objects.create(libelle="CODE", factor_level=2)
+    auth_method = Authentification.objects.create(
+        utilisateur=user,
+        type_auth=type_auth,
+        hash_valeur=hash_secret("GOODCODE"),
+        display_value="****CODE",
+        metadata={"code_policy": {"length": 8, "max_attempts": 5}},
+        expiration=timezone.now() + timedelta(hours=1),
+    )
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="LOCKSMS1",
+        authentification=auth_method,
+        auth_choice="code",
+        date_debut=timezone.now() - timedelta(minutes=5),
+        date_fin=timezone.now() + timedelta(minutes=25),
+        statut="confirmee",
+    )
+
+    for attempt in range(5):
+        response = api_client.post(
+            reverse("api-terminal-authenticate"),
+            {
+                "reservation_code": reservation.reference_code,
+                "auth_mode": "code",
+                "auth_value": f"BADCODE{attempt}",
+            },
+            format="json",
+        )
+
+    assert response.status_code == status.HTTP_423_LOCKED
+    auth_method.refresh_from_db()
+    assert auth_method.is_active is False
+    assert auth_method.metadata["sms_failed_attempts"] == 5
+    assert auth_method.metadata["sms_locked_reason"] == "too_many_attempts"
+    assert not Session.objects.filter(reservation=reservation).exists()
+
+    locked_response = api_client.post(
+        reverse("api-terminal-authenticate"),
+        {
+            "reservation_code": reservation.reference_code,
+            "auth_mode": "code",
+            "auth_value": "GOODCODE",
+        },
+        format="json",
+    )
+
+    assert locked_response.status_code == status.HTTP_423_LOCKED
+
+
+@pytest.mark.django_db
 def test_terminal_authenticate_rejects_revoked_secret(api_client, user, station, emplacements):
     type_auth = TypeAuth.objects.create(libelle="CODE", factor_level=2)
     auth_method = Authentification.objects.create(

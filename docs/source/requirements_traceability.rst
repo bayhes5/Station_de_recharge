@@ -176,7 +176,9 @@ Choix et écarts assumés
    * - Code alphanumérique
      - Code envoyé par SMS et saisi au clavier.
      - Code SMS temporaire généré côté backend, stocké sans clair et saisi sur
-       clavier tactile.
+       clavier tactile. La politique retient 8 caractères ``0-9/A-D`` pour
+       rester compatible avec un clavier matriciel 4x4, avec verrouillage après
+       5 mauvaises saisies.
    * - RFID
      - Badge RFID avec lecteur MFRC522 ou équivalent.
      - Lecteur ACR122U retenu. Le badge identifie l'utilisateur, puis le backend
