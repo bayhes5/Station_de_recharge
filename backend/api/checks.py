@@ -110,6 +110,23 @@ def station_deployment_checks(app_configs, **kwargs):
             )
         )
 
+    raspberry_mqtt_username = _setting_text("MQTT_RASPBERRY_USERNAME")
+    raspberry_mqtt_password = _setting_text("MQTT_RASPBERRY_PASSWORD")
+    if not raspberry_mqtt_username or not raspberry_mqtt_password:
+        messages.append(
+            Error(
+                "MQTT_RASPBERRY_USERNAME and MQTT_RASPBERRY_PASSWORD must be configured for the production kiosk.",
+                id="api.E009",
+            )
+        )
+    elif raspberry_mqtt_username == _setting_text("MQTT_USERNAME"):
+        messages.append(
+            Error(
+                "MQTT_RASPBERRY_USERNAME must be distinct from MQTT_USERNAME to preserve least privilege.",
+                id="api.E010",
+            )
+        )
+
     if not getattr(settings, "MQTT_TLS_ENABLED", False):
         messages.append(
             Warning(

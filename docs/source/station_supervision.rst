@@ -370,12 +370,13 @@ Préparer le fichier de mots de passe :
 
    .\scripts\init-mqtt-auth.ps1
 
-Puis copier le contenu de ``mosquitto.secure.conf`` vers ``mosquitto.conf`` ou
-adapter le montage Docker pour pointer vers la configuration sécurisée. En
-développement, un seul compte ``station_backend`` peut suffire pour le backend,
-le simulateur et le Raspberry. En installation réelle, utiliser des comptes
-séparés : ``station_backend``, ``raspberry_kiosk`` et un compte par ESP32
-(``esp32_slot1``, ``esp32_slot2``, ``esp32_slot3``).
+Avec ``docker-compose.prod.yml``, la configuration sécurisée est montée
+directement comme ``/mosquitto/config/mosquitto.conf``. En développement, un seul
+compte ``station_backend`` peut suffire pour le backend, le simulateur et le
+Raspberry. En installation réelle, utiliser des comptes séparés :
+``station_backend`` pour le backend et le bridge, ``raspberry_kiosk`` pour les
+commandes locales, puis un compte par ESP32 (``esp32_slot1``, ``esp32_slot2``,
+``esp32_slot3`` ou les comptes structurés par station/borne/emplacement).
 
 Vérifier que Django et la base répondent :
 

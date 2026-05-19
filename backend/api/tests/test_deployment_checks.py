@@ -13,6 +13,8 @@ def _check_ids():
     JWT_REFRESH_COOKIE_SECURE=False,
     MQTT_ACK_REQUIRED=False,
     MQTT_PASSWORD="",
+    MQTT_RASPBERRY_PASSWORD="",
+    MQTT_RASPBERRY_USERNAME="",
     MQTT_TLS_ENABLED=False,
     MQTT_USERNAME="",
     SECRET_KEY="dev-key",
@@ -35,6 +37,7 @@ def test_station_deployment_checks_report_unsafe_settings(monkeypatch):
         "api.E004",
         "api.E005",
         "api.E006",
+        "api.E009",
         "api.W001",
         "api.W002",
         "api.W003",
@@ -52,6 +55,8 @@ def test_station_deployment_checks_report_unsafe_settings(monkeypatch):
     JWT_REFRESH_COOKIE_SECURE=True,
     MQTT_ACK_REQUIRED=True,
     MQTT_PASSWORD="mqtt-production-password",
+    MQTT_RASPBERRY_PASSWORD="mqtt-raspberry-production-password",
+    MQTT_RASPBERRY_USERNAME="raspberry_kiosk",
     MQTT_TLS_ENABLED=True,
     MQTT_USERNAME="station-backend",
     SECRET_KEY="station-production-secret-key-with-enough-random-length",
@@ -76,3 +81,16 @@ def test_station_deployment_checks_reject_ovh_backend():
     ids = _check_ids()
 
     assert "api.E008" in ids
+
+
+@override_settings(
+    MQTT_PASSWORD="mqtt-production-password",
+    MQTT_RASPBERRY_PASSWORD="shared-password",
+    MQTT_RASPBERRY_USERNAME="station-backend",
+    MQTT_USERNAME="station-backend",
+)
+def test_station_deployment_checks_reject_shared_mqtt_accounts():
+    """Keep backend and Raspberry broker credentials separated."""
+    ids = _check_ids()
+
+    assert "api.E010" in ids

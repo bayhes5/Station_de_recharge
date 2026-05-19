@@ -180,8 +180,10 @@ Adapter les variables suivantes avant le premier démarrage :
 
    MQTT_HOST=mqtt
    MQTT_PORT=1883
-   MQTT_USERNAME=<utilisateur mqtt si activé>
-   MQTT_PASSWORD=<mot de passe mqtt si activé>
+   MQTT_USERNAME=station_backend
+   MQTT_PASSWORD=<mot de passe station_backend>
+   MQTT_RASPBERRY_USERNAME=raspberry_kiosk
+   MQTT_RASPBERRY_PASSWORD=<mot de passe raspberry_kiosk>
    MQTT_ACK_REQUIRED=True
    MQTT_TLS_ENABLED=False
    MQTT_PUBLISHED_HOST=127.0.0.1
@@ -475,8 +477,9 @@ Pour le Raspberry :
    BACKEND_API_BASE_URL=https://station.example.com/api
    MQTT_HOST=192.168.1.50
    MQTT_PORT=1883
-   MQTT_USERNAME=<si configuré>
-   MQTT_PASSWORD=<si configuré>
+   MQTT_USERNAME=raspberry_kiosk
+   MQTT_PASSWORD=<mot de passe raspberry_kiosk>
+   MQTT_ACK_REQUIRED=True
    TERMINAL_API_SECRET=<même valeur que côté backend>
 
 Pour l'ESP32 :
@@ -487,8 +490,8 @@ Pour l'ESP32 :
    WIFI_PASSWORD=<mot de passe Wi-Fi>
    MQTT_HOST=192.168.1.50
    MQTT_PORT=1883
-   MQTT_USER=<si configuré>
-   MQTT_PASSWORD=<si configuré>
+   MQTT_USER=esp32_station_demo_borne_1_slot1
+   MQTT_PASSWORD=<mot de passe de l'emplacement ESP32>
 
 L'ESP32 publie sa télémétrie vers Mosquitto. Le backend ne reçoit pas les mesures
 en HTTP direct : ``mqtt-bridge`` consomme les topics MQTT et écrit en base.

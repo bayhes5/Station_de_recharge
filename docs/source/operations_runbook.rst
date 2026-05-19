@@ -280,12 +280,28 @@ Le script crée ``mosquitto/config/passwords`` avec les comptes :
 * ``esp32_station_demo_borne_1_slot2`` ;
 * ``esp32_station_demo_borne_1_slot3``.
 
-Activer ensuite ``mosquitto/config/mosquitto.secure.conf`` comme configuration
-Mosquitto et redémarrer le service. Les règles dans ``mosquitto/config/acl``
-doivent garantir qu'un ESP32 ne peut publier que sur son propre emplacement.
+Avec ``docker-compose.prod.yml``, ``mosquitto/config/mosquitto.secure.conf`` est
+monté explicitement comme configuration Mosquitto. Le service refuse donc de
+démarrer si ``mosquitto/config/passwords`` n'a pas été généré. Les règles dans
+``mosquitto/config/acl`` doivent garantir qu'un ESP32 ne peut publier que sur
+son propre emplacement.
 Les comptes ``esp32_slotX`` servent aux tests locaux historiques
 ``station/slotX/...``. Les comptes ``esp32_station_demo_borne_1_slotX`` servent
 au routage plus réaliste ``station/station-demo/borne-1/slotX/...``.
+
+Variables de production recommandées :
+
+.. code-block:: text
+
+   MQTT_USERNAME=station_backend
+   MQTT_PASSWORD=<mot de passe station_backend>
+   MQTT_RASPBERRY_USERNAME=raspberry_kiosk
+   MQTT_RASPBERRY_PASSWORD=<mot de passe raspberry_kiosk>
+   MQTT_ACK_REQUIRED=True
+
+Le compte backend et le compte Raspberry doivent rester distincts. Le backend
+ingère la supervision, tandis que le Raspberry orchestre les commandes physiques
+locales.
 
 Contrôle recommandé avec Mosquitto sécurisé :
 
