@@ -314,11 +314,20 @@ Chaque commande contient un ``command_id`` et l'ESP32 doit répondre sur
 accusé de réception pour confirmer que le relais ou le verrou a bien reçu la
 commande.
 
-La machine d'état embarquée est volontairement simple :
+La machine d'état partagée entre le Raspberry, l'ESP32 et le backend suit un
+cycle explicite :
 
 .. code-block:: text
 
-   idle -> reserved -> charging -> idle
+   reserved -> access_validated -> waiting_plug -> charging -> stopping -> stopped
+                                      \                         /
+                                       ---------- error --------
+
+Le Raspberry protège localement les commandes physiques. Le backend conserve le
+même cycle dans ``charging_session.charge_state`` afin de refuser un deuxième
+``START`` quand une session est déjà en charge, de signaler un ``STOP`` confirmé
+mais pas encore clôturé, et de rendre les états ``error`` visibles en
+supervision.
 
 En charge, l'ESP32 arrête la session simulée si le boîtier s'ouvre, si le câble
 est retiré, si le courant dépasse le seuil ou si la température dépasse le

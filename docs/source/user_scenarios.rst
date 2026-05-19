@@ -85,13 +85,16 @@ Déroulement
       ``qr``.
    5. Django vérifie le token, la réservation, la station, la borne,
       l'emplacement, la révocation et l'expiration.
-   6. Django crée ou retrouve la session de charge.
+   6. Django crée ou retrouve la session de charge et passe ``charge_state`` à
+      ``access_validated``.
    7. Le Raspberry publie ``START`` sur ``station/<slot_id>/cmd``.
-   8. L'ESP32 acquitte la commande et démarre l'état local de charge.
+   8. L'ESP32 acquitte la commande ; le backend passe la session à
+      ``waiting_plug`` ou ``charging`` selon l'ACK et la télémétrie.
 
 Résultat attendu
    Le kiosque affiche une confirmation. L'ESP32 passe en état réservé ou charge
-   selon sa logique locale.
+   selon sa logique locale. Un nouveau ``START`` est refusé si la session est
+   déjà engagée.
 
 Cas d'erreur
    Un QR d'une autre station ou d'une autre borne, un QR expiré, un QR révoqué ou

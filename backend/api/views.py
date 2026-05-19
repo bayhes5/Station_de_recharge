@@ -62,6 +62,12 @@ from .services.alert_workflow import (
     alert_station_id,
     resolve_alert,
 )
+from .services.charge_session_state import (
+    ChargeSessionStateError,
+    mark_access_validated,
+    mark_stop_requested,
+    mark_stopped,
+)
 from .services.email_notifications import send_reservation_qr_email
 from .services.sms import SmsDeliveryError, mask_phone_number, send_sms
 from .services.supervision import build_admin_supervision_payload, serialize_alert_supervision
@@ -448,6 +454,8 @@ def _serialize_session(session):
         "slot_id": _device_slot_id(device, session.emplacement),
         "start_time": session.start_time.isoformat(),
         "end_time": session.end_time.isoformat() if session.end_time else None,
+        "charge_state": session.charge_state,
+        "charge_state_display": session.get_charge_state_display(),
         "status": "active" if session.end_time is None else "closed",
     }
 
@@ -458,8 +466,11 @@ def _close_charging_session(session, now=None):
     updated = False
     if session.end_time is None:
         session.end_time = max(closed_at, session.start_time + timedelta(seconds=1))
-        session.save(update_fields=["end_time"])
+        mark_stopped(session, now=closed_at, save=False)
+        session.save(update_fields=["end_time", "charge_state", "charge_state_updated_at"])
         updated = True
+    else:
+        mark_stopped(session, now=closed_at)
 
     reservation = session.reservation
     if reservation.statut != "terminee":
@@ -1254,6 +1265,10 @@ def _reconcile_offline_session_started(request, event, station_id, borne_id=""):
                 "start_time": start_time,
             },
         )
+        try:
+            mark_access_validated(session, now=start_time)
+        except ChargeSessionStateError as error:
+            return None, str(error)
         if reservation.statut != "active":
             reservation.statut = "active"
             reservation.save(update_fields=["statut"])
@@ -3573,6 +3588,11 @@ def _terminal_consume_mobile_session_response(request, token):
             "start_time": now,
         },
     )
+    try:
+        mark_access_validated(session, now=now)
+    except ChargeSessionStateError as error:
+        return Response({"detail": str(error)}, status=status.HTTP_409_CONFLICT)
+
     if reservation.statut != "active":
         reservation.statut = "active"
         reservation.save(update_fields=["statut"])
@@ -3794,6 +3814,11 @@ def terminal_authenticate(request):
             "start_time": now,
         },
     )
+    try:
+        mark_access_validated(session, now=now)
+    except ChargeSessionStateError as error:
+        return Response({"detail": str(error)}, status=status.HTTP_409_CONFLICT)
+
     if reservation.statut != "active":
         reservation.statut = "active"
         reservation.save(update_fields=["statut"])
@@ -3864,6 +3889,7 @@ def terminal_stop_session(request):
             status=status.HTTP_409_CONFLICT,
         )
 
+    mark_stop_requested(session)
     closed = _close_charging_session(session)
     session.refresh_from_db()
 

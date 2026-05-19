@@ -16,6 +16,7 @@ from api.models import (
     Borne,
     Capteur,
     CapteurData,
+    ChargeSessionState,
     Device,
     DeviceCommandLog,
     DeviceStatus,
@@ -23,6 +24,7 @@ from api.models import (
     Session,
     SessionTelemetry,
 )
+from api.services.charge_session_state import mark_state_from_ack, mark_state_from_device
 from api.services.firmware import (
     expected_firmware_version,
     firmware_update_required,
@@ -319,7 +321,9 @@ def _get_device(slot_id: str, topic_prefix: str | None = None) -> Device:
 
 def _get_active_session(emplacement: Emplacement, session_id: str | None):
     """Find the current charging session for an emplacement."""
-    queryset = Session.objects.filter(emplacement=emplacement, end_time__isnull=True)
+    queryset = Session.objects.filter(emplacement=emplacement, end_time__isnull=True).exclude(
+        charge_state=ChargeSessionState.STOPPED
+    )
     if session_id is not None and str(session_id).strip():
         try:
             session_uuid = UUID(str(session_id))
@@ -546,6 +550,11 @@ def ingest_slot_status(slot_id: str, payload: dict[str, Any], topic_prefix: str 
     status_value = payload.get("state") or payload.get("status") or payload.get("event")
     device = _get_device(slot_id, topic_prefix=topic_prefix)
     _save_device_report(device, timestamp, status_value, payload)
+    mark_state_from_device(
+        _get_active_session(device.emplacement, payload.get("session_id")),
+        status_value,
+        now=timestamp,
+    )
     _check_firmware_alert(device, timestamp)
     _create_alert_if_needed(device, payload, timestamp, {})
     return DeviceStatusResult(device=device)
@@ -565,6 +574,7 @@ def ingest_slot_ack(slot_id: str, payload: dict[str, Any], topic_prefix: str | N
     source = str(payload.get("source") or "").strip()[:50]
     device = _get_device(slot_id, topic_prefix=topic_prefix)
     session = _get_active_session(device.emplacement, payload.get("session_id"))
+    mark_state_from_ack(session, action=action, ack_status=ack_status, now=timestamp)
     device.last_seen = timestamp
     device.last_command_id = command_id
     device.last_command_action = action
@@ -630,6 +640,7 @@ def ingest_slot_telemetry(slot_id: str, payload: dict[str, Any], topic_prefix: s
     voltage = _as_float(payload.get("voltage"))
     energy = _as_float(payload.get("energy_kwh"))
     session = _get_active_session(device.emplacement, payload.get("session_id"))
+    mark_state_from_device(session, payload.get("state"), now=timestamp)
     if session and current is not None and voltage is not None:
         SessionTelemetry.objects.create(
             session=session,

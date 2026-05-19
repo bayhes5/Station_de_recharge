@@ -331,7 +331,15 @@ faire évoluer la base.
        id_emplacement UUID NOT NULL REFERENCES emplacement(id_emplacement) ON DELETE CASCADE,
        start_time TIMESTAMP NOT NULL,
        end_time TIMESTAMP,
-       CONSTRAINT session_end_gt_start CHECK (end_time IS NULL OR end_time > start_time)
+       charge_state VARCHAR(50) NOT NULL DEFAULT 'reserved',
+       charge_state_updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       CONSTRAINT session_end_gt_start CHECK (end_time IS NULL OR end_time > start_time),
+       CONSTRAINT chk_session_charge_state CHECK (
+           charge_state IN (
+               'reserved', 'access_validated', 'waiting_plug',
+               'charging', 'stopping', 'stopped', 'error'
+           )
+       )
    );
 
    CREATE TABLE session_telemetry (
@@ -422,6 +430,7 @@ faire évoluer la base.
    CREATE INDEX idx_session_start ON charging_session(start_time);
    CREATE INDEX idx_session_end ON charging_session(end_time);
    CREATE INDEX idx_session_window ON charging_session(start_time, end_time);
+   CREATE INDEX idx_session_charge_state ON charging_session(charge_state, end_time);
    CREATE INDEX idx_telemetry_time ON session_telemetry(id_session, timestamp);
    CREATE INDEX idx_session_tel_ts ON session_telemetry(timestamp DESC);
    CREATE INDEX idx_device_last_seen ON device(last_seen);
@@ -729,6 +738,10 @@ Session de charge effective ouverte à partir d’une réservation.
 * ``id_emplacement`` : emplacement utilisé.
 * ``start_time`` : début réel de charge.
 * ``end_time`` : fin réelle de charge, ``NULL`` tant que la session est active.
+* ``charge_state`` : état métier de charge. Valeurs fermées côté application :
+  ``reserved``, ``access_validated``, ``waiting_plug``, ``charging``,
+  ``stopping``, ``stopped``, ``error``.
+* ``charge_state_updated_at`` : date de dernière transition d'état.
 
 ``session_telemetry``
 ~~~~~~~~~~~~~~~~~~~~~

@@ -153,6 +153,12 @@ Le status est un heartbeat métier léger.
 ``waiting_cable`` est encore accepté en lecture comme alias historique de
 ``waiting_plug``.
 
+Le backend conserve le même cycle dans ``charging_session.charge_state``. Les
+ACK et statuts MQTT le font évoluer, puis l'endpoint de clôture de session passe
+l'état à ``stopped`` en même temps que ``end_time``. Cette duplication contrôlée
+est volontaire : le Raspberry protège l'action physique locale, le backend
+protège la cohérence métier et la supervision.
+
 Télémétrie
 ----------
 

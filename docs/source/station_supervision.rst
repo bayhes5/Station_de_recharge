@@ -285,6 +285,14 @@ l'historique récent des commandes acquittées. Cela permet de distinguer une
 commande publiée, une commande confirmée et une charge réellement active
 remontée ensuite par le statut ou la télémétrie.
 
+Le backend met aussi à jour ``charging_session.charge_state``. Un ACK ``START``
+confirmé fait passer la session à ``waiting_plug`` ou ``charging`` selon le
+statut reçu, une télémétrie ``charging`` confirme la charge active, un ACK
+``STOP`` place la session en ``stopping`` jusqu'à la clôture backend, et
+``terminal/sessions/stop`` termine le cycle en ``stopped``. Ce verrou métier
+complète le verrou local Raspberry et empêche un deuxième ``START`` sur une
+session déjà engagée.
+
 Le Raspberry conserve en parallèle un état local par emplacement. Cet état
 protège la borne contre les doubles ``START`` / ``STOP`` pendant qu'une session
 est en cours. Il ne remplace pas Grafana : Grafana observe la télémétrie et les

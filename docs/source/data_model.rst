@@ -56,6 +56,8 @@ Les champs concernés sont notamment :
 * ``Reservation.auth_choice`` : ``rfid``, ``qr``, ``code`` ;
 * ``Reservation.statut`` : ``en_attente``, ``confirmee``, ``active``,
   ``annulee``, ``terminee`` ;
+* ``Session.charge_state`` : ``reserved``, ``access_validated``,
+  ``waiting_plug``, ``charging``, ``stopping``, ``stopped``, ``error`` ;
 * ``Device.status`` : ``provisioned``, ``online``, ``idle``, ``offline``,
   ``charging``, ``error`` ;
 * ``Alerte.status`` : ``nouvelle``, ``active``, ``prise_en_charge``,
@@ -265,6 +267,15 @@ La session réelle est rattachée à une réservation et à un emplacement. Elle
 stocke ``start_time`` et ``end_time``. L’utilisateur se retrouve via
 ``session.reservation.utilisateur``.
 
+``charge_state`` formalise le cycle technique de la charge côté backend :
+``reserved`` lorsque la session existe sans commande validée, ``access_validated``
+après authentification, ``waiting_plug`` après ACK ``START``, ``charging`` dès
+que l'ESP32 confirme la charge ou publie de la télémétrie active, ``stopping``
+après ACK ``STOP`` ou retour ``idle`` avant clôture backend, ``stopped`` lorsque
+``end_time`` est renseigné, et ``error`` si l'ESP32 remonte un état de défaut.
+Ce champ complète ``end_time`` : il évite les doubles ``START`` et rend visibles
+les sessions arrêtées physiquement mais pas encore clôturées côté backend.
+
 La consommation instantanee ou cumulee n'est pas stockee directement dans
 ``charging_session``. Elle est portee par ``session_telemetry`` avec
 ``energie_kwh``. Cette séparation garde la session comme un objet métier et la
@@ -369,6 +380,8 @@ des écrans d’exploitation et des filtres API :
   une fenêtre de temps ;
 * ``charging_session(start_time, end_time)`` pour les sessions ouvertes, fermées
   ou analysées par période ;
+* ``charging_session(charge_state, end_time)`` pour identifier les sessions en
+  charge, en arrêt ou en erreur ;
 * ``device(status, last_seen)`` pour détecter les équipements indisponibles ou
   silencieux ;
 * ``alerte(niveau_severite, date)`` pour prioriser les incidents ;

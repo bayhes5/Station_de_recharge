@@ -88,6 +88,18 @@ class ReservationStatus(models.TextChoices):
     COMPLETED = "terminee", "Terminée"
 
 
+class ChargeSessionState(models.TextChoices):
+    """Backend lifecycle values for one effective charging session."""
+
+    RESERVED = "reserved", "Réservée"
+    ACCESS_VALIDATED = "access_validated", "Accès validé"
+    WAITING_PLUG = "waiting_plug", "En attente de branchement"
+    CHARGING = "charging", "Charge en cours"
+    STOPPING = "stopping", "Arrêt en cours"
+    STOPPED = "stopped", "Arrêtée"
+    ERROR = "error", "Erreur"
+
+
 class DeviceType(models.TextChoices):
     """Supported embedded device families."""
 
@@ -637,6 +649,12 @@ class Session(models.Model):
     )
     start_time = models.DateTimeField()
     end_time = models.DateTimeField(null=True, blank=True)
+    charge_state = models.CharField(
+        max_length=50,
+        choices=ChargeSessionState.choices,
+        default=ChargeSessionState.RESERVED,
+    )
+    charge_state_updated_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         db_table = "charging_session"
@@ -646,12 +664,17 @@ class Session(models.Model):
                 | Q(end_time__gt=models.F("start_time")),
                 name="session_end_gt_start",
             ),
+            models.CheckConstraint(
+                condition=Q(charge_state__in=ChargeSessionState.values),
+                name="chk_session_charge_state",
+            ),
         ]
         indexes = [
             models.Index(fields=["emplacement"], name="idx_session_emplacement"),
             models.Index(fields=["start_time"], name="idx_session_start"),
             models.Index(fields=["end_time"], name="idx_session_end"),
             models.Index(fields=["start_time", "end_time"], name="idx_session_window"),
+            models.Index(fields=["charge_state", "end_time"], name="idx_session_charge_state"),
         ]
 
 

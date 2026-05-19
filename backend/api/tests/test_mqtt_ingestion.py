@@ -13,6 +13,7 @@ from api.models import (
     AlertStatus,
     Borne,
     CapteurData,
+    ChargeSessionState,
     Device,
     DeviceCommandLog,
     FirmwareUpdateStatus,
@@ -355,6 +356,54 @@ def test_process_mqtt_ack_tracks_last_command(user, emplacements):
     assert command_log.message == "Emplacement reserve."
     assert command_log.session == session
     assert command_log.source == "raspberry"
+    session.refresh_from_db()
+    assert session.charge_state == ChargeSessionState.WAITING_PLUG
+
+
+@pytest.mark.django_db
+def test_process_mqtt_stop_ack_marks_session_stopping(user, emplacements):
+    """Keep a stopped ESP32 visible until the backend closes the session."""
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="ACKSTOP1",
+        auth_choice="qr",
+        date_debut=timezone.now() - timedelta(minutes=10),
+        date_fin=timezone.now() + timedelta(minutes=20),
+        statut="active",
+    )
+    session = Session.objects.create(
+        reservation=reservation,
+        emplacement=emplacements[0],
+        start_time=timezone.now() - timedelta(minutes=5),
+        charge_state=ChargeSessionState.CHARGING,
+    )
+    Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="demo",
+        mac_address="slot1",
+        status="charging",
+    )
+
+    result = process_mqtt_message(
+        "station/slot1/ack",
+        json.dumps(
+            {
+                "command_id": "cmd-stop-123",
+                "action": "STOP",
+                "status": "stopped",
+                "session_id": str(session.id_session),
+                "source": "raspberry",
+            }
+        ),
+    )
+
+    assert result["command_action"] == "STOP"
+    assert result["command_status"] == "stopped"
+    session.refresh_from_db()
+    assert session.end_time is None
+    assert session.charge_state == ChargeSessionState.STOPPING
 
 
 @pytest.mark.django_db
@@ -476,6 +525,8 @@ def test_process_mqtt_message_stores_session_telemetry_for_active_session(user, 
     assert telemetry.courant == 1.35
     assert telemetry.tension == 41.7
     assert telemetry.energie_kwh == 0.12
+    session.refresh_from_db()
+    assert session.charge_state == ChargeSessionState.CHARGING
 
 
 @pytest.mark.django_db
