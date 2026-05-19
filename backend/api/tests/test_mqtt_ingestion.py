@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from api.models import (
     Alerte,
+    AlertStatus,
     Borne,
     CapteurData,
     Device,
@@ -785,6 +786,37 @@ def test_process_mqtt_message_updates_and_resolves_existing_alert(emplacements):
     assert resolved_result["alert_count"] == 0
     alert.refresh_from_db()
     assert alert.status == "resolue"
+
+
+@pytest.mark.django_db
+def test_process_mqtt_message_preserves_taken_in_charge_alert_status(emplacements):
+    """Keep technician ownership when a persistent anomaly is reported again."""
+    device = Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="demo",
+        mac_address="slot1",
+        status="offline",
+    )
+    capteur = device.capteurs.create(type="temperature", unite="C")
+    data = CapteurData.objects.create(capteur=capteur, valeur=65)
+    alert = Alerte.objects.create(
+        data=data,
+        type="overheat",
+        message="Temperature elevee",
+        niveau_severite="critique",
+        status=AlertStatus.IN_PROGRESS,
+    )
+
+    result = process_mqtt_message(
+        "station/slot1/telemetry",
+        json.dumps({"state": "charging", "temperature": 66, "door": True, "cable": True}),
+    )
+
+    assert result["alert_count"] == 0
+    alert.refresh_from_db()
+    assert alert.status == AlertStatus.IN_PROGRESS
+    assert alert.last_seen is not None
 
 
 @pytest.mark.django_db

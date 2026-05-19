@@ -7,11 +7,12 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from api.models import Alerte, Session, SessionTelemetry
+from api.models import Alerte, AlertStatus, Session, SessionTelemetry
 from api.services.email_notifications import notify_technicians_for_alert
 
 
 RESOLVED_ALERT_STATUSES = {"resolved", "resolue", "closed", "fermee"}
+PRESERVED_ACTIVE_ALERT_STATUSES = {AlertStatus.IN_PROGRESS}
 SESSION_WITHOUT_TELEMETRY = "session_without_telemetry"
 
 
@@ -62,7 +63,8 @@ def _upsert_session_telemetry_alert(session: Session, now) -> bool:
     if existing:
         existing.message = message
         existing.niveau_severite = "haute"
-        existing.status = "active"
+        if existing.status not in PRESERVED_ACTIVE_ALERT_STATUSES:
+            existing.status = "active"
         existing.timestamp = now
         existing.last_seen = now
         existing.save(
@@ -104,7 +106,8 @@ def _resolve_non_stale_session_alerts(stale_session_ids: set, now) -> int:
         alert.status = "resolue"
         alert.timestamp = now
         alert.last_seen = now
-        alert.save(update_fields=["status", "timestamp", "last_seen"])
+        alert.resolved_at = now
+        alert.save(update_fields=["status", "timestamp", "last_seen", "resolved_at"])
         resolved += 1
     return resolved
 

@@ -8,6 +8,7 @@ from rest_framework import status
 
 from api.models import (
     Alerte,
+    AlertStatus,
     Authentification,
     Borne,
     Capteur,
@@ -422,6 +423,114 @@ def test_technician_supervision_requires_technician_profile(authenticated_client
     response = authenticated_client.get(reverse("api-technician-supervision"))
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.django_db
+def test_technician_can_acknowledge_and_resolve_scoped_alert(api_client, user, station, emplacements):
+    technicien = Technicien.objects.create(
+        utilisateur=user,
+        nom="Tech Alert",
+        email="tech-alert@example.com",
+        telephone="",
+    )
+    TechnicienStation.objects.create(technicien=technicien, station=station)
+    device = Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="1.0.0",
+        mac_address="slot1",
+        status="charging",
+    )
+    capteur = Capteur.objects.create(device=device, type="temperature", unite="C")
+    data = CapteurData.objects.create(capteur=capteur, valeur=65)
+    alert = Alerte.objects.create(
+        data=data,
+        type="overheat",
+        message="Temperature elevee",
+        niveau_severite="critique",
+        status=AlertStatus.ACTIVE,
+    )
+    api_client.force_authenticate(user=user)
+
+    acknowledge_response = api_client.post(
+        reverse("api-technician-alert-acknowledge", kwargs={"alert_id": alert.id_alerte})
+    )
+
+    assert acknowledge_response.status_code == status.HTTP_200_OK
+    alert.refresh_from_db()
+    assert alert.status == AlertStatus.IN_PROGRESS
+    assert alert.assigned_technician == technicien
+    assert alert.acknowledged_by == technicien
+    assert alert.acknowledged_at is not None
+    assert acknowledge_response.data["alert"]["status"] == AlertStatus.IN_PROGRESS
+
+    resolve_response = api_client.post(
+        reverse("api-technician-alert-resolve", kwargs={"alert_id": alert.id_alerte}),
+        {"note": "Boitier controle sur site."},
+        format="json",
+    )
+
+    assert resolve_response.status_code == status.HTTP_200_OK
+    alert.refresh_from_db()
+    assert alert.status == AlertStatus.RESOLVED
+    assert alert.resolved_by == technicien
+    assert alert.resolved_at is not None
+    assert alert.resolution_note == "Boitier controle sur site."
+    assert resolve_response.data["alert"]["resolution_note"] == "Boitier controle sur site."
+
+
+@pytest.mark.django_db
+def test_technician_cannot_manage_alert_outside_assigned_station(api_client, user, station, emplacements):
+    technicien = Technicien.objects.create(
+        utilisateur=user,
+        nom="Tech Scope Alert",
+        email="tech-scope-alert@example.com",
+        telephone="",
+    )
+    TechnicienStation.objects.create(technicien=technicien, station=station)
+    other_station = Station.objects.create(
+        nom="Station Ouest",
+        localisation_text="Quartier Ouest",
+        statut="active",
+    )
+    other_borne = Borne.objects.create(
+        station=other_station,
+        numero=1,
+        nom="Borne Ouest",
+        statut="active",
+    )
+    other_emplacement = Emplacement.objects.create(
+        station=other_station,
+        borne=other_borne,
+        numero=1,
+        statut="disponible",
+        lock_state="verrouille",
+    )
+    other_device = Device.objects.create(
+        emplacement=other_emplacement,
+        type_device="ESP32",
+        firmware_version="1.0.0",
+        mac_address="slot-other",
+        status="charging",
+    )
+    capteur = Capteur.objects.create(device=other_device, type="temperature", unite="C")
+    data = CapteurData.objects.create(capteur=capteur, valeur=65)
+    alert = Alerte.objects.create(
+        data=data,
+        type="overheat",
+        message="Temperature elevee",
+        niveau_severite="critique",
+        status=AlertStatus.ACTIVE,
+    )
+    api_client.force_authenticate(user=user)
+
+    response = api_client.post(
+        reverse("api-technician-alert-acknowledge", kwargs={"alert_id": alert.id_alerte})
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    alert.refresh_from_db()
+    assert alert.status == AlertStatus.ACTIVE
 
 
 @pytest.mark.django_db

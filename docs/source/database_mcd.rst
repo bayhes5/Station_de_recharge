@@ -355,7 +355,13 @@ faire évoluer la base.
        first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
        last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
        notified_at TIMESTAMP,
-       notification_count INTEGER NOT NULL DEFAULT 0
+       notification_count INTEGER NOT NULL DEFAULT 0,
+       assigned_technician_id UUID,
+       acknowledged_by_id UUID,
+       acknowledged_at TIMESTAMP,
+       resolved_by_id UUID,
+       resolved_at TIMESTAMP,
+       resolution_note TEXT NOT NULL DEFAULT ''
    );
 
    CREATE TABLE technicien (
@@ -376,6 +382,14 @@ faire évoluer la base.
        CONSTRAINT uq_technicien_station UNIQUE (id_technicien, id_station),
        CONSTRAINT chk_tech_station_role CHECK (role IN ('referent', 'intervenant', 'observateur'))
    );
+
+   ALTER TABLE alerte
+       ADD CONSTRAINT fk_alert_assigned_technician
+           FOREIGN KEY (assigned_technician_id) REFERENCES technicien(id_tech) ON DELETE SET NULL,
+       ADD CONSTRAINT fk_alert_acknowledged_by
+           FOREIGN KEY (acknowledged_by_id) REFERENCES technicien(id_tech) ON DELETE SET NULL,
+       ADD CONSTRAINT fk_alert_resolved_by
+           FOREIGN KEY (resolved_by_id) REFERENCES technicien(id_tech) ON DELETE SET NULL;
 
    CREATE TABLE maintenance (
        id_maintenance UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -420,6 +434,7 @@ faire évoluer la base.
    CREATE INDEX idx_alert_ts ON alerte(date DESC);
    CREATE INDEX idx_alert_sev_time ON alerte(niveau_severite, date);
    CREATE INDEX idx_alert_type_time ON alerte(type, date);
+   CREATE INDEX idx_alert_tech_status ON alerte(assigned_technician_id, status);
    CREATE INDEX idx_tech_station_tech ON technicien_station(id_technicien, is_active);
    CREATE INDEX idx_tech_station_station ON technicien_station(id_station, is_active);
    CREATE INDEX idx_maint_tech_date ON maintenance(id_technicien, date_planifiee);
@@ -741,7 +756,7 @@ Incident opérationnel issu d’une mesure capteur ou d’une session.
 * ``niveau_severite`` : priorité. Valeurs fermées côté application :
   ``basse``, ``moyenne``, ``haute``, ``critical``, ``critique``.
 * ``status`` : cycle de vie. Valeurs fermées côté application : ``nouvelle``,
-  ``active``, ``resolue``, ``closed``, ``fermee``.
+  ``active``, ``prise_en_charge``, ``resolue``, ``closed``, ``fermee``.
 * ``date`` : date de création ou de dernière mise à jour.
 * ``first_seen`` : premier signal de l'anomalie.
 * ``last_seen`` : dernière observation de la même anomalie.
@@ -749,6 +764,13 @@ Incident opérationnel issu d’une mesure capteur ou d’une session.
   déclenchée.
 * ``notification_count`` : nombre de notifications envoyées pour limiter les
   relances.
+* ``assigned_technician_id`` : technicien responsable de l'alerte, si elle a
+  été affectée ou prise en charge.
+* ``acknowledged_by_id`` : technicien ayant pris en charge l'alerte.
+* ``acknowledged_at`` : date de prise en charge.
+* ``resolved_by_id`` : technicien ayant clôturé l'alerte.
+* ``resolved_at`` : date de clôture opérationnelle.
+* ``resolution_note`` : note d'intervention ou justification de résolution.
 
 ``technicien``
 ~~~~~~~~~~~~~~
@@ -803,7 +825,9 @@ Les mesures capteurs sont conservées indépendamment des alertes. Une alerte pe
 donc pointer vers la mesure qui l’a déclenchée, tout en portant son propre cycle
 de vie. Cela évite de transformer chaque mesure anormale en incident distinct :
 une anomalie persistante peut faire évoluer une alerte existante de ``nouvelle``
-vers ``active``, puis ``resolue`` lorsque la télémétrie revient à la normale.
+vers ``active``, puis ``prise_en_charge`` lorsqu'un technicien intervient, puis
+``resolue`` lorsque la télémétrie revient à la normale ou que l'incident est
+clôturé après vérification.
 
 Les moyens d’authentification sont séparés des réservations afin de prendre en
 charge plusieurs modes d’accès : RFID durable, QR code temporaire et code SMS.

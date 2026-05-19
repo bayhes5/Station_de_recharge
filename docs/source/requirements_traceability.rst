@@ -114,9 +114,10 @@ Couverture par partie
    * - Alertes
      - Détection intrusion, câble retiré, surconsommation et surchauffe.
        Stockage dans ``Alerte`` avec cycle ``nouvelle`` -> ``active`` ->
-       ``resolue`` selon le retour à la normale.
-     - Ajouter notification email/SMS technicien et acquittement manuel si
-       besoin métier.
+       ``prise_en_charge`` -> ``resolue`` selon le retour à la normale ou
+       l'intervention terrain.
+     - Ajouter éventuellement un canal SMS technicien réel si le projet dépasse
+       le périmètre académique gratuit.
    * - Supervision
      - Grafana provisionné, datasource TimescaleDB/PostgreSQL, dashboard
        technique initial, interface admin de supervision et simulateur de télémétrie

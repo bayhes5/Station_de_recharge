@@ -788,6 +788,19 @@ async function getTechnicianSupervision() {
     });
 }
 
+async function acknowledgeTechnicianAlert(id) {
+    return doRequest(`/technician/alerts/${id}/acknowledge/`, {
+        method: "POST",
+    });
+}
+
+async function resolveTechnicianAlert(id, note = "") {
+    return doRequest(`/technician/alerts/${id}/resolve/`, {
+        method: "POST",
+        body: JSON.stringify({ note }),
+    });
+}
+
 async function terminalAuthenticate(data) {
     return doRequest("/terminal/authenticate/", {
         method: "POST",
@@ -934,6 +947,8 @@ window.AuthAPI = {
     deleteAdminMaintenance,
     getTechnicianMaintenances,
     getTechnicianSupervision,
+    acknowledgeTechnicianAlert,
+    resolveTechnicianAlert,
     terminalAuthenticate,
     ensureSession,
     refreshAccessToken,

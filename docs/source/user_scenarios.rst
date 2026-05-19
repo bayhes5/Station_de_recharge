@@ -326,11 +326,16 @@ Déroulement
       charge.
    4. Il publie un statut ou une alerte MQTT.
    5. Le backend et Grafana affichent l'incident.
+   6. Le technicien affecté à la station prend l'alerte en charge depuis son
+      tableau de bord.
+   7. Après contrôle ou intervention, il résout l'alerte avec une note
+      d'intervention.
 
 Résultat attendu
    La sécurité locale ne dépend pas d'un aller-retour backend. L'ESP32 reste un
    exécutant local, mais il garde la responsabilité de couper la charge en cas de
-   danger matériel.
+   danger matériel. La partie métier trace qui a pris en charge l'incident, quand
+   il a été résolu et avec quelle conclusion.
 
 Scénario 11 : choix du moyen d'accès à la réservation
 -----------------------------------------------------

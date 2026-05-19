@@ -415,7 +415,15 @@ alerte terrain suit le cycle suivant :
 
 * ``nouvelle`` : premier signal reçu, aucune notification immédiate ;
 * ``active`` : même anomalie observée à nouveau ;
+* ``prise_en_charge`` : un technicien affecté à la station a accepté
+  l'intervention ;
 * ``resolue`` : retour à une télémétrie normale.
+
+La prise en charge et la résolution manuelle sont disponibles dans le tableau de
+bord technicien. Le backend enregistre le technicien, les dates
+``acknowledged_at`` / ``resolved_at`` et la note de résolution. Un technicien ne
+peut agir que sur les alertes rattachées à ses stations ; l'administrateur garde
+une portée globale pour arbitrer les cas transverses.
 
 Les notifications email sont envoyées uniquement aux techniciens actifs affectés
 à la station concernée, et seulement pour les types listés dans

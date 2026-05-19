@@ -131,6 +131,7 @@ class AlertStatus(models.TextChoices):
 
     NEW = "nouvelle", "Nouvelle"
     ACTIVE = "active", "Active"
+    IN_PROGRESS = "prise_en_charge", "Prise en charge"
     RESOLVED = "resolue", "Résolue"
     CLOSED = "closed", "Fermée"
     FERMEE = "fermee", "Fermée"
@@ -857,6 +858,33 @@ class Alerte(models.Model):
     last_seen = models.DateTimeField(default=timezone.now)
     notified_at = models.DateTimeField(null=True, blank=True)
     notification_count = models.PositiveIntegerField(default=0)
+    assigned_technician = models.ForeignKey(
+        "Technicien",
+        on_delete=models.SET_NULL,
+        related_name="assigned_alerts",
+        db_column="assigned_technician_id",
+        null=True,
+        blank=True,
+    )
+    acknowledged_by = models.ForeignKey(
+        "Technicien",
+        on_delete=models.SET_NULL,
+        related_name="acknowledged_alerts",
+        db_column="acknowledged_by_id",
+        null=True,
+        blank=True,
+    )
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    resolved_by = models.ForeignKey(
+        "Technicien",
+        on_delete=models.SET_NULL,
+        related_name="resolved_alerts",
+        db_column="resolved_by_id",
+        null=True,
+        blank=True,
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolution_note = models.TextField(blank=True, default="")
 
     class Meta:
         db_table = "alerte"
@@ -880,6 +908,10 @@ class Alerte(models.Model):
                 fields=["niveau_severite", "timestamp"], name="idx_alert_sev_time"
             ),
             models.Index(fields=["type", "timestamp"], name="idx_alert_type_time"),
+            models.Index(
+                fields=["assigned_technician", "status"],
+                name="idx_alert_tech_status",
+            ),
         ]
 
 

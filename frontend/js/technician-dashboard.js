@@ -10,6 +10,79 @@ function createStatusBadge(label, variant = "") {
     return badge;
 }
 
+const CLOSED_ALERT_STATUSES = new Set(["resolue", "resolved", "closed", "fermee"]);
+
+function alertStatusVariant(status) {
+    if (CLOSED_ALERT_STATUSES.has(status)) return "success";
+    if (status === "prise_en_charge") return "warning";
+    return "danger";
+}
+
+function promptResolutionNote() {
+    return new Promise((resolve) => {
+        const previousFocus = document.activeElement;
+        const backdrop = document.createElement("div");
+        backdrop.className = "modal-backdrop";
+
+        const dialog = document.createElement("section");
+        dialog.className = "modal-dialog confirm-dialog";
+        dialog.setAttribute("role", "dialog");
+        dialog.setAttribute("aria-modal", "true");
+        dialog.setAttribute("aria-labelledby", "resolution-dialog-title");
+
+        const heading = document.createElement("div");
+        heading.className = "modal-heading";
+        const title = document.createElement("h2");
+        title.id = "resolution-dialog-title";
+        title.textContent = "Résoudre l'alerte";
+        heading.appendChild(title);
+
+        const field = document.createElement("label");
+        field.className = "field admin-field-wide";
+        const label = document.createElement("span");
+        label.textContent = "Note d'intervention";
+        const textarea = document.createElement("textarea");
+        textarea.rows = 4;
+        textarea.placeholder = "Exemple : boîtier contrôlé, température revenue à la normale.";
+        field.append(label, textarea);
+
+        const actions = document.createElement("div");
+        actions.className = "cta-row confirm-actions";
+        const cancelButton = document.createElement("button");
+        cancelButton.type = "button";
+        cancelButton.className = "btn btn-secondary";
+        cancelButton.textContent = "Annuler";
+        const confirmButton = document.createElement("button");
+        confirmButton.type = "button";
+        confirmButton.className = "btn btn-primary";
+        confirmButton.textContent = "Résoudre";
+        actions.append(cancelButton, confirmButton);
+
+        dialog.append(heading, field, actions);
+        backdrop.appendChild(dialog);
+        document.body.appendChild(backdrop);
+
+        function close(value) {
+            backdrop.remove();
+            document.removeEventListener("keydown", onKeyDown);
+            if (previousFocus?.focus) previousFocus.focus();
+            resolve(value);
+        }
+
+        function onKeyDown(event) {
+            if (event.key === "Escape") close(null);
+        }
+
+        cancelButton.addEventListener("click", () => close(null));
+        confirmButton.addEventListener("click", () => close(textarea.value.trim()));
+        backdrop.addEventListener("click", (event) => {
+            if (event.target === backdrop) close(null);
+        });
+        document.addEventListener("keydown", onKeyDown);
+        textarea.focus();
+    });
+}
+
 function createDataTable(container, columns, rows, emptyMessage) {
     container.replaceChildren();
 
@@ -128,8 +201,55 @@ function renderSupervision(supervision) {
                     ["critical", "critique"].includes(alert.niveau_severite) ? "danger" : "warning"
                 ),
             },
+            {
+                label: "Statut",
+                renderNode: (alert) => createStatusBadge(
+                    alert.status_display || alert.status || "-",
+                    alertStatusVariant(alert.status)
+                ),
+            },
             { label: "Emplacement", render: (alert) => `${alert.borne_nom || "-"} / ${alert.emplacement_numero ?? "-"}` },
             { label: "Message", render: (alert) => alert.message || "-" },
+            {
+                label: "Intervention",
+                render: (alert) => alert.acknowledged_by_nom || alert.resolved_by_nom || "-",
+            },
+            {
+                label: "Actions",
+                renderNode: (alert) => {
+                    const actions = document.createElement("div");
+                    actions.className = "table-actions";
+                    if (CLOSED_ALERT_STATUSES.has(alert.status)) {
+                        actions.textContent = alert.resolution_note || "-";
+                        return actions;
+                    }
+
+                    if (alert.status !== "prise_en_charge") {
+                        const acknowledgeButton = document.createElement("button");
+                        acknowledgeButton.type = "button";
+                        acknowledgeButton.className = "table-action";
+                        acknowledgeButton.textContent = "Prendre en charge";
+                        acknowledgeButton.addEventListener("click", () => {
+                            window.dispatchEvent(new CustomEvent("technician-alert-action", {
+                                detail: { action: "acknowledge", alertId: alert.id_alerte },
+                            }));
+                        });
+                        actions.appendChild(acknowledgeButton);
+                    }
+
+                    const resolveButton = document.createElement("button");
+                    resolveButton.type = "button";
+                    resolveButton.className = "table-action";
+                    resolveButton.textContent = "Résoudre";
+                    resolveButton.addEventListener("click", () => {
+                        window.dispatchEvent(new CustomEvent("technician-alert-action", {
+                            detail: { action: "resolve", alertId: alert.id_alerte },
+                        }));
+                    });
+                    actions.appendChild(resolveButton);
+                    return actions;
+                },
+            },
         ],
         supervision.alerts || [],
         "Aucune alerte récente sur vos stations."
@@ -211,6 +331,30 @@ document.addEventListener("DOMContentLoaded", async () => {
             isLoading = false;
         }
     }
+
+    window.addEventListener("technician-alert-action", async (event) => {
+        const { action, alertId } = event.detail || {};
+        if (!alertId || isLoading) return;
+
+        try {
+            if (action === "acknowledge") {
+                const confirmed = await window.AuthAPI.confirmAction(
+                    "Prendre en charge cette alerte ?",
+                    { title: "Alerte", confirmLabel: "Prendre en charge" }
+                );
+                if (!confirmed) return;
+                await window.AuthAPI.acknowledgeTechnicianAlert(alertId);
+            } else if (action === "resolve") {
+                const note = await promptResolutionNote();
+                if (note === null) return;
+                await window.AuthAPI.resolveTechnicianAlert(alertId, note);
+            }
+            await loadDashboard();
+        } catch (error) {
+            status.classList.add("error");
+            status.textContent = error.message || "Action impossible sur cette alerte.";
+        }
+    });
 
     try {
         await loadDashboard();

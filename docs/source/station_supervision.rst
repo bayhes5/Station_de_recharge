@@ -542,6 +542,15 @@ mise à jour au statut ``active`` au lieu de créer un doublon. Quand une
 télémétrie normale confirme que la condition a disparu, l'alerte passe
 automatiquement au statut ``resolue``.
 
+Un technicien affecté à la station peut ensuite prendre l'alerte en charge depuis
+son tableau de bord. Le statut devient ``prise_en_charge`` et le backend trace le
+technicien, la date de prise en charge et, lors de la résolution manuelle, la
+note d'intervention. Une nouvelle télémétrie anormale sur la même condition met à
+jour ``last_seen`` sans écraser la prise en charge ; cela évite de perdre le
+travail déjà engagé sur le terrain. Les administrateurs conservent une portée
+globale, tandis que les techniciens restent limités aux stations qui leur sont
+assignées.
+
 L'email technicien n'est pas envoyé au premier signal. La notification part
 uniquement si l'alerte est ``active``, si son type fait partie de
 ``ALERT_TECHNICIAN_EMAIL_TYPES`` et si elle persiste au-delà du délai configuré :

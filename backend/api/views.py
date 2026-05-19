@@ -55,9 +55,16 @@ from .services.auth_methods import (
     get_type_auth as _get_type_auth,
     hash_secret as _hash_secret,
 )
+from .services.alert_workflow import (
+    AlertWorkflowError,
+    acknowledge_alert,
+    alert_queryset,
+    alert_station_id,
+    resolve_alert,
+)
 from .services.email_notifications import send_reservation_qr_email
 from .services.sms import SmsDeliveryError, mask_phone_number, send_sms
-from .services.supervision import build_admin_supervision_payload
+from .services.supervision import build_admin_supervision_payload, serialize_alert_supervision
 from .serializers import (
     AdminUserUpdateSerializer,
     AdminUserSerializer,
@@ -619,6 +626,32 @@ def _station_ids_for_technician(technicien):
         .order_by("station__nom")
         .values_list("station_id", flat=True)
     )
+
+
+def _technician_can_manage_alert(user, alert):
+    """Return the technician profile allowed to operate on an alert."""
+    if user.is_staff:
+        return _technician_for_user(user), None
+
+    technicien = _technician_for_user(user)
+    if technicien is None:
+        return None, Response(
+            {"detail": "Aucun profil technicien associe a ce compte."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    station_id = alert_station_id(alert)
+    if station_id is None:
+        return None, Response(
+            {"detail": "Impossible de rattacher cette alerte a une station."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if station_id not in set(_station_ids_for_technician(technicien)):
+        return None, Response(
+            {"detail": "Cette alerte ne fait pas partie de vos stations."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    return technicien, None
 
 
 def _generate_reservation_code():
@@ -1771,6 +1804,49 @@ def technician_supervision(request):
         )
 
     return Response(build_admin_supervision_payload(station_ids=_station_ids_for_technician(technicien)))
+
+
+@_schema("Prendre en charge une alerte", tags=["Technicien"])
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def technician_acknowledge_alert(request, alert_id):
+    """Mark one scoped alert as taken in charge by the current technician."""
+    alert = alert_queryset().filter(id_alerte=alert_id).first()
+    if alert is None:
+        return Response({"detail": "Alerte introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    technicien, error_response = _technician_can_manage_alert(request.user, alert)
+    if error_response is not None:
+        return error_response
+
+    try:
+        alert = acknowledge_alert(alert, technicien)
+    except AlertWorkflowError as error:
+        return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response({"alert": serialize_alert_supervision(alert)})
+
+
+@_schema("Résoudre une alerte", tags=["Technicien"])
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def technician_resolve_alert(request, alert_id):
+    """Resolve one scoped alert after intervention or operational verification."""
+    alert = alert_queryset().filter(id_alerte=alert_id).first()
+    if alert is None:
+        return Response({"detail": "Alerte introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    technicien, error_response = _technician_can_manage_alert(request.user, alert)
+    if error_response is not None:
+        return error_response
+
+    note = str(request.data.get("note") or "").strip()
+    try:
+        alert = resolve_alert(alert, technicien, note=note)
+    except AlertWorkflowError as error:
+        return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response({"alert": serialize_alert_supervision(alert)})
 
 
 @_schema("Lister les reservations administrateur", tags=["Administration"])

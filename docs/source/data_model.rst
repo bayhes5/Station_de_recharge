@@ -58,8 +58,8 @@ Les champs concernés sont notamment :
   ``annulee``, ``terminee`` ;
 * ``Device.status`` : ``provisioned``, ``online``, ``idle``, ``offline``,
   ``charging``, ``error`` ;
-* ``Alerte.status`` : ``nouvelle``, ``active``, ``resolue``, ``closed``,
-  ``fermee`` ;
+* ``Alerte.status`` : ``nouvelle``, ``active``, ``prise_en_charge``,
+  ``resolue``, ``closed``, ``fermee`` ;
 * ``Maintenance.status`` : ``planifiee``, ``en_cours``, ``realisee``,
   ``annulee``.
 
@@ -293,10 +293,18 @@ Les champs ``first_seen`` et ``last_seen`` encadrent la durée de l'anomalie. Le
 champs ``notified_at`` et ``notification_count`` permettent de tracer les emails
 envoyés et d'appliquer un délai de relance sans dupliquer les alertes.
 
+Le workflow technicien est porté directement par l'alerte. ``assigned_technician``
+identifie l'intervenant responsable, ``acknowledged_by`` et ``acknowledged_at``
+tracent la prise en charge, puis ``resolved_by``, ``resolved_at`` et
+``resolution_note`` documentent la clôture opérationnelle. Les alertes restent
+filtrées par station via ``TechnicienStation`` afin de respecter le principe du
+moindre privilège.
+
 Le cycle actuel est géré côté application :
 
 * ``nouvelle`` à la création ;
 * ``active`` si la même anomalie continue ;
+* ``prise_en_charge`` lorsqu'un technicien accepte l'incident ;
 * ``resolue`` quand la télémétrie revient à la normale.
 
 Maintenance
@@ -339,6 +347,7 @@ Les index déjà présents couvrent les requêtes les plus importantes :
 * télémétrie par session et timestamp ;
 * données capteurs par capteur et timestamp ;
 * alertes par statut, session et timestamp ;
+* alertes par technicien assigné et statut ;
 * affectations technicien-station par technicien, station et statut actif ;
 * maintenances par technicien, station, statut et date planifiée.
 
@@ -363,7 +372,9 @@ des écrans d’exploitation et des filtres API :
 * ``device(status, last_seen)`` pour détecter les équipements indisponibles ou
   silencieux ;
 * ``alerte(niveau_severite, date)`` pour prioriser les incidents ;
-* ``alerte(type, date)`` pour suivre les familles d’anomalies dans le temps.
+* ``alerte(type, date)`` pour suivre les familles d’anomalies dans le temps ;
+* ``alerte(assigned_technician_id, status)`` pour afficher rapidement les
+  incidents ouverts par technicien.
 
 Ces index ne changent pas le modèle fonctionnel. Ils rendent les parcours
 critiques plus prévisibles lorsque le volume augmente : supervision temps réel,

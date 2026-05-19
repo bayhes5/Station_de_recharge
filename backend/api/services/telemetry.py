@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from api.models import (
     Alerte,
+    AlertStatus,
     Borne,
     Capteur,
     CapteurData,
@@ -44,6 +45,7 @@ SENSOR_FIELDS = {
 }
 
 RESOLVED_ALERT_STATUSES = ["resolved", "resolue", "closed", "fermee"]
+PRESERVED_ACTIVE_ALERT_STATUSES = {AlertStatus.IN_PROGRESS}
 CHARGING_STATES = {"charging", "charging_started", "running"}
 DEVICE_SCOPED_ALERT_TYPES = {
     "state_error",
@@ -372,7 +374,8 @@ def _upsert_active_alert(
         existing.niveau_severite = severity
         existing.timestamp = timestamp
         existing.last_seen = timestamp
-        existing.status = "active"
+        if existing.status not in PRESERVED_ACTIVE_ALERT_STATUSES:
+            existing.status = "active"
         if data:
             existing.data = data
         if session:
@@ -407,7 +410,12 @@ def _upsert_active_alert(
 
 def _resolve_alerts_for_device(device: Device, alert_type: str, timestamp):
     """Mark unresolved alerts as resolved when telemetry returns to normal."""
-    return _open_alerts_for_device(device, alert_type).update(status="resolue", timestamp=timestamp, last_seen=timestamp)
+    return _open_alerts_for_device(device, alert_type).update(
+        status="resolue",
+        timestamp=timestamp,
+        last_seen=timestamp,
+        resolved_at=timestamp,
+    )
 
 
 def _alert_resolution_candidates(payload: dict[str, Any]):
