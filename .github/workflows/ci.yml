@@ -77,6 +77,8 @@ jobs:
           JWT_REFRESH_COOKIE_SECURE: "True"
           MQTT_ACK_REQUIRED: "True"
           MQTT_PASSWORD: mqtt-production-password
+          MQTT_RASPBERRY_PASSWORD: raspberry-production-password
+          MQTT_RASPBERRY_USERNAME: raspberry-kiosk
           MQTT_TLS_ENABLED: "True"
           MQTT_USERNAME: station-backend
           SECRET_KEY: station-production-secret-key-with-enough-random-length
