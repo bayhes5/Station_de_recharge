@@ -792,6 +792,8 @@ def test_process_mqtt_message_updates_and_resolves_existing_alert(emplacements):
     ("payload", "alert_type"),
     [
         ({"state": "charging", "door": True, "cable": False}, "cable_removed"),
+        ({"state": "charging", "door": True, "cable": True, "intrusion": True}, "intrusion"),
+        ({"state": "charging", "door": True, "cable": True, "lock": False}, "lock_unlocked"),
         ({"state": "charging", "door": True, "cable": True, "temperature": 60}, "overheat"),
         ({"state": "charging", "door": True, "cable": True, "current": 3.0}, "overcurrent"),
         ({"state": "error", "door": True, "cable": True}, "state_error"),

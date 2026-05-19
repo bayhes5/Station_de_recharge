@@ -35,6 +35,8 @@ SENSOR_FIELDS = {
     "humidity": ("humidity", "%"),
     "door": ("door", "bool"),
     "cable": ("cable", "bool"),
+    "lock": ("lock", "bool"),
+    "intrusion": ("intrusion", "bool"),
     "state": ("state", "state"),
     "current": ("current", "A"),
     "voltage": ("voltage", "V"),
@@ -199,7 +201,7 @@ def _save_device_report(device: Device, timestamp, status_value: Any, payload: d
 
 def _sensor_value(sensor_type: str, value: Any):
     """Normalize one sensor value before creating a CapteurData record."""
-    if sensor_type in {"door", "cable"}:
+    if sensor_type in {"door", "cable", "lock", "intrusion"}:
         return _bool_as_float(value)
     if sensor_type == "state":
         return None
@@ -418,6 +420,10 @@ def _alert_resolution_candidates(payload: dict[str, Any]):
         candidates.append("intrusion")
     if "cable" in payload and (payload.get("cable") is not False or state != "charging"):
         candidates.append("cable_removed")
+    if "lock" in payload and (payload.get("lock") is not False or state != "charging"):
+        candidates.append("lock_unlocked")
+    if "intrusion" in payload and payload.get("intrusion") is not True:
+        candidates.append("intrusion")
     temperature = _as_float(payload.get("temperature"))
     if temperature is not None and temperature < 60:
         candidates.append("overheat")
@@ -457,8 +463,12 @@ def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp, 
             _resolve_alerts_for_device(device, "charge_without_session", timestamp)
     if payload.get("door") is False and state == "charging":
         triggered_alerts.append(("intrusion", "Boitier ouvert pendant une charge active.", "critique", "door"))
+    if payload.get("intrusion") is True and state == "charging":
+        triggered_alerts.append(("intrusion", "Intrusion detectee pendant une charge active.", "critique", "intrusion"))
     if payload.get("cable") is False and state == "charging":
         triggered_alerts.append(("cable_removed", "Cable retire pendant une charge active.", "haute", "cable"))
+    if payload.get("lock") is False and state == "charging":
+        triggered_alerts.append(("lock_unlocked", "Serrure deverrouillee pendant une charge active.", "critique", "lock"))
 
     temperature = _as_float(payload.get("temperature"))
     if temperature is not None and temperature >= 60:

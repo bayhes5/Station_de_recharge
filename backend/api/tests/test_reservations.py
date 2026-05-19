@@ -3,6 +3,7 @@ import re
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -604,3 +605,44 @@ def test_access_payload_display_does_not_rotate_qr(authenticated_client, station
     assert display_response.status_code == status.HTTP_200_OK
     assert display_response.data["access_payload"]["value"] == created_value
     assert display_response.data["access_payload"]["qr_svg"]
+
+
+@pytest.mark.django_db
+def test_qr_reservation_sends_email_with_qr_payload(
+    authenticated_client,
+    station,
+    emplacements,
+    reservation_start,
+    django_capture_on_commit_callbacks,
+):
+    """Send a Mailpit-compatible QR email when a QR reservation is created."""
+    with django_capture_on_commit_callbacks(execute=True):
+        response = authenticated_client.post(
+            reverse("api-reservations"),
+            {
+                "station": str(station.id_station),
+                "date_debut": reservation_start.isoformat(),
+                "auth_mode": "qr",
+            },
+            format="json",
+        )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert len(mail.outbox) == 1
+    message = mail.outbox[0]
+    assert message.to == ["user@example.com"]
+    assert response.data["reservation_code"] in message.subject
+    assert response.data["reservation_code"] in message.body
+    assert "Station Centre" in message.body
+    assert message.alternatives
+
+    reservation = Reservation.objects.select_related("authentification").get(
+        id_reservation=response.data["reservation"]["id_reservation"]
+    )
+    metadata = reservation.authentification.metadata
+    assert metadata["delivery_channel"] == "email"
+    assert metadata["qr_email_recipient"] == "user@example.com"
+    assert JournalSecurite.objects.filter(
+        utilisateur=reservation.utilisateur,
+        action__contains="qr_access_email_sent",
+    ).exists()

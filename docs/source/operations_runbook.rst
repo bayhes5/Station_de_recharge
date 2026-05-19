@@ -392,6 +392,8 @@ Configuration locale attendue :
 
 Les emails utiles au projet académique sont envoyés vers Mailpit :
 
+* QR code de réservation envoyé automatiquement à l'utilisateur lorsque le mode
+  d'accès choisi est ``qr`` ;
 * notification des techniciens assignés lorsqu'une alerte terrain active dépasse
   le délai de persistance configuré ;
 * futurs emails de vérification de compte ou de réinitialisation de mot de
@@ -399,6 +401,11 @@ Les emails utiles au projet académique sont envoyés vers Mailpit :
 
 Mailpit n'est pas un fournisseur d'envoi de production : il capture les messages
 pour les tests et la soutenance.
+
+Le scénario QR email est activé par ``RESERVATION_QR_EMAIL_ENABLED=True``. Le
+message contient le code de réservation, la station, la borne, l'emplacement, le
+créneau et une version HTML du QR code. L'envoi réussi est journalisé dans
+``JournalSecurite`` avec l'action ``qr_access_email_sent``.
 
 Politique d'alertes
 -------------------

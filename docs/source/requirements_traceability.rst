@@ -168,9 +168,10 @@ Choix et écarts assumés
      - Choix actuel
    * - QR code
      - QR code envoyé par mail et lu par un lecteur USB à la borne.
-     - QR de réservation conservé. Ajout d'un QR de session mobile affiché par
-       la borne pour permettre à la PWA de confirmer une réservation sans
-       clavier physique.
+     - QR de réservation généré dès la réservation, visible dans l'espace
+       utilisateur et envoyé par email via Mailpit en environnement académique.
+       Ajout d'un QR de session mobile affiché par la borne pour permettre à la
+       PWA de confirmer une réservation sans clavier physique.
    * - Code alphanumérique
      - Code envoyé par SMS et saisi au clavier.
      - Code SMS temporaire généré côté backend, stocké sans clair et saisi sur
@@ -189,8 +190,9 @@ Choix et écarts assumés
        technique dans Grafana.
    * - Notifications
      - Email/SMS au technicien en cas d'alerte.
-     - Politique d'alertes documentée ; Mailpit et le mode console/log
-       permettent une démonstration gratuite et open source.
+     - Politique d'alertes documentée ; Mailpit capture les emails QR et
+       technicien, tandis que le mode SMS console/log permet une démonstration
+       gratuite et open source.
 
 Contraintes projet
 ------------------

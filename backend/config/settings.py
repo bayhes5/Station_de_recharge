@@ -223,6 +223,7 @@ EMAIL_USE_SSL = env_bool("EMAIL_USE_SSL", False)
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Station <no-reply@station.local>")
+RESERVATION_QR_EMAIL_ENABLED = env_bool("RESERVATION_QR_EMAIL_ENABLED", True)
 ALERT_EMAIL_NOTIFICATIONS_ENABLED = env_bool("ALERT_EMAIL_NOTIFICATIONS_ENABLED", True)
 ALERT_NOTIFICATION_MIN_AGE_SECONDS = env_int("ALERT_NOTIFICATION_MIN_AGE_SECONDS", 120)
 ALERT_CRITICAL_NOTIFICATION_MIN_AGE_SECONDS = env_int("ALERT_CRITICAL_NOTIFICATION_MIN_AGE_SECONDS", 60)
@@ -234,6 +235,7 @@ ALERT_TECHNICIAN_EMAIL_TYPES = env_list(
         "cable_removed",
         "overheat",
         "overcurrent",
+        "lock_unlocked",
         "state_error",
         "charge_without_session",
         "session_without_telemetry",

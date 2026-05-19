@@ -384,7 +384,9 @@ Les alertes sont créées depuis ``backend/api/services/telemetry.py``. Les règ
 actuelles sont :
 
 * ``intrusion`` si ``door`` vaut ``false`` pendant ``charging`` ;
+* ``intrusion`` si ``intrusion`` vaut ``true`` pendant ``charging`` ;
 * ``cable_removed`` si ``cable`` vaut ``false`` pendant ``charging`` ;
+* ``lock_unlocked`` si ``lock`` vaut ``false`` pendant ``charging`` ;
 * ``overheat`` si la température est supérieure ou égale à ``60`` ;
 * ``overcurrent`` si le courant est supérieur ou égal à ``3.0`` ;
 * ``state_error`` si l'état vaut ``error``, ``emergency`` ou ``fault`` ;

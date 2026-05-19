@@ -397,6 +397,7 @@ des mesures normales et des anomalies pour tester la chaîne d'alertes :
 
 * intrusion : boîtier ouvert pendant une charge ;
 * câble retiré ;
+* serrure déverrouillée pendant une charge ;
 * surchauffe ;
 * surconsommation ;
 * état critique.
@@ -511,17 +512,17 @@ L'ingestion des télémétries alimente actuellement :
 * ``Capteur`` et ``CapteurData`` : valeurs horodatées des capteurs ;
 * ``SessionTelemetry`` : courant, tension et énergie si une session active
   existe sur l'emplacement ;
-* ``Alerte`` : anomalies telles qu'intrusion, câble retiré, surchauffe ou
-  surconsommation.
+* ``Alerte`` : anomalies telles qu'intrusion, câble retiré, serrure déverrouillée
+  en charge, surchauffe ou surconsommation.
 
 L'identité du device est séparée en deux niveaux : ``slot_id`` pour le routage
 MQTT de l'emplacement, et ``hardware_mac`` pour la carte ESP32 physique.
 ``ip_address`` et ``firmware_version`` sont mis à jour automatiquement lorsqu'ils
 sont présents dans les messages ``status``, ``ack`` ou ``telemetry``.
 
-Les capteurs booléens ``door`` et ``cable`` sont stockés numériquement dans
-``CapteurData`` : ``1`` signifie vrai et ``0`` signifie faux. L'API de
-supervision expose en plus un libellé lisible pour l'interface :
+Les capteurs booléens ``door``, ``cable``, ``lock`` et ``intrusion`` sont stockés
+numériquement dans ``CapteurData`` : ``1`` signifie vrai et ``0`` signifie faux.
+L'API de supervision expose en plus un libellé lisible pour l'interface :
 ``Boîtier fermé`` / ``Boîtier ouvert`` et ``Câble présent`` / ``Câble retiré``.
 
 Dans l'interface administrateur, la colonne ``Connexion`` indique si l'ESP32 a
@@ -568,6 +569,8 @@ Les conditions de résolution automatique sont :
 
 * ``intrusion`` : ``door`` repasse à ``true`` ou l'emplacement n'est plus en charge ;
 * ``cable_removed`` : ``cable`` repasse à ``true`` ou l'emplacement n'est plus en
+  charge ;
+* ``lock_unlocked`` : ``lock`` repasse à ``true`` ou l'emplacement n'est plus en
   charge ;
 * ``overheat`` : la température repasse sous ``60 C`` ;
 * ``overcurrent`` : le courant repasse sous ``3.0 A`` ;

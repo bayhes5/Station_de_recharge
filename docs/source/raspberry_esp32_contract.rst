@@ -176,6 +176,8 @@ La télémétrie est publiée régulièrement sur ``.../<slot_id>/telemetry``.
      "humidity": 44.0,
      "door": true,
      "cable": true,
+     "lock": true,
+     "intrusion": false,
      "timestamp": "2026-05-17T14:02:00Z"
    }
 
@@ -207,6 +209,14 @@ Incidents attendus
      - ``door=false`` pendant ``charging``
      - couper le relais, publier ``alert`` et ``status``
      - alerte ``intrusion``
+   * - Intrusion explicite
+     - ``intrusion=true`` pendant ``charging``
+     - couper le relais, publier ``alert`` et ``status``
+     - alerte ``intrusion``
+   * - Serrure déverrouillée en charge
+     - ``lock=false`` pendant ``charging``
+     - couper le relais, publier ``alert`` et ``status``
+     - alerte ``lock_unlocked``
    * - Surchauffe
      - ``temperature >= 60``
      - couper le relais si la charge est active

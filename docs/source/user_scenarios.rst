@@ -54,11 +54,14 @@ Déroulement
    5. Le backend crée la réservation, génère le secret QR et stocke uniquement son
       hash.
    6. Le QR devient consultable dans le dashboard ou la page des réservations.
+   7. Le backend envoie aussi un email contenant le QR, le code de réservation,
+      la station, la borne, l'emplacement et le créneau.
 
 Résultat attendu
    La réservation est confirmée. Le QR est affichable immédiatement, mais il n'est
    accepté à la borne que sur la bonne station, dans la fenêtre de réservation et
-   tant qu'il n'a pas été révoqué.
+   tant qu'il n'a pas été révoqué. En environnement académique, l'email est
+   capturé dans Mailpit et consultable sur ``http://localhost:8025``.
 
 Cas d'erreur
    Si aucun emplacement n'est disponible, la réservation est refusée. Si le QR est

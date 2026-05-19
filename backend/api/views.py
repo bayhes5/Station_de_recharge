@@ -55,6 +55,7 @@ from .services.auth_methods import (
     get_type_auth as _get_type_auth,
     hash_secret as _hash_secret,
 )
+from .services.email_notifications import send_reservation_qr_email
 from .services.sms import SmsDeliveryError, mask_phone_number, send_sms
 from .services.supervision import build_admin_supervision_payload
 from .serializers import (
@@ -958,6 +959,36 @@ def _send_reservation_sms_code(request, reservation, auth_method, access_value):
         },
         None,
     )
+
+
+def _schedule_reservation_qr_email(request, reservation, auth_method, access_payload):
+    """Send the reservation QR email after the reservation transaction commits."""
+    if not getattr(settings, "RESERVATION_QR_EMAIL_ENABLED", True):
+        return
+
+    def _send_after_commit():
+        try:
+            sent_count = send_reservation_qr_email(reservation, access_payload)
+        except Exception as error:  # pragma: no cover - depends on SMTP availability
+            logger.warning("QR email delivery failed for reservation %s: %s", reservation.id_reservation, error)
+            return
+        if not sent_count:
+            return
+        sent_at = timezone.now()
+        auth_method.metadata = {
+            **(auth_method.metadata or {}),
+            "delivery_channel": "email",
+            "qr_email_last_sent_at": sent_at.isoformat(),
+            "qr_email_recipient": reservation.utilisateur.email,
+        }
+        auth_method.save(update_fields=["metadata"])
+        _log_security_event(
+            request,
+            reservation.utilisateur,
+            f"user:{reservation.utilisateur.pseudo}:qr_access_email_sent:{reservation.reference_code}",
+        )
+
+    transaction.on_commit(_send_after_commit)
 
 
 def _create_temporary_auth(user, auth_mode, expiration, reservation_code):
@@ -2593,12 +2624,15 @@ def reservations(request):
             "reservation": ReservationSerializer(reservation).data,
         }
         if clear_value:
-            response["access_payload"] = _build_access_payload(
+            access_payload = _build_access_payload(
                 auth_mode,
                 clear_value,
                 auth_method,
                 data["date_fin"],
             )
+            response["access_payload"] = access_payload
+            if auth_mode == "qr":
+                _schedule_reservation_qr_email(request, reservation, auth_method, access_payload)
         response["reservation_code"] = reservation.reference_code
         return Response(response, status=status.HTTP_201_CREATED)
 

@@ -564,7 +564,7 @@ Les volumes importants sont :
 Planifier au minimum une sauvegarde quotidienne de la base et une sauvegarde
 régulière des volumes Grafana/Mosquitto. Exemple de cron quotidien à 02:15 :
 
-.. code-block:: cron
+.. code-block:: text
 
    15 2 * * * cd /opt/station && BACKUP_DIR=/opt/station/backups scripts/backup-prod.sh >> /var/log/station-backup.log 2>&1
 
