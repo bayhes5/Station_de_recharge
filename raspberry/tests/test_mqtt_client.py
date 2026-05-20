@@ -181,7 +181,7 @@ def test_publish_slot_command_rejects_negative_ack_even_when_not_required(monkey
         "message": "Relais indisponible.",
     }
 
-    with pytest.raises(RuntimeError, match="refusee par ESP32"):
+    with pytest.raises(RuntimeError, match="refusée par ESP32"):
         mqtt_client.publish_slot_command(
             "slot1",
             "START",

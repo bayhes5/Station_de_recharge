@@ -673,7 +673,7 @@ class TechnicianStationAssignmentSerializer(serializers.ModelSerializer):
                 duplicate = duplicate.exclude(pk=self.instance.pk)
             if duplicate.exists():
                 raise serializers.ValidationError(
-                    {"station": "Cette station est deja affectee a ce technicien."}
+                    {"station": "Cette station est déjà affectée à ce technicien."}
                 )
         return attrs
 

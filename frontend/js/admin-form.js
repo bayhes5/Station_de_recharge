@@ -462,7 +462,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
             const badge = document.createElement("span");
             badge.className = "badge";
-            badge.textContent = method.is_active ? "Actif" : "Revoque";
+            badge.textContent = method.is_active ? "Actif" : "Révoqué";
 
             head.appendChild(title);
             head.appendChild(badge);
@@ -511,7 +511,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             rfidForm.reset();
             await loadAuthMethods();
             renderAuthMethodsList();
-            setStatus(`Badge RFID associe a ${currentItem.pseudo}.`);
+            setStatus(`Badge RFID associé à ${currentItem.pseudo}.`);
         } catch (error) {
             setStatus(error.message || "Impossible d'associer le badge RFID.", true);
         } finally {
@@ -535,9 +535,9 @@ document.addEventListener("DOMContentLoaded", async () => {
             await window.AuthAPI.revokeAdminUserAuthMethod(itemId, method.id_auth);
             await loadAuthMethods();
             renderAuthMethodsList();
-            setStatus(`Badge RFID revoque pour ${currentItem.pseudo}.`);
+            setStatus(`Badge RFID révoqué pour ${currentItem.pseudo}.`);
         } catch (error) {
-            setStatus(error.message || "Impossible de revoquer le badge RFID.", true);
+            setStatus(error.message || "Impossible de révoquer le badge RFID.", true);
             triggerButton.disabled = false;
         }
     }

@@ -445,7 +445,7 @@ def accept_start(client, payload):
     global state, session_id
 
     if state == "charging" and session_id and payload.get("session_id") != session_id:
-        publish_ack(client, payload, "denied", "Une charge est deja active.")
+        publish_ack(client, payload, "denied", "Une charge est déjà active.")
         return
 
     session_id = str(payload.get("session_id") or "")
@@ -455,13 +455,13 @@ def accept_start(client, payload):
         lock_slot()
         state = "charging"
         publish_status(client, "charging_started")
-        publish_ack(client, payload, "charging", "Charge demarree.")
+        publish_ack(client, payload, "charging", "Charge démarrée.")
         publish_telemetry_now(client)
     else:
         stop_charge_output()
         state = "waiting_plug"
         publish_status(client, "waiting_plug")
-        publish_ack(client, payload, "accepted", "En attente du cable et du boitier.")
+        publish_ack(client, payload, "accepted", "En attente du câble et du boîtier.")
         publish_telemetry_now(client)
 
 
@@ -473,7 +473,7 @@ def accept_stop(client, payload, reason="remote_stop"):
     unlock_slot()
     state = "idle"
     publish_status(client, "stopped", reason)
-    publish_ack(client, payload, "stopped", "Charge arretee.")
+    publish_ack(client, payload, "stopped", "Charge arrêtée.")
     publish_telemetry_now(client)
     session_id = ""
 
@@ -549,7 +549,7 @@ def safety_check(client, power_sample, environment):
         publish_alert(client, "intrusion", "Boitier ouvert pendant la charge.")
         accept_stop(client, {"action": "STOP", "command_id": "local-intrusion"}, "intrusion")
     elif PHYSICAL_INPUTS_ENABLED and not read_cable_present():
-        publish_alert(client, "cable_removed", "Cable retire pendant la charge.")
+        publish_alert(client, "cable_removed", "Câble retiré pendant la charge.")
         accept_stop(client, {"action": "STOP", "command_id": "local-cable"}, "cable_removed")
     elif current is not None and current > MAX_CURRENT_A:
         publish_alert(client, "overcurrent", "Courant trop eleve.")

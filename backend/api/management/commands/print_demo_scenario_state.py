@@ -30,7 +30,7 @@ class Command(BaseCommand):
             .first()
         )
         if reservation is None:
-            raise CommandError(f"Reservation {reference} introuvable.")
+            raise CommandError(f"Réservation {reference} introuvable.")
 
         session = (
             Session.objects.filter(reservation=reservation)

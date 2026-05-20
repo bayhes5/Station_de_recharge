@@ -315,7 +315,7 @@ def _get_device(slot_id: str, topic_prefix: str | None = None) -> Device:
     else:
         emplacement = emplacement_query.first()
     if emplacement is None:
-        raise ValueError("Aucun emplacement n'existe pour rattacher la telemetrie MQTT.") from None
+        raise ValueError("Aucun emplacement n'existe pour rattacher la télémétrie MQTT.") from None
     return _device_for_emplacement(emplacement, slot_id)
 
 
@@ -478,13 +478,13 @@ def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp, 
     if payload.get("intrusion") is True and state == "charging":
         triggered_alerts.append(("intrusion", "Intrusion detectee pendant une charge active.", "critique", "intrusion"))
     if payload.get("cable") is False and state == "charging":
-        triggered_alerts.append(("cable_removed", "Cable retire pendant une charge active.", "haute", "cable"))
+        triggered_alerts.append(("cable_removed", "Câble retiré pendant une charge active.", "haute", "cable"))
     if payload.get("lock") is False and state == "charging":
         triggered_alerts.append(("lock_unlocked", "Serrure deverrouillee pendant une charge active.", "critique", "lock"))
 
     temperature = _as_float(payload.get("temperature"))
     if temperature is not None and temperature >= 60:
-        triggered_alerts.append(("overheat", f"Temperature elevee: {temperature:.1f} C.", "critique", "temperature"))
+        triggered_alerts.append(("overheat", f"Température élevée: {temperature:.1f} C.", "critique", "temperature"))
 
     current = _as_float(payload.get("current"))
     if current is not None and current >= 3.0:

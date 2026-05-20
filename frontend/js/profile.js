@@ -304,9 +304,9 @@ document.addEventListener("DOMContentLoaded", async () => {
                 rfidLinkCode.hidden = false;
                 rfidLinkCode.textContent = `Code association : ${result.code} - valable ${window.AuthAPI.formatDuration(result.expires_in)}. Saisissez ce code sur la borne, puis passez votre badge.`;
             }
-            setStatus("Code d'association RFID genere.");
+            setStatus("Code d'association RFID généré.");
         } catch (error) {
-            setStatus(error.message || "Impossible de generer le code d'association RFID.", true);
+            setStatus(error.message || "Impossible de générer le code d'association RFID.", true);
         } finally {
             submitButton.disabled = false;
         }

@@ -111,7 +111,7 @@ def publish_slot_command(slot_id: str, action: str, topic_prefix: str | None = N
     try:
         import paho.mqtt.client as mqtt
     except ImportError as exc:
-        raise RuntimeError("paho-mqtt n'est pas installe cote Raspberry.") from exc
+        raise RuntimeError("paho-mqtt n'est pas installé côté Raspberry.") from exc
 
     settings = MqttSettings()
     command_id = str(metadata.pop("command_id", "") or uuid.uuid4())
@@ -177,7 +177,7 @@ def publish_slot_command(slot_id: str, action: str, topic_prefix: str | None = N
 
     if ack_status in REJECTED_ACK_STATUSES:
         detail = f": {ack_message}" if ack_message else ""
-        raise RuntimeError(f"Commande MQTT {action} refusee par ESP32 sur {ack_topic}{detail}.")
+        raise RuntimeError(f"Commande MQTT {action} refusée par ESP32 sur {ack_topic}{detail}.")
 
     if settings.ack_required and ack_payload is None:
         raise RuntimeError(f"Commande MQTT publiee sans confirmation ESP32 sur {ack_topic}.")

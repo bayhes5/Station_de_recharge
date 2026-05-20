@@ -4,7 +4,7 @@ from rest_framework.permissions import BasePermission
 class IsStaffUser(BasePermission):
     """Allow access only to authenticated Django staff users."""
 
-    message = "Acces reserve aux administrateurs."
+    message = "Accès réservé aux administrateurs."
 
     def has_permission(self, request, view):
         """Return whether the request user has staff-level access."""

@@ -150,7 +150,7 @@ Chaque commande doit produire un acquittement :
      "command_id": "même-valeur-que-la-commande",
      "action": "START",
      "status": "accepted",
-     "message": "Emplacement reserve.",
+     "message": "Emplacement réservé.",
      "state": "reserved",
      "slot_id": "slot1",
      "client_id": "esp32-slot1",

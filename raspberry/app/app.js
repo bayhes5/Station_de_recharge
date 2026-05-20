@@ -418,7 +418,7 @@ function mqttDetails(result) {
         return "";
     }
     const ackPayload = mqtt.ack?.payload || {};
-    const status = ackPayload.status || ackPayload.state || "confirme";
+    const status = ackPayload.status || ackPayload.state || "confirmé";
     const message = ackPayload.message ? ` - ${ackPayload.message}` : "";
     const prefix = mqtt.command_confirmed === false ? "ESP32 non confirmé" : "ESP32";
     return `${prefix} ${status}${message}`;

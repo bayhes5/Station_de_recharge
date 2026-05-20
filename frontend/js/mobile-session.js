@@ -62,7 +62,7 @@ function renderReservation(reservation, session, onAuthorize) {
     const button = document.createElement("button");
     button.className = "btn btn-primary full-width";
     button.type = "button";
-    button.textContent = "Demarrer sur cette borne";
+    button.textContent = "Démarrer sur cette borne";
     button.disabled = !compatible || session.status === "authorized" || session.status === "consumed";
     button.addEventListener("click", () => onAuthorize(reservation, button));
 
@@ -96,7 +96,7 @@ function updateSessionHeader(session) {
         : "Borne en attente d'autorisation";
     countdown.textContent = session.expires_in > 0
         ? window.AuthAPI.formatDuration(session.expires_in)
-        : "expiree";
+        : "expirée";
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -116,7 +116,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     async function authorizeReservation(reservation, button) {
         button.disabled = true;
-        setStatus("Envoi de l'autorisation a la borne...");
+        setStatus("Envoi de l'autorisation à la borne...");
         try {
             const result = await window.AuthAPI.authorizeMobileSession(token, reservation.id_reservation);
             const mobileSession = result.mobile_session;
@@ -125,7 +125,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             document.getElementById("mobile-session-authorized").hidden = false;
             document.getElementById("mobile-session-authorized-detail").textContent =
                 `${reservation.station_nom || reservation.station} - ${reservation.borne_nom || reservation.borne || "borne"} - emplacement ${reservation.emplacement_numero || reservation.emplacement}.`;
-            setStatus("Autorisation confirmee. Regardez l'ecran de la borne.");
+            setStatus("Autorisation confirmée. Regardez l'écran de la borne.");
         } catch (error) {
             button.disabled = false;
             setStatus(error.message || "Autorisation impossible.", true);
@@ -141,8 +141,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             document.getElementById("mobile-session-reservations-panel").hidden = true;
             document.getElementById("mobile-session-authorized").hidden = false;
             setStatus(mobileSession.status === "consumed"
-                ? "La borne a demarre la session."
-                : "Autorisation deja envoyee a la borne.");
+                ? "La borne a démarré la session."
+                : "Autorisation déjà envoyée à la borne.");
             return;
         }
 

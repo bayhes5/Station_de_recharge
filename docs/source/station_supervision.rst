@@ -258,7 +258,7 @@ L'accusé de réception attendu reprend le ``command_id`` :
      "command_id": "<uuid-commande>",
      "action": "START",
      "status": "accepted",
-     "message": "Emplacement reserve.",
+     "message": "Emplacement réservé.",
      "state": "reserved",
      "slot_id": "slot1",
      "session_id": "<uuid-session>"

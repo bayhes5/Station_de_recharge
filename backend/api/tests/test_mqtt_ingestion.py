@@ -330,7 +330,7 @@ def test_process_mqtt_ack_tracks_last_command(user, emplacements):
                 "command_id": "cmd-123",
                 "action": "START",
                 "status": "accepted",
-                "message": "Emplacement reserve.",
+                "message": "Emplacement réservé.",
                 "session_id": str(session.id_session),
                 "source": "raspberry",
             }
@@ -346,14 +346,14 @@ def test_process_mqtt_ack_tracks_last_command(user, emplacements):
     assert device.last_command_id == "cmd-123"
     assert device.last_command_action == "START"
     assert device.last_command_status == "accepted"
-    assert device.last_command_message == "Emplacement reserve."
+    assert device.last_command_message == "Emplacement réservé."
     assert device.last_command_at is not None
     command_log = DeviceCommandLog.objects.get()
     assert command_log.device == device
     assert command_log.command_id == "cmd-123"
     assert command_log.action == "START"
     assert command_log.status == "accepted"
-    assert command_log.message == "Emplacement reserve."
+    assert command_log.message == "Emplacement réservé."
     assert command_log.session == session
     assert command_log.source == "raspberry"
     session.refresh_from_db()
@@ -854,7 +854,7 @@ def test_process_mqtt_message_preserves_taken_in_charge_alert_status(emplacement
     alert = Alerte.objects.create(
         data=data,
         type="overheat",
-        message="Temperature elevee",
+        message="Température élevée",
         niveau_severite="critique",
         status=AlertStatus.IN_PROGRESS,
     )

@@ -36,7 +36,7 @@ Utilisateur
 Kiosque Raspberry
   -> API Django pour valider l'accès
   -> messagerie locale pour commander les ESP32
-  -> cache local limite en mode degrade
+  -> cache local limité en mode dégradé
 
 ESP32
   -> MQTT telemetry/status/alert
@@ -44,7 +44,7 @@ ESP32
   -> Celery
   -> Base de données
   -> Grafana
-  -> journal local embarque en cas de coupure
+  -> journal local embarqué en cas de coupure
 ```
 
 Services principaux :
@@ -145,10 +145,10 @@ Payload type :
 }
 ```
 
-Dans l'interface de supervision, `door` et `cable` sont affiches sous forme
-lisible : boitier ferme/ouvert et cable present/retire. Les alertes suivent le
+Dans l'interface de supervision, `door` et `cable` sont affichés sous forme
+lisible : boîtier fermé/ouvert et câble présent/retiré. Les alertes suivent le
 cycle automatique `nouvelle` -> `active` -> `resolue` : une anomalie continue ne
-cree pas de doublon, et une telemetrie revenue a la normale resout l'alerte.
+crée pas de doublon, et une télémétrie revenue à la normale résout l'alerte.
 
 Envoyer une commande manuelle depuis Django :
 
@@ -185,8 +185,8 @@ resynchroniser au retour de la communication.
 
 ## Simulation locale de télémétrie
 
-Wokwi peut rester de cote pendant que la supervision avance. Le backend fournit
-une commande qui publie des donnees capteurs simulees sur les memes canaux que
+Wokwi peut rester de côté pendant que la supervision avance. Le backend fournit
+une commande qui publie des données capteurs simulées sur les mêmes canaux que
 les ESP32 :
 
 ```powershell
@@ -208,9 +208,9 @@ docker compose up -d mqtt
 docker compose --profile simulation run --rm mqtt-simulator
 ```
 
-Le simulateur est lance en conteneur ephemere avec `run --rm`. A l'arret, le
-conteneur est supprime automatiquement et ne conserve pas de reference vers un
-ancien reseau Docker apres un rebuild.
+Le simulateur est lancé en conteneur éphémère avec `run --rm`. À l'arrêt, le
+conteneur est supprimé automatiquement et ne conserve pas de référence vers un
+ancien réseau Docker après un rebuild.
 
 ## Commandes utiles et diagnostic
 
@@ -248,8 +248,8 @@ docker compose exec backend python manage.py check
 docker compose exec backend python manage.py spectacular --validate
 ```
 
-Si Docker signale encore un reseau introuvable pour un ancien conteneur arrete,
-supprimer uniquement le simulateur puis relancer la commande ephemere :
+Si Docker signale encore un réseau introuvable pour un ancien conteneur arrêté,
+supprimer uniquement le simulateur puis relancer la commande éphémère :
 
 ```bash
 docker compose rm -sf mqtt-simulator
@@ -257,7 +257,7 @@ docker compose up -d mqtt
 docker compose --profile simulation run --rm mqtt-simulator
 ```
 
-Verifier les reseaux Docker :
+Vérifier les réseaux Docker :
 
 ```bash
 docker network ls
@@ -265,7 +265,7 @@ docker inspect mqtt_simulator --format '{{json .NetworkSettings.Networks}}'
 docker inspect mqtt_broker --format '{{json .NetworkSettings.Networks}}'
 ```
 
-Arreter la stack sans supprimer les donnees :
+Arrêter la stack sans supprimer les données :
 
 ```bash
 docker compose down
@@ -343,13 +343,13 @@ Pages principales :
 
 - `architecture.rst` : architecture globale ;
 - `user_scenarios.rst` : scénarios complets d'accès, mobile, RFID, QR, SMS, mode dégradé et ESP32 ;
-- `raspberry_kiosk.rst` : installation, RFID ACR122U, mode degrade et commandes du kiosque ;
-- `esp32_firmware.rst` : firmware MicroPython, DHT22, INA219, ACK MQTT et deploiement Thonny ;
+- `raspberry_kiosk.rst` : installation, RFID ACR122U, mode dégradé et commandes du kiosque ;
+- `esp32_firmware.rst` : firmware MicroPython, DHT22, INA219, ACK MQTT et déploiement Thonny ;
 - `implementation_guide.rst` : fonctionnalités, implantation et choix d'architecture ;
 - `data_model.rst` : modèle de données, correspondance MCD et implémentation Django ;
 - `requirements_traceability.rst` : correspondance avec le cahier des charges ;
 - `station_supervision.rst` : supervision technique, télémétrie, alertes, Grafana ;
-- `operations_runbook.rst` : commandes de demarrage, diagnostic et verifications de demonstration ;
+- `operations_runbook.rst` : commandes de démarrage, diagnostic et vérifications de démonstration ;
 - `testing_strategy.rst` : stratégie de tests ;
 - `technical_choices.rst` : justification des choix techniques ;
 - `api_openapi.rst` : documentation API ;

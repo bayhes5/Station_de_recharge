@@ -161,7 +161,7 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
                 "command_id": "cmd-start-e2e",
                 "action": "START",
                 "status": "accepted",
-                "message": "Emplacement reserve.",
+                "message": "Emplacement réservé.",
                 "session_id": str(session.id_session),
                 "source": "raspberry",
             }
@@ -202,7 +202,7 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
                 "command_id": "cmd-stop-e2e",
                 "action": "STOP",
                 "status": "stopped",
-                "message": "Charge arretee.",
+                "message": "Charge arrêtée.",
                 "session_id": str(session.id_session),
                 "source": "raspberry",
             }

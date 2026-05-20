@@ -134,7 +134,7 @@ REST_FRAMEWORK = {
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Station de recharge API",
-    "DESCRIPTION": "API REST du prototype de station de recharge pour velos electriques.",
+    "DESCRIPTION": "API REST du prototype de station de recharge pour vélos électriques.",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,

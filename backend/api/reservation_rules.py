@@ -30,4 +30,4 @@ def default_reservation_end(date_debut):
 def reservation_duration_error_message() -> str:
     """Return the user-facing duration validation message."""
     labels = ["30 minutes", "1 heure", "2 heures", "4 heures"]
-    return "La duree de recharge doit etre l'une des valeurs suivantes: " + ", ".join(labels) + "."
+    return "La durée de recharge doit être l'une des valeurs suivantes: " + ", ".join(labels) + "."

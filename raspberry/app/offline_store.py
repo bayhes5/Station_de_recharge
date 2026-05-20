@@ -75,7 +75,7 @@ class OfflineAuthResult:
         """Return the same compact shape the kiosk expects from online auth."""
         reservation = self.reservation
         return {
-            "message": "Authentification offline reussie.",
+            "message": "Authentification offline réussie.",
             "offline": True,
             "session_created": self.session_created,
             "session": {
@@ -323,9 +323,9 @@ class OfflineStore:
         auth_expiration = parse_datetime(row["auth_expires_at"])
 
         if start and start - timedelta(minutes=START_GRACE_MINUTES) > now:
-            raise ValueError("La reservation n'a pas encore commence.")
+            raise ValueError("La réservation n'a pas encore commencé.")
         if end and end + timedelta(minutes=END_GRACE_MINUTES) < now:
-            raise ValueError("La fenetre de reservation est expiree.")
+            raise ValueError("La fenêtre de réservation est expirée.")
         if auth_expiration and auth_expiration + timedelta(minutes=END_GRACE_MINUTES) < now:
             raise ValueError("Le moyen d'authentification est expire.")
 
@@ -356,7 +356,7 @@ class OfflineStore:
             ).fetchone()
 
         if conflict:
-            raise ValueError("L'emplacement est encore reserve par le creneau precedent.")
+            raise ValueError("L'emplacement est encore réservé par le créneau précédent.")
 
     def _success(self, row: sqlite3.Row, auth_mode: str, auth_source: str) -> OfflineAuthResult:
         reservation = self._row_payload(row)
@@ -399,9 +399,9 @@ class OfflineStore:
                 and self._row_matches_borne(row, borne_id=borne_id)
             ]
             if not matches:
-                raise ValueError("Aucune reservation offline active pour ce badge RFID.")
+                raise ValueError("Aucune réservation offline active pour ce badge RFID.")
             if len(matches) > 1:
-                raise ValueError("Plusieurs reservations offline correspondent a ce badge RFID.")
+                raise ValueError("Plusieurs réservations offline correspondent à ce badge RFID.")
             self._validate_time_window(matches[0], now)
             self._ensure_no_paid_window_conflict(matches[0], now)
             return self._success(matches[0], auth_mode="rfid", auth_source="rfid")
@@ -419,19 +419,19 @@ class OfflineStore:
             ).fetchone()
 
         if row is None:
-            raise ValueError("Reservation absente du cache offline.")
+            raise ValueError("Réservation absente du cache offline.")
         if station_id and row["station_id"] != station_id:
-            raise ValueError(f"Reservation associee a une autre station: {row['station_nom']}.")
+            raise ValueError(f"Réservation associée à une autre station: {row['station_nom']}.")
         if not self._row_matches_borne(row, borne_id=borne_id):
             reservation = self._row_payload(row)
-            raise ValueError(f"Reservation associee a une autre borne: {reservation.get('borne_nom') or '-'}.")
+            raise ValueError(f"Réservation associée à une autre borne: {reservation.get('borne_nom') or '-'}.")
         if row["auth_mode"] != auth_mode:
             raise ValueError("Mauvais moyen d'authentification.")
 
         self._validate_time_window(row, now)
         self._ensure_no_paid_window_conflict(row, now)
         if row["auth_hash"] != hash_secret(auth_value):
-            raise ValueError("Authentification offline refusee.")
+            raise ValueError("Authentification offline refusée.")
         return self._success(row, auth_mode=auth_mode, auth_source="typed_or_scanned")
 
     def record_event(self, event_type: str, reservation_id: str, session_id: str, payload: dict[str, Any]):

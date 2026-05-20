@@ -99,7 +99,7 @@ def test_admin_supervision_returns_devices_alerts_and_measurements(admin_client,
         data=data,
         session=session,
         type="overheat",
-        message="Temperature elevee",
+        message="Température élevée",
         niveau_severite="critical",
         status="active",
     )
@@ -473,7 +473,7 @@ def test_technician_supervision_is_limited_to_assigned_stations(api_client, user
     Alerte.objects.create(
         data=assigned_data,
         type="overheat",
-        message="Temperature elevee",
+        message="Température élevée",
         niveau_severite="haute",
         status="active",
     )
@@ -532,7 +532,7 @@ def test_technician_can_acknowledge_and_resolve_scoped_alert(api_client, user, s
     alert = Alerte.objects.create(
         data=data,
         type="overheat",
-        message="Temperature elevee",
+        message="Température élevée",
         niveau_severite="critique",
         status=AlertStatus.ACTIVE,
     )
@@ -604,7 +604,7 @@ def test_technician_cannot_manage_alert_outside_assigned_station(api_client, use
     alert = Alerte.objects.create(
         data=data,
         type="overheat",
-        message="Temperature elevee",
+        message="Température élevée",
         niveau_severite="critique",
         status=AlertStatus.ACTIVE,
     )
@@ -840,7 +840,7 @@ def test_admin_can_regenerate_and_revoke_temporary_access(admin_client, admin_us
     )
 
     assert regenerate_response.status_code == status.HTTP_200_OK
-    assert regenerate_response.data["message"] == "Acces temporaire regenere."
+    assert regenerate_response.data["message"] == "Accès temporaire régénéré."
     assert "access_payload" not in regenerate_response.data
     reservation.refresh_from_db()
     reservation.authentification.refresh_from_db()

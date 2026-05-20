@@ -865,7 +865,7 @@ def test_terminal_authenticate_rejects_too_early_arrival(api_client, user, stati
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.data["detail"] == "La reservation n'a pas encore commence."
+    assert response.data["detail"] == "La réservation n'a pas encore commencé."
     assert not Session.objects.filter(reservation=reservation).exists()
 
 
@@ -922,7 +922,7 @@ def test_terminal_authenticate_rejects_early_arrival_when_previous_slot_owns_bay
     )
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.data["detail"] == "L'emplacement est encore reserve par le creneau precedent."
+    assert response.data["detail"] == "L'emplacement est encore réservé par le créneau précédent."
     assert not Session.objects.filter(reservation=reservation).exists()
 
 
@@ -977,7 +977,7 @@ def test_terminal_authenticate_rejects_when_bay_has_active_session(api_client, u
     )
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.data["detail"] == "L'emplacement est deja utilise par une autre session de charge."
+    assert response.data["detail"] == "L'emplacement est déjà utilisé par une autre session de charge."
     assert not Session.objects.filter(reservation=reservation).exists()
 
 
@@ -1048,7 +1048,7 @@ def test_terminal_authenticate_rejects_after_end_grace(api_client, user, station
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.data["detail"] == "La fenetre de reservation est expiree."
+    assert response.data["detail"] == "La fenêtre de réservation est expirée."
     assert not Session.objects.filter(reservation=reservation).exists()
 
 
@@ -1257,7 +1257,7 @@ def test_terminal_authenticate_rejects_duplicate_start_when_session_is_charging(
     )
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.data["detail"] == "Transition de session de charge refusee."
+    assert response.data["detail"] == "Transition de session de charge refusée."
 
 
 @pytest.mark.django_db

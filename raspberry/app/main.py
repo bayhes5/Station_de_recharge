@@ -59,7 +59,7 @@ def proxy_backend_json(method, route_key, payload=None):
     backend_path = TERMINAL_BACKEND_PATHS.get(route_key)
     if backend_path is None:
         return {
-            "body": json.dumps({"detail": "Chemin API locale refuse."}).encode("utf-8"),
+            "body": json.dumps({"detail": "Chemin API locale refusé."}).encode("utf-8"),
             "status": 404,
             "content_type": "application/json",
         }
@@ -252,7 +252,7 @@ class KioskHandler(SimpleHTTPRequestHandler):
                 cache_result = sync_offline_cache()
                 self._send_json(
                     {
-                        "message": "Mode degrade synchronise.",
+                        "message": "Mode dégradé synchronisé.",
                         "events": events_result,
                         "cache": cache_result,
                     }
@@ -263,7 +263,7 @@ class KioskHandler(SimpleHTTPRequestHandler):
 
         if parsed_path.path == "/offline/events/sync":
             try:
-                self._send_json({"message": "Evenements offline synchronises.", **sync_offline_events()})
+                self._send_json({"message": "Événements offline synchronisés.", **sync_offline_events()})
             except Exception as error:  # noqa: BLE001
                 self._send_json({"detail": f"Synchronisation evenements offline impossible: {error}"}, status=503)
             return
@@ -287,7 +287,7 @@ class KioskHandler(SimpleHTTPRequestHandler):
         if parsed_path.path == "/charge/state/reset":
             technician_secret = self.headers.get("X-Terminal-Secret", "").strip()
             if TERMINAL_API_SECRET and technician_secret != TERMINAL_API_SECRET:
-                self._send_json({"detail": "Operation technicien refusee."}, status=403)
+                self._send_json({"detail": "Opération technicien refusée."}, status=403)
                 return
             try:
                 payload = self._read_json()
@@ -416,7 +416,7 @@ class KioskHandler(SimpleHTTPRequestHandler):
             ).to_dict()
 
         message = (
-            "Commande MQTT confirmee par ESP32."
+            "Commande MQTT confirmée par ESP32."
             if command_result.get("command_confirmed")
             else "Commande MQTT envoyee."
         )

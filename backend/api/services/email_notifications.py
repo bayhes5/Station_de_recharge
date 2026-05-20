@@ -31,19 +31,19 @@ def send_reservation_qr_email(reservation, access_payload):
     borne = reservation.emplacement.borne
     starts_at = timezone.localtime(reservation.date_debut).strftime("%d/%m/%Y %H:%M")
     ends_at = timezone.localtime(reservation.date_fin).strftime("%d/%m/%Y %H:%M")
-    subject = f"Votre QR code de reservation {reservation.reference_code}"
+    subject = f"Votre QR code de réservation {reservation.reference_code}"
     body = "\n".join(
         [
-            "Votre reservation de recharge est confirmee.",
+            "Votre réservation de recharge est confirmée.",
             "",
-            f"Code de reservation: {reservation.reference_code}",
+            f"Code de réservation: {reservation.reference_code}",
             f"Station: {station.nom}",
             f"Borne: {borne.nom}",
             f"Emplacement: {reservation.emplacement.numero}",
-            f"Creneau: {starts_at} - {ends_at}",
+            f"Créneau: {starts_at} - {ends_at}",
             "",
-            "Presentez le QR code depuis votre espace utilisateur ou ce message.",
-            "Le QR code reste accepte uniquement sur le bon creneau, la bonne borne et tant que la reservation reste active.",
+            "Présentez le QR code depuis votre espace utilisateur ou ce message.",
+            "Le QR code reste accepté uniquement sur le bon créneau, la bonne borne et tant que la réservation reste active.",
         ]
     )
     html = _reservation_qr_html(
@@ -71,8 +71,8 @@ def _reservation_qr_html(reservation, access_payload, *, starts_at, ends_at):
     return f"""<!doctype html>
 <html lang="fr">
 <body style="font-family:Arial,sans-serif;color:#17202e;line-height:1.5">
-  <h1 style="font-size:22px">Reservation de recharge confirmee</h1>
-  <p>Votre QR code d'acces est pret.</p>
+  <h1 style="font-size:22px">Réservation de recharge confirmée</h1>
+  <p>Votre QR code d'accès est prêt.</p>
   <div style="max-width:260px;margin:16px 0;padding:12px;border:1px solid #d0d5dd;border-radius:8px">
     {qr_block}
   </div>
@@ -81,9 +81,9 @@ def _reservation_qr_html(reservation, access_payload, *, starts_at, ends_at):
     <tr><td style="padding:4px 12px 4px 0;color:#667085">Station</td><td>{station}</td></tr>
     <tr><td style="padding:4px 12px 4px 0;color:#667085">Borne</td><td>{borne}</td></tr>
     <tr><td style="padding:4px 12px 4px 0;color:#667085">Emplacement</td><td>{reservation.emplacement.numero}</td></tr>
-    <tr><td style="padding:4px 12px 4px 0;color:#667085">Creneau</td><td>{escape(starts_at)} - {escape(ends_at)}</td></tr>
+    <tr><td style="padding:4px 12px 4px 0;color:#667085">Créneau</td><td>{escape(starts_at)} - {escape(ends_at)}</td></tr>
   </table>
-  <p style="color:#667085">Ce QR code est valable uniquement pour cette reservation.</p>
+  <p style="color:#667085">Ce QR code est valable uniquement pour cette réservation.</p>
 </body>
 </html>"""
 
@@ -160,13 +160,13 @@ def _alert_email_content(alert):
     subject = f"[Station] Alerte {alert.niveau_severite} - {station_label}"
     body = "\n".join(
         [
-            "Une nouvelle alerte a ete detectee sur la station.",
+            "Une nouvelle alerte a été détectée sur la station.",
             "",
             f"Station: {station_label}",
             f"Borne: {borne_label}",
             f"Emplacement: {emplacement_label}",
             f"Type: {alert.type}",
-            f"Severite: {alert.niveau_severite}",
+            f"Sévérité: {alert.niveau_severite}",
             f"Statut: {alert.status}",
             f"Message: {alert.message}",
             f"Date: {alert.timestamp.isoformat() if alert.timestamp else '-'}",
