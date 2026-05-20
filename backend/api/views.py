@@ -8,6 +8,7 @@ import string
 from datetime import datetime, timedelta
 from datetime import timezone as datetime_timezone
 from io import BytesIO
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
@@ -755,9 +756,25 @@ def _generate_mobile_session_token():
     raise RuntimeError("Impossible de generer une session mobile unique.")
 
 
-def _mobile_session_url(token):
+def _normalize_public_frontend_origin(value):
+    """Return a safe public frontend origin supplied by the kiosk, or an empty string."""
+    origin = str(value or "").strip().rstrip("/")
+    if not origin:
+        return ""
+
+    parsed = urlparse(origin)
+    if parsed.scheme not in {"http", "https"}:
+        return ""
+    if not parsed.netloc or parsed.username or parsed.password:
+        return ""
+    if parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment:
+        return ""
+    return origin
+
+
+def _mobile_session_url(token, frontend_origin=""):
     """Return the PWA URL opened by a phone for one kiosk pairing session."""
-    base_url = settings.FRONTEND_BASE_URL.rstrip("/")
+    base_url = _normalize_public_frontend_origin(frontend_origin) or settings.FRONTEND_BASE_URL.rstrip("/")
     return f"{base_url}/mobile-session.html?token={token}"
 
 
@@ -3442,7 +3459,7 @@ def terminal_create_mobile_session(request):
     }
     _store_mobile_session(payload)
 
-    session_url = _mobile_session_url(token)
+    session_url = _mobile_session_url(token, request.data.get("frontend_origin"))
     return Response(
         {
             "mobile_session": _serialize_mobile_session(payload),

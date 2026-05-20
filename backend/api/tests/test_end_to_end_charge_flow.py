@@ -3,6 +3,7 @@ from datetime import timedelta
 
 import pytest
 from django.core.cache import cache
+from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -87,6 +88,7 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
         {
             "station_id": str(station.id_station),
             "borne_id": str(borne.id_borne),
+            "frontend_origin": "http://10.42.0.15:5173",
         },
         format="json",
     )
@@ -94,6 +96,7 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
     assert create_mobile_response.status_code == status.HTTP_201_CREATED
     token = create_mobile_response.data["mobile_session"]["token"]
     assert create_mobile_response.data["mobile_session"]["status"] == "pending"
+    assert create_mobile_response.data["url"] == f"http://10.42.0.15:5173/mobile-session.html?token={token}"
 
     mobile_detail_response = authenticated_client.get(
         reverse("api-mobile-session-detail", kwargs={"token": token})
@@ -248,3 +251,20 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
     assert slot1.last_command_action == "STOP"
     assert slot1.last_command_status == "stopped"
     assert DeviceCommandLog.objects.filter(device=slot1, session=session).count() == 2
+
+
+@pytest.mark.django_db
+@override_settings(FRONTEND_BASE_URL="http://fallback.local:5173")
+def test_terminal_mobile_session_rejects_unsafe_frontend_origin(api_client):
+    """Keep the configured frontend URL when the kiosk sends a malformed origin."""
+    response = api_client.post(
+        reverse("api-terminal-mobile-session-create"),
+        {
+            "frontend_origin": "javascript:alert(1)",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    token = response.data["mobile_session"]["token"]
+    assert response.data["url"] == f"http://fallback.local:5173/mobile-session.html?token={token}"

@@ -90,6 +90,14 @@ Après changement de réseau, relancer ce script puis redémarrer les services q
 lisent ``.env``. Le QR de session mobile affiché par le kiosque doit contenir une
 URL joignable depuis le téléphone, pas une URL en ``localhost``.
 
+Pour le parcours kiosque, l'interface Raspberry envoie aussi au backend l'origine
+frontend visible depuis le navigateur. En développement, si le kiosque est ouvert
+sur ``http://<ip-wifi>:9000``, le QR mobile pointe automatiquement vers
+``http://<ip-wifi>:5173/mobile-session.html``. Si le kiosque passe par Nginx
+``https://<ip-wifi>/kiosk/``, le QR mobile reste sur la même origine
+``https://<ip-wifi>/mobile-session.html``. ``FRONTEND_BASE_URL`` reste le
+fallback utilisé quand le kiosque ne fournit pas cette origine.
+
 Commandes Docker courantes
 --------------------------
 

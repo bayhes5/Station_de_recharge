@@ -74,6 +74,7 @@ function renderQrSvg(container, svgText) {
 const KIOSK_BASE_PATH = window.location.pathname.startsWith("/kiosk/") ? "/kiosk" : "";
 const API_BASE_URL = resolveApiBaseUrl();
 const EDGE_BASE_URL = `${window.location.origin}${KIOSK_BASE_PATH}`;
+const MOBILE_FRONTEND_BASE_URL = resolveMobileFrontendBaseUrl();
 const KEYPAD_PATTERN = /^[0-9A-D]$/;
 const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
 const RESERVATION_CODE_LENGTH = 8;
@@ -309,6 +310,22 @@ function terminalContextPayload() {
     };
 }
 
+function resolveMobileFrontendBaseUrl() {
+    if (window.__MOBILE_FRONTEND_BASE_URL__) {
+        return String(window.__MOBILE_FRONTEND_BASE_URL__).replace(/\/$/, "");
+    }
+
+    if (KIOSK_BASE_PATH) {
+        return window.location.origin;
+    }
+
+    const frontendUrl = new URL(window.location.origin);
+    if (frontendUrl.port === "9000") {
+        frontendUrl.port = "5173";
+    }
+    return frontendUrl.toString().replace(/\/$/, "");
+}
+
 async function sendRfidLink(payload) {
     return sendApi("/terminal/link-rfid/", payload);
 }
@@ -336,7 +353,13 @@ async function sendOfflineAuthentication(payload) {
 }
 
 async function createMobileSession() {
-    return sendApi("/terminal/mobile-sessions/", terminalContextPayload());
+    return sendApi(
+        "/terminal/mobile-sessions/",
+        {
+            ...terminalContextPayload(),
+            frontend_origin: MOBILE_FRONTEND_BASE_URL,
+        },
+    );
 }
 
 async function consumeMobileSession(token) {
