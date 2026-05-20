@@ -338,6 +338,92 @@ def test_admin_rejects_duplicate_technician_station_assignment(admin_client, adm
 
 
 @pytest.mark.django_db
+def test_admin_can_create_technician_with_station_scope(admin_client, admin_user, station):
+    response = admin_client.post(
+        reverse("api-admin-technicians"),
+        {
+            "utilisateur": str(admin_user.id_user),
+            "nom": "Tech Scoped",
+            "email": "tech-scoped@example.com",
+            "telephone": "0600000000",
+            "station_scope": [str(station.id_station)],
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    technician = Technicien.objects.get(email="tech-scoped@example.com")
+    assert TechnicienStation.objects.filter(
+        technicien=technician,
+        station=station,
+        is_active=True,
+    ).exists()
+    assert response.data["assigned_stations"][0]["station_nom"] == "Station Centre"
+
+
+@pytest.mark.django_db
+def test_admin_can_update_technician_station_scope(admin_client, admin_user, station):
+    technician = Technicien.objects.create(
+        utilisateur=admin_user,
+        nom="Tech Update Scope",
+        email="tech-update-scope@example.com",
+        telephone="",
+    )
+    existing_assignment = TechnicienStation.objects.create(
+        technicien=technician,
+        station=station,
+        role="referent",
+    )
+    other_station = Station.objects.create(
+        nom="Station Est",
+        localisation_text="Quartier Est",
+        statut="active",
+    )
+
+    response = admin_client.patch(
+        reverse("api-admin-technician-detail", kwargs={"technician_id": technician.id_technicien}),
+        {"station_scope": [str(other_station.id_station)]},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    existing_assignment.refresh_from_db()
+    assert existing_assignment.is_active is False
+    assert TechnicienStation.objects.get(
+        technicien=technician,
+        station=other_station,
+    ).is_active is True
+    assert [assignment["station_nom"] for assignment in response.data["assigned_stations"]] == [
+        "Station Est"
+    ]
+
+
+@pytest.mark.django_db
+def test_admin_technician_update_without_station_scope_keeps_assignments(
+    admin_client,
+    admin_user,
+    station,
+):
+    technician = Technicien.objects.create(
+        utilisateur=admin_user,
+        nom="Tech Keep Scope",
+        email="tech-keep-scope@example.com",
+        telephone="",
+    )
+    assignment = TechnicienStation.objects.create(technicien=technician, station=station)
+
+    response = admin_client.patch(
+        reverse("api-admin-technician-detail", kwargs={"technician_id": technician.id_technicien}),
+        {"telephone": "0611111111"},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assignment.refresh_from_db()
+    assert assignment.is_active is True
+
+
+@pytest.mark.django_db
 def test_technician_supervision_is_limited_to_assigned_stations(api_client, user, station, borne, emplacements):
     technicien = Technicien.objects.create(
         utilisateur=user,

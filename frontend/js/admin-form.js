@@ -162,6 +162,14 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { name: "nom", label: "Nom", type: "text", required: true },
                 { name: "email", label: "E-mail", type: "email", required: true },
                 { name: "telephone", label: "T\u00e9l\u00e9phone", type: "tel" },
+                {
+                    name: "station_scope",
+                    label: "P\u00e9rim\u00e8tre d'intervention",
+                    type: "station-scope",
+                    options: "stations",
+                    fullWidth: true,
+                    helper: "S\u00e9lectionnez uniquement les stations que ce technicien peut superviser ou traiter.",
+                },
             ],
         },
         "technician-station": {
@@ -563,6 +571,10 @@ document.addEventListener("DOMContentLoaded", async () => {
             return null;
         }
 
+        if (field.type === "station-scope") {
+            return createStationScopeField(field);
+        }
+
         const wrapper = document.createElement("div");
         wrapper.className = `field${field.fullWidth ? " admin-field-wide" : ""}`;
 
@@ -605,6 +617,51 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         wrapper.appendChild(label);
         wrapper.appendChild(input);
+        return wrapper;
+    }
+
+    function createStationScopeField(field) {
+        const wrapper = document.createElement("fieldset");
+        wrapper.className = "field admin-field-wide station-scope-field";
+
+        const legend = document.createElement("legend");
+        legend.textContent = field.label;
+        wrapper.appendChild(legend);
+
+        if (field.helper) {
+            wrapper.appendChild(createTextElement("p", field.helper, "helper"));
+        }
+
+        const list = document.createElement("div");
+        list.className = "station-scope-list";
+
+        if (!stations.length) {
+            const empty = createTextElement("p", "Aucune station disponible.", "empty-state");
+            wrapper.appendChild(empty);
+            return wrapper;
+        }
+
+        stations.forEach((station) => {
+            const option = document.createElement("label");
+            option.className = "station-scope-option";
+
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.name = field.name;
+            checkbox.value = station.id_station;
+
+            const text = document.createElement("span");
+            const title = createTextElement("strong", station.nom || "Station");
+            const location = createTextElement("small", optionLabel(station.localisation_text));
+            text.appendChild(title);
+            text.appendChild(location);
+
+            option.appendChild(checkbox);
+            option.appendChild(text);
+            list.appendChild(option);
+        });
+
+        wrapper.appendChild(list);
         return wrapper;
     }
 
@@ -654,6 +711,16 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     function setFormValues(item) {
         config.fields.forEach((field) => {
+            if (field.type === "station-scope") {
+                const selectedStations = new Set(
+                    (item.assigned_stations || []).map((assignment) => String(assignment.station))
+                );
+                form.querySelectorAll(`input[name="${field.name}"]`).forEach((control) => {
+                    control.checked = selectedStations.has(String(control.value));
+                });
+                return;
+            }
+
             const control = form.elements[field.name];
             if (!control) return;
 
@@ -673,6 +740,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     function collectPayload() {
         const payload = {};
         config.fields.forEach((field) => {
+            if (field.type === "station-scope") {
+                payload[field.name] = Array.from(
+                    form.querySelectorAll(`input[name="${field.name}"]:checked`)
+                ).map((control) => control.value);
+                return;
+            }
+
             const control = form.elements[field.name];
             if (!control || (field.createOnly && isEdit)) return;
 

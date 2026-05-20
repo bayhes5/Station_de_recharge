@@ -661,6 +661,37 @@ def _station_ids_for_technician(technicien):
     )
 
 
+def _sync_technician_station_scope(technician, station_scope):
+    """Synchronize active station assignments from the technician edit form."""
+    if station_scope is None:
+        return
+
+    requested_ids = {str(station_id) for station_id in station_scope}
+    assignments = {
+        str(assignment.station_id): assignment
+        for assignment in TechnicienStation.objects.filter(technicien=technician)
+    }
+
+    for station_id, assignment in assignments.items():
+        should_be_active = station_id in requested_ids
+        if assignment.is_active != should_be_active:
+            assignment.is_active = should_be_active
+            assignment.save(update_fields=["is_active"])
+
+    missing_ids = requested_ids - set(assignments)
+    TechnicienStation.objects.bulk_create(
+        [
+            TechnicienStation(
+                technicien=technician,
+                station_id=station_id,
+                role="intervenant",
+                is_active=True,
+            )
+            for station_id in missing_ids
+        ]
+    )
+
+
 def _technician_can_manage_alert(user, alert):
     """Return the technician profile allowed to operate on an alert."""
     if user.is_staff:
@@ -3087,19 +3118,26 @@ def admin_technicians(request):
 
     serializer = TechnicianSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
+    station_scope = serializer.validated_data.get("station_scope")
 
     utilisateur = None
-    utilisateur_id = request.data.get("utilisateur")
+    utilisateur_id = serializer.validated_data.get("utilisateur")
     if utilisateur_id:
-        utilisateur = User.objects.filter(id_user=utilisateur_id).first()
-        if utilisateur is None:
-            return Response({"utilisateur": "Utilisateur introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        utilisateur = utilisateur_id
 
-    technician = Technicien.objects.create(
-        utilisateur=utilisateur,
-        nom=serializer.validated_data["nom"],
-        email=serializer.validated_data["email"],
-        telephone=serializer.validated_data.get("telephone", ""),
+    with transaction.atomic():
+        technician = Technicien.objects.create(
+            utilisateur=utilisateur,
+            nom=serializer.validated_data["nom"],
+            email=serializer.validated_data["email"],
+            telephone=serializer.validated_data.get("telephone", ""),
+        )
+        _sync_technician_station_scope(technician, station_scope)
+
+    technician = (
+        Technicien.objects.select_related("utilisateur")
+        .prefetch_related(_active_station_assignments_prefetch())
+        .get(id_technicien=technician.id_technicien)
     )
     return Response(TechnicianSerializer(technician).data, status=status.HTTP_201_CREATED)
 
@@ -3129,21 +3167,22 @@ def admin_technician_detail(request, technician_id):
 
     serializer = TechnicianSerializer(instance=technician, data=request.data, partial=True)
     serializer.is_valid(raise_exception=True)
+    station_scope = serializer.validated_data.get("station_scope")
 
-    utilisateur_id = request.data.get("utilisateur")
-    utilisateur = None
-    if utilisateur_id:
-        utilisateur = User.objects.filter(id_user=utilisateur_id).first()
-        if utilisateur is None:
-            return Response({"utilisateur": "Utilisateur introuvable."}, status=status.HTTP_404_NOT_FOUND)
+    with transaction.atomic():
+        technician.nom = serializer.validated_data.get("nom", technician.nom)
+        technician.email = serializer.validated_data.get("email", technician.email)
+        technician.telephone = serializer.validated_data.get("telephone", technician.telephone)
+        if "utilisateur" in serializer.validated_data:
+            technician.utilisateur = serializer.validated_data["utilisateur"]
+        technician.save()
+        _sync_technician_station_scope(technician, station_scope)
 
-    technician.nom = serializer.validated_data.get("nom", technician.nom)
-    technician.email = serializer.validated_data.get("email", technician.email)
-    technician.telephone = serializer.validated_data.get("telephone", technician.telephone)
-    if utilisateur is not None:
-        technician.utilisateur = utilisateur
-    technician.save()
-
+    technician = (
+        Technicien.objects.select_related("utilisateur")
+        .prefetch_related(_active_station_assignments_prefetch())
+        .get(id_technicien=technician.id_technicien)
+    )
     return Response(TechnicianSerializer(technician).data)
 
 

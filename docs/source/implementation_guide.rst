@@ -528,8 +528,11 @@ technicien, un statut et des dates.
 opérationnel : ``intervenant``, ``referent`` ou ``observateur``. Cette table sert
 à limiter la supervision visible dans le dashboard technicien et évite de donner
 un accès Grafana large à un intervenant terrain. L'admin peut gérer ces
-affectations depuis l'onglet opérations avec la ressource
-``technician-station``.
+affectations directement depuis la fiche de création ou de modification du
+technicien, via la section ``Périmètre d'intervention``. La ressource avancée
+``technician-station`` reste disponible pour auditer ou ajuster finement le rôle
+d'une affectation, mais le flux recommandé est de visualiser et modifier le
+périmètre au même endroit que l'identité du technicien.
 
 L'endpoint ``GET /api/technician/maintenances/`` permet à un technicien connecté
 de consulter ses interventions. L'administration peut créer, modifier et

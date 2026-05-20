@@ -331,7 +331,9 @@ stations. La supervision technicien ne lit ensuite que les devices, alertes,
 mesures et commandes des stations actives dans ce périmètre. Grafana reste un
 outil de supervision technique global ou administrateur ; l'accès terrain
 quotidien des techniciens passe par l'application, où le filtrage est porté par
-l'API Django.
+l'API Django. Dans l'interface d'administration, ce périmètre est intégré à la
+fiche du technicien afin que l'identité, le compte lié et les stations
+autorisées soient contrôlés dans un seul écran.
 
 Performance et TimescaleDB
 --------------------------

@@ -683,6 +683,12 @@ class TechnicianSerializer(serializers.ModelSerializer):
 
     utilisateur_pseudo = serializers.CharField(source="utilisateur.pseudo", read_only=True)
     assigned_stations = serializers.SerializerMethodField()
+    station_scope = serializers.ListField(
+        child=serializers.UUIDField(),
+        write_only=True,
+        required=False,
+        allow_empty=True,
+    )
 
     class Meta:
         model = Technicien
@@ -694,10 +700,19 @@ class TechnicianSerializer(serializers.ModelSerializer):
             "email",
             "telephone",
             "assigned_stations",
+            "station_scope",
         )
         extra_kwargs = {
             "utilisateur": {"required": False, "allow_null": True},
         }
+
+    def validate_station_scope(self, value):
+        """Ensure every requested station exists before synchronizing scope."""
+        station_ids = list(dict.fromkeys(value))
+        existing_count = Station.objects.filter(id_station__in=station_ids).count()
+        if existing_count != len(station_ids):
+            raise serializers.ValidationError("Une ou plusieurs stations sont introuvables.")
+        return station_ids
 
     @extend_schema_field(TechnicianStationAssignmentSerializer(many=True))
     def get_assigned_stations(self, obj):
