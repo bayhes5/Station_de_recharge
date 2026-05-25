@@ -532,6 +532,51 @@ def test_process_mqtt_message_stores_session_telemetry_for_active_session(user, 
 
 
 @pytest.mark.django_db
+@override_settings(SESSION_TELEMETRY_DEFAULT_VOLTAGE=12.0)
+def test_process_mqtt_message_uses_default_voltage_for_current_only_session(user, emplacements):
+    """Keep Grafana session series alive for prototypes that only publish current."""
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="TELVOLT1",
+        auth_choice="qr",
+        date_debut=timezone.now() - timedelta(minutes=10),
+        date_fin=timezone.now() + timedelta(minutes=20),
+        statut="active",
+    )
+    session = Session.objects.create(
+        reservation=reservation,
+        emplacement=emplacements[0],
+        start_time=timezone.now() - timedelta(minutes=5),
+    )
+    Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="demo",
+        mac_address="slot1",
+        status="offline",
+    )
+
+    result = process_mqtt_message(
+        "station/slot1/telemetry",
+        json.dumps(
+            {
+                "session_id": str(session.id_session),
+                "state": "charging",
+                "current": 0.8,
+                "energy_kwh": 0.01,
+            }
+        ),
+    )
+
+    assert result["session_telemetry_created"] is True
+    telemetry = SessionTelemetry.objects.get(session=session)
+    assert telemetry.courant == 0.8
+    assert telemetry.tension == 12.0
+    assert telemetry.energie_kwh == 0.01
+
+
+@pytest.mark.django_db
 @override_settings(SESSION_ENERGY_ALERT_KWH=0.05)
 def test_process_mqtt_message_creates_energy_limit_alert_for_active_session(user, emplacements):
     """Raise a contextual energy alert when one session exceeds the configured cap."""

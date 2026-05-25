@@ -20,12 +20,12 @@ de base pour les trois emplacements en changeant uniquement :
 
 Le code cible actuellement :
 
-* un relais de charge ;
-* une sortie de serrure ;
-* un contact de boîtier ;
-* un détecteur de présence câble ;
 * un DHT22 pour température et humidité ;
-* un INA219 pour courant, tension et puissance.
+* un capteur de courant analogique SEN0214 ;
+* une tension fixe de prototype pour estimer puissance et énergie ;
+* une sortie de serrure via relais actif-bas ;
+* un relais de charge, un contact de boîtier et un détecteur de présence câble
+  encore optionnels tant qu'ils ne sont pas câblés.
 
 Configuration minimale
 ----------------------
@@ -44,14 +44,27 @@ Extrait de configuration :
    SLOT_ID = "slot1"
    CLIENT_ID = "esp32-slot1"
 
-   DHT_PIN = 4
-   INA219_SDA_PIN = 21
-   INA219_SCL_PIN = 25
-   LOCK_PIN = 23
-   CHARGE_PIN = 22
+   DHT_PIN = 15
+   CURRENT_SENSOR_MODE = "sen0214"
+   ADC_CURRENT_PIN = 34
+   VOLTAGE_SENSOR_MODE = "fixed"
+   FIXED_BUS_VOLTAGE = 12.0
+   LOCK_OUTPUT_ENABLED = True
+   LOCK_PIN = 26
+   LOCK_RELAY_ACTIVE_LOW = True
+   LOCK_UNLOCK_PULSE_SECONDS = 5
+   CHARGE_RELAY_OUTPUT_ENABLED = False
+   CHARGE_RELAY_PIN = 22
 
-L'emplacement démarre verrouillé. La serrure est ouverte uniquement lorsqu'une
-commande ``START`` ou ``UNLOCK`` est reçue.
+L'emplacement démarre verrouillé. La serrure testée physiquement utilise
+``GPIO26`` avec un relais actif-bas : ``0`` alimente la serrure et ouvre, ``1``
+remet le relais au repos. Le firmware ouvre donc la serrure par impulsion de
+``5`` secondes lors de ``START``, ``STOP`` ou ``UNLOCK``, puis remet le relais
+au repos pour éviter une alimentation continue.
+
+Le ``START`` publie un ACK ``accepted`` avant l'impulsion de serrure afin de ne
+pas dépasser le timeout d'ACK du Raspberry. Le statut réel de l'emplacement est
+ensuite publié sur ``status`` et ``telemetry``.
 
 Déploiement avec Thonny
 -----------------------
@@ -65,8 +78,10 @@ Procédure de test sur carte physique :
 5. adapter ``SLOT_ID`` et ``CLIENT_ID`` pour l'emplacement ;
 6. enregistrer ``esp32/emplacement1/main.py`` sur la carte sous le nom
    ``main.py`` ;
-7. redémarrer la carte ;
-8. vérifier les topics MQTT depuis le PC ou le Raspberry.
+7. optionnel : enregistrer un fichier ``version.txt`` contenant uniquement la
+   version à publier, par exemple ``1.2.0-lock-relay`` ;
+8. redémarrer la carte ;
+9. vérifier les topics MQTT depuis le PC ou le Raspberry.
 
 Commande d'écoute :
 
@@ -245,13 +260,14 @@ Payload publié sur ``station/<slot_id>/telemetry`` :
      "temperature": 31.5,
      "humidity": 45.0,
      "door": true,
-     "cable": true
+     "cable": true,
+     "lock": true
    }
 
-Le firmware lit le DHT22 et l'INA219 lorsque les capteurs répondent. Si un
-capteur est absent pendant le développement, le firmware publie des valeurs
-simulées afin de tester immédiatement la chaîne MQTT, l'ingestion backend et
-Grafana.
+Le firmware lit actuellement le DHT22, le SEN0214 et l'état logique de serrure.
+La tension est une valeur fixe de prototype tant qu'un capteur de tension réel
+n'est pas câblé. Les champs porte et câble restent absents ou ``null`` tant que
+les contacts physiques ne sont pas branchés.
 
 Les champs d'inventaire sont publiés automatiquement par le firmware :
 
@@ -269,6 +285,14 @@ par équipement ou planifier une cible OTA depuis l'API admin. Les champs
 ``ota_requested_at``, ``ota_completed_at`` et ``ota_last_error`` servent à
 tracer la décision et l'état de conformité sans donner d'accès global à Grafana
 aux techniciens terrain.
+
+La MAC et l'adresse IP sont de vraies données lues au runtime par
+``network.WLAN``. La version firmware ne peut pas être devinée automatiquement
+par l'ESP32 : elle doit être embarquée au moment du flash. Le firmware lit
+d'abord ``version.txt`` sur LittleFS s'il existe, puis retombe sur la constante
+``FIRMWARE_VERSION`` de ``main.py``. Cette approche évite de modifier toute la
+logique du firmware pour une démonstration : on peut livrer le même ``main.py``
+et changer seulement le petit fichier de version lors du flash.
 
 Chaîne de supervision
 ---------------------
@@ -314,8 +338,8 @@ Le firmware est prêt pour les tests d'intégration, mais certains points doiven
 être validés sur le matériel final :
 
 * sens électrique réel des contacts ``door`` et ``cable`` ;
-* polarité de la serrure ;
-* calibration INA219 selon le shunt ;
+* comportement mécanique réel de la serrure sur plusieurs cycles ;
+* calibration SEN0214 et, plus tard, capteur tension ou INA219 selon le shunt ;
 * seuils réels de courant et température ;
 * stratégie de reconnexion Wi-Fi/MQTT longue durée ;
 * journal local LittleFS pour événements non transmis.

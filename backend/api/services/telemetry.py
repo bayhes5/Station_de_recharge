@@ -140,6 +140,19 @@ def _setting_float(name: str, default: float) -> float:
         return default
 
 
+def _session_voltage(payload: dict[str, Any]):
+    """Return the voltage used for session telemetry.
+
+    The ESP32 should publish a measured or configured voltage. A backend
+    fallback can be enabled for prototypes that only publish current.
+    """
+    voltage = _as_float(payload.get("voltage"))
+    if voltage is not None:
+        return voltage
+    fallback = _setting_float("SESSION_TELEMETRY_DEFAULT_VOLTAGE", 0.0)
+    return fallback if fallback > 0 else None
+
+
 def _bool_as_float(value: Any):
     """Convert boolean-like sensor values to numeric storage values."""
     if isinstance(value, bool):
@@ -695,7 +708,7 @@ def ingest_slot_telemetry(slot_id: str, payload: dict[str, Any], topic_prefix: s
 
     session_telemetry_created = False
     current = _as_float(payload.get("current"))
-    voltage = _as_float(payload.get("voltage"))
+    voltage = _session_voltage(payload)
     energy = _as_float(payload.get("energy_kwh"))
     session = _get_active_session(device.emplacement, payload.get("session_id"))
     mark_state_from_device(session, payload.get("state"), now=timestamp)

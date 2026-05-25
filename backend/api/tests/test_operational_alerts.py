@@ -8,7 +8,15 @@ from django.conf import settings
 from django.test import override_settings
 from django.utils import timezone
 
-from api.models import Alerte, Reservation, Session, SessionTelemetry, Technicien, TechnicienStation
+from api.models import (
+    Alerte,
+    ChargeSessionState,
+    Reservation,
+    Session,
+    SessionTelemetry,
+    Technicien,
+    TechnicienStation,
+)
 from api.tasks import notify_pending_alerts_task, scan_session_telemetry_gaps_task
 from api.services.operational_alerts import scan_session_telemetry_gaps
 
@@ -89,6 +97,24 @@ def test_scan_session_telemetry_gaps_resolves_when_telemetry_returns(user, empla
     assert second_result.resolved == 1
     alert = Alerte.objects.get(type="session_without_telemetry")
     assert alert.status == "resolue"
+
+
+@pytest.mark.django_db
+@override_settings(SESSION_STOPPING_STALE_MINUTES=2)
+def test_scan_session_telemetry_gaps_creates_alert_for_stuck_stopping_session(user, emplacements):
+    """Raise a precise alert when STOP was requested but backend closure is missing."""
+    session = create_active_session(user, emplacements[0])
+    session.charge_state = ChargeSessionState.STOPPING
+    session.charge_state_updated_at = timezone.now() - timedelta(minutes=3)
+    session.save(update_fields=["charge_state", "charge_state_updated_at"])
+
+    result = scan_session_telemetry_gaps()
+
+    assert result.created == 1
+    alert = Alerte.objects.get(type="session_stopping_too_long")
+    assert alert.session == session
+    assert alert.status == "nouvelle"
+    assert "Session en arrêt" in alert.message
 
 
 @pytest.mark.django_db

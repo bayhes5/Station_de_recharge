@@ -3,8 +3,9 @@
 This version is adapted for the current hardware test:
 - DHT22 on GPIO15 for temperature and humidity.
 - DFRobot SEN0214 analog 20A current sensor on GPIO34.
+- Active-low lock relay on GPIO26.
 - ESP32 identity fields: firmware version, IP address and MAC address.
-- Door, cable, relay and lock are optional and disabled by default until wired.
+- Door, cable and charge relay are optional and disabled by default until wired.
 
 It speaks the project MQTT contract:
 station/<mqtt_prefix>/<slot_id>/cmd
@@ -42,11 +43,14 @@ MQTT_BASE_TOPIC = "station"
 MQTT_TOPIC_PREFIX = "station-demo/borne-1"
 SLOT_ID = "slot1"
 CLIENT_ID = "esp32-station-demo-borne-1-slot1"
-FIRMWARE_VERSION = "1.1.0-sensors"
+FIRMWARE_VERSION = "1.2.0-lock-relay"
+FIRMWARE_VERSION_FILE = "version.txt"
 
-# DHT22, ESP32 identity and SEN0214 current are wired/reported for now.
+# DHT22, ESP32 identity, SEN0214 current and the lock relay are wired/reported
+# for now. Door, cable and charge relay remain optional until wired.
 PHYSICAL_INPUTS_ENABLED = False
-OUTPUTS_ENABLED = False
+LOCK_OUTPUT_ENABLED = True
+CHARGE_RELAY_OUTPUT_ENABLED = False
 SIMULATE_MISSING_SENSORS = False
 
 # DHT22 prototype wiring from TEMPERATUREHUMIDY.txt.
@@ -91,7 +95,9 @@ INA219_SHUNT_OHMS = 0.1
 # Optional future physical wiring.
 HALL_PIN = 19
 DOOR_PIN = 18
-LOCK_PIN = 23
+LOCK_PIN = 26
+LOCK_RELAY_ACTIVE_LOW = True
+LOCK_UNLOCK_PULSE_SECONDS = 5
 CHARGE_RELAY_PIN = 22
 
 TELEMETRY_ACTIVE_INTERVAL_SECONDS = 5
@@ -117,8 +123,10 @@ hall = None
 door = None
 lock = None
 charge_relay = None
+lock_state_locked = None
 mqtt_client = None
 wlan = None
+reported_firmware_version = FIRMWARE_VERSION
 
 
 def normalized_topic_root():
@@ -161,6 +169,21 @@ def format_mac(mac_bytes):
     return ":".join("{:02X}".format(value) for value in mac_bytes)
 
 
+def load_firmware_version():
+    """Return the version embedded in the firmware or stored on LittleFS."""
+    try:
+        with open(FIRMWARE_VERSION_FILE, "r") as version_file:
+            version = version_file.read().strip()
+        if version:
+            print("Firmware version loaded from {}: {}".format(FIRMWARE_VERSION_FILE, version))
+            return version
+    except OSError:
+        pass
+    except Exception as exc:
+        print("Firmware version file read failed:", exc)
+    return FIRMWARE_VERSION
+
+
 def connect_wifi():
     """Connect to Wi-Fi and print the network identity."""
     station = network.WLAN(network.STA_IF)
@@ -195,7 +218,7 @@ def device_identity():
     return {
         "slot_id": SLOT_ID,
         "client_id": CLIENT_ID,
-        "firmware_version": FIRMWARE_VERSION,
+        "firmware_version": reported_firmware_version,
         "hardware_mac": hardware_mac,
         "ip_address": ip_address,
     }
@@ -204,13 +227,19 @@ def device_identity():
 def init_outputs():
     """Initialize optional relay outputs only when they are wired."""
     global lock, charge_relay
-    if not OUTPUTS_ENABLED:
-        print("Outputs disabled: lock and charge relay are not driven.")
-        return
-    lock = Pin(LOCK_PIN, Pin.OUT)
-    charge_relay = Pin(CHARGE_RELAY_PIN, Pin.OUT)
-    lock.value(1)
-    charge_relay.value(0)
+    if LOCK_OUTPUT_ENABLED:
+        lock = Pin(LOCK_PIN, Pin.OUT)
+        lock_slot()
+        print("Lock relay ready on GPIO{}.".format(LOCK_PIN))
+    else:
+        print("Lock relay disabled.")
+
+    if CHARGE_RELAY_OUTPUT_ENABLED:
+        charge_relay = Pin(CHARGE_RELAY_PIN, Pin.OUT)
+        charge_relay.value(0)
+        print("Charge relay ready on GPIO{}.".format(CHARGE_RELAY_PIN))
+    else:
+        print("Charge relay disabled.")
 
 
 def init_physical_inputs():
@@ -520,16 +549,42 @@ def reported_door_closed():
     return read_door_closed()
 
 
+def reported_lock_locked():
+    """Return the last commanded lock state, or None when the relay is disabled."""
+    if lock is None:
+        return None
+    return lock_state_locked
+
+
+def lock_pin_value(locked):
+    """Return the relay GPIO value for a locked or unlocked state."""
+    if locked:
+        return 1 if LOCK_RELAY_ACTIVE_LOW else 0
+    return 0 if LOCK_RELAY_ACTIVE_LOW else 1
+
+
 def lock_slot():
-    """Lock the slot when the output is wired."""
+    """De-energize the lock relay and return the lock to its rest position."""
+    global lock_state_locked
+    lock_state_locked = True
     if lock is not None:
-        lock.value(1)
+        lock.value(lock_pin_value(True))
 
 
 def unlock_slot():
-    """Unlock the slot when the output is wired."""
+    """Energize the lock relay to open the lock."""
+    global lock_state_locked
+    lock_state_locked = False
     if lock is not None:
-        lock.value(0)
+        lock.value(lock_pin_value(False))
+
+
+def pulse_unlock_slot(duration_seconds=LOCK_UNLOCK_PULSE_SECONDS):
+    """Open the lock for a short pulse, then return the relay to rest."""
+    unlock_slot()
+    if lock is not None and duration_seconds and duration_seconds > 0:
+        time.sleep(duration_seconds)
+        lock_slot()
 
 
 def start_charge_output():
@@ -558,6 +613,7 @@ def publish_status(client, event, reason=""):
         "session_id": session_id,
         "door": reported_door_closed(),
         "cable": reported_cable_present(),
+        "lock": reported_lock_locked(),
         "uptime_seconds": now_seconds(),
     }
     payload.update(device_identity())
@@ -601,19 +657,18 @@ def accept_start(client, payload):
         return
 
     session_id = str(payload.get("session_id") or "")
-    unlock_slot()
+    publish_ack(client, payload, "accepted", "Commande START acceptee, ouverture serrure.")
+    pulse_unlock_slot()
     if read_cable_present() and read_door_closed():
         start_charge_output()
         lock_slot()
         state = "charging"
         publish_status(client, "charging_started")
-        publish_ack(client, payload, "charging", "Charge démarrée.")
         publish_telemetry_now(client)
     else:
         stop_charge_output()
         state = "waiting_plug"
         publish_status(client, "waiting_plug")
-        publish_ack(client, payload, "accepted", "En attente du câble et du boîtier.")
         publish_telemetry_now(client)
 
 
@@ -622,10 +677,10 @@ def accept_stop(client, payload, reason="remote_stop"):
     global state, session_id
 
     stop_charge_output()
-    unlock_slot()
     state = "idle"
-    publish_status(client, "stopped", reason)
     publish_ack(client, payload, "stopped", "Charge arrêtée.")
+    pulse_unlock_slot()
+    publish_status(client, "stopped", reason)
     publish_telemetry_now(client)
     session_id = ""
 
@@ -653,6 +708,10 @@ def handle_command(topic_bytes, message):
         unlock_slot()
         publish_status(mqtt_client, "unlocked")
         publish_ack(mqtt_client, payload, "unlocked", "Boitier deverrouille.")
+        if lock is not None and LOCK_UNLOCK_PULSE_SECONDS > 0:
+            time.sleep(LOCK_UNLOCK_PULSE_SECONDS)
+            lock_slot()
+            publish_status(mqtt_client, "locked", "unlock_pulse_finished")
         publish_telemetry_now(mqtt_client)
     else:
         publish_ack(mqtt_client, payload, "error", "Commande inconnue.")
@@ -730,6 +789,7 @@ def publish_telemetry(client):
         "heat_index": round_value(environment.get("heat_index"), 2),
         "door": reported_door_closed(),
         "cable": reported_cable_present(),
+        "lock": reported_lock_locked(),
         "uptime_seconds": now_seconds(),
     }
     payload.update(device_identity())
@@ -765,9 +825,10 @@ def setup_hardware():
 
 def main():
     """Main firmware loop."""
-    global wlan, mqtt_client, last_telemetry_at, last_status_at
+    global wlan, mqtt_client, last_telemetry_at, last_status_at, reported_firmware_version
 
     setup_hardware()
+    reported_firmware_version = load_firmware_version()
     wlan = connect_wifi()
     mqtt_client = connect_mqtt()
     publish_status(mqtt_client, "boot")

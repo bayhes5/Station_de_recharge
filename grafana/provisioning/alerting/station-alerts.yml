@@ -7,7 +7,7 @@ groups:
     interval: 1m
     rules:
       - uid: station_esp32_offline
-        title: ESP32 offline
+        title: Contrôleur sans signal
         condition: B
         data:
           - refId: A
@@ -58,13 +58,13 @@ groups:
         execErrState: Error
         for: 2m
         annotations:
-          summary: "Un ou plusieurs ESP32 ne publient plus de status ou télémétrie."
+          summary: "Un ou plusieurs contrôleurs ne publient plus d'état ou de télémétrie."
         labels:
           severity: warning
           domain: supervision
 
       - uid: station_temperature_high
-        title: Température ESP32 élevée
+        title: Température contrôleur élevée
         condition: B
         data:
           - refId: A

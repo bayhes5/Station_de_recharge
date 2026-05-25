@@ -311,12 +311,22 @@ Téléphone
   -> liste ses réservations compatibles
   -> choisit une réservation
   -> POST /api/mobile-sessions/<token>/authorize/
+  -> affiche "Autorisation confirmée"
+  -> suit GET /api/mobile-sessions/<token>/
+  -> affiche "Session démarrée sur la borne" quand le kiosque a consommé l'autorisation
 
 Kiosque
   -> interroge le statut
   -> consomme l'autorisation
   -> ouvre la session de charge
 ```
+
+Le statut de la session mobile évolue ainsi : `pending` quand le QR de borne est
+créé, `authorized` quand l'utilisateur a choisi une réservation sur son
+téléphone, puis `consumed` quand le kiosque a consommé l'autorisation et démarré
+le parcours de charge. Si la page mobile est rafraîchie après l'autorisation,
+`mobile_session_detail()` renvoie la réservation sélectionnée afin que la PWA
+retrouve le contexte affiché.
 
 Références :
 
@@ -542,10 +552,15 @@ Le firmware ESP32 actuel couvre le prototype matériel disponible :
 - calcul de puissance ;
 - intégration de l'énergie en kWh ;
 - remontée IP, MAC et version firmware ;
+- serrure électromagnétique par relais actif-bas sur GPIO26 ;
 - commandes START/STOP/LOCK/UNLOCK ;
 - ACK MQTT ;
 - status et telemetry ;
-- capteurs porte, câble, serrure et relais désactivés tant qu'ils ne sont pas câblés.
+- capteurs porte, câble et relais de charge désactivés tant qu'ils ne sont pas câblés.
+
+La serrure est ouverte par impulsion de 5 secondes lors d'un `START`, `STOP` ou
+`UNLOCK`, puis le relais revient au repos. Le firmware envoie l'ACK `START`
+avant l'impulsion pour ne pas dépasser le timeout MQTT côté Raspberry.
 
 Référence : [`esp32/emplacement1/main.py`](esp32/emplacement1/main.py)
 
@@ -587,6 +602,10 @@ L'énergie augmente uniquement lorsque :
 - du temps s'écoule entre deux mesures.
 
 Référence du calcul : fonction `update_energy()` dans [`esp32/emplacement1/main.py`](esp32/emplacement1/main.py).
+
+La MAC et l'adresse IP sont lues réellement par l'ESP32 via le Wi-Fi. La version
+firmware est une donnée embarquée : le firmware lit `version.txt` sur LittleFS
+si le fichier existe, sinon il publie la constante `FIRMWARE_VERSION`.
 
 ## 12. MQTT côté backend
 
@@ -785,7 +804,8 @@ Types d'alertes possibles :
 - énergie sans session ;
 - énergie de session trop élevée ;
 - firmware non conforme ;
-- session active sans télémétrie.
+- session active sans télémétrie ;
+- session bloquée en arrêt.
 
 Références :
 
@@ -824,6 +844,11 @@ Références :
 - Endpoints technicien : [`backend/api/api_urls.py`](backend/api/api_urls.py)
 - Vue technicien : `technician_supervision()` dans [`backend/api/views.py`](backend/api/views.py)
 - WebSocket technicien : `TechnicianSupervisionConsumer` dans [`backend/api/consumers.py`](backend/api/consumers.py)
+
+Le tableau de bord technicien reprend ce périmètre dans l'interface. Les
+contrôleurs ESP32, alertes, mesures et commandes récentes exposent leur
+`station_id`, ce qui permet de filtrer la supervision par station sans afficher
+un périmètre plus large que celui autorisé.
 
 L'administrateur gère :
 
@@ -966,6 +991,11 @@ Chaque ESP32 remonte :
 - `slot_id`.
 
 Le backend compare la version remontée avec la version attendue.
+
+La version remontée n'est pas calculée automatiquement par la carte : elle est
+embarquée dans le firmware au moment du flash. Le fichier optionnel
+`version.txt` permet de changer cette valeur sans modifier toute la logique du
+fichier `main.py`.
 
 Références :
 

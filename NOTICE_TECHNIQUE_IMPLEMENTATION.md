@@ -659,6 +659,14 @@ POST /api/mobile-sessions/<token>/authorize/
 POST /api/terminal/mobile-sessions/consume/
 ```
 
+États :
+
+```text
+pending    -> QR de borne créé, aucune réservation choisie
+authorized -> réservation choisie depuis la PWA mobile
+consumed   -> autorisation consommée par le kiosque
+```
+
 Références :
 
 - `terminal_create_mobile_session()` dans [`backend/api/views.py`](backend/api/views.py)
@@ -669,6 +677,13 @@ Références :
 - [`raspberry/app/app.js`](raspberry/app/app.js)
 
 Le backend vérifie que la réservation choisie appartient au compte connecté et correspond à la station/borne de la session mobile.
+
+Après l'autorisation, `frontend/js/mobile-session.js` continue d'interroger
+`GET /api/mobile-sessions/<token>/` pour afficher la progression côté
+téléphone. L'utilisateur voit d'abord `Autorisation confirmée`, puis `Session
+démarrée sur la borne` quand le kiosque a consommé le token. Si la page mobile
+est rechargée alors que la session est déjà autorisée ou consommée,
+`mobile_session_detail()` renvoie aussi la réservation sélectionnée.
 
 ## 12. Comment le terminal Raspberry est-il authentifié auprès du backend ?
 
@@ -892,14 +907,36 @@ Fonctions :
 - `publish_status()`
 - `publish_telemetry_now()`
 
-Tant que les sorties physiques ne sont pas câblées :
+État actuel du câblage prototype :
 
 ```python
-OUTPUTS_ENABLED = False
+LOCK_OUTPUT_ENABLED = True
+LOCK_PIN = 26
+LOCK_RELAY_ACTIVE_LOW = True
+LOCK_UNLOCK_PULSE_SECONDS = 5
+CHARGE_RELAY_OUTPUT_ENABLED = False
 PHYSICAL_INPUTS_ENABLED = False
 ```
 
-Le firmware simule donc l'état logique sans activer de relais réel.
+La serrure fonctionne via un relais actif-bas sur `GPIO26`. Le firmware ouvre
+la serrure pendant 5 secondes, puis remet le relais au repos pour ne pas
+alimenter la serrure en continu. L'ACK MQTT de `START` est envoyé avant cette
+impulsion afin de rester compatible avec le timeout d'ACK du Raspberry.
+
+Le relais de charge, le contact de porte et le capteur de câble restent
+désactivés tant qu'ils ne sont pas câblés.
+
+Identité remontée par l'ESP32 :
+
+```python
+device_identity()
+```
+
+Cette fonction publie `slot_id`, `client_id`, `firmware_version`,
+`hardware_mac` et `ip_address`. La MAC et l'IP sont lues réellement via
+`network.WLAN`. La version firmware ne peut pas être devinée par l'ESP32 :
+elle est soit lue dans `version.txt` sur LittleFS, soit prise depuis la
+constante `FIRMWARE_VERSION` de `main.py`.
 
 ## 17. Comment les données électriques sont-elles calculées ?
 
@@ -1089,7 +1126,7 @@ Ici :
 
 ### Réponse courte
 
-Chaque champ reçu est converti en capteur typé puis stocké dans `CapteurData`. Si une session active existe et que courant+tension sont présents, une ligne `SessionTelemetry` est aussi créée.
+Chaque champ reçu est converti en capteur typé puis stocké dans `CapteurData`. Si une session active existe et que le courant est présent, une ligne `SessionTelemetry` est aussi créée dès qu'une tension est disponible dans le payload ou via le fallback configuré.
 
 ### Comment dans le code ?
 
@@ -1139,7 +1176,9 @@ Une `SessionTelemetry` n'est créée que si :
 
 - une session active existe ;
 - le courant est présent ;
-- la tension est présente.
+- la tension est présente dans le payload ou `SESSION_TELEMETRY_DEFAULT_VOLTAGE` est supérieur à `0`.
+
+Ce fallback sert uniquement aux prototypes où seul le courant remonte. En production, le firmware doit publier une tension mesurée ou explicitement configurée.
 
 ## 21. Comment les ACK START/STOP sont-ils tracés ?
 
@@ -1209,11 +1248,14 @@ temperature >= 60 °C -> overheat critique
 current >= 3.0 A    -> overcurrent haute
 energy_kwh >= SESSION_ENERGY_ALERT_KWH -> energy_over_limit
 session active sans télémétrie récente -> session_without_telemetry
+session bloquée en arrêt -> session_stopping_too_long
 ```
 
 Paramètres :
 
 - `SESSION_TELEMETRY_STALE_MINUTES`
+- `SESSION_STOPPING_STALE_MINUTES`
+- `SESSION_TELEMETRY_DEFAULT_VOLTAGE`
 - `ENERGY_ACTIVITY_MIN_KWH`
 - `SESSION_ENERGY_ALERT_KWH`
 - `ALERT_NOTIFICATION_MIN_AGE_SECONDS`

@@ -191,7 +191,7 @@ Ils publient aussi les accusés de réception de commandes sur :
 
 Ces événements servent de heartbeat opérationnel. Un ESP32 qui vient d'accepter
 une commande ``START`` peut donc être vu comme connecté dès le message
-``reserved`` ou ``charging_started``, même si la mesure DHT22/INA219 suivante
+``reserved`` ou ``charging_started``, même si la mesure DHT22/SEN0214 suivante
 n'est pas encore arrivée.
 
 Exemple de message :
@@ -217,6 +217,14 @@ tension, de puissance et d'énergie consommée avec les mêmes filtres
 station/borne/emplacement. Lorsqu'une session de charge active est identifiée,
 les mesures électriques sont aussi rattachées à ``session_telemetry`` pour le
 suivi métier de la session.
+
+Pour éviter qu'un prototype courant seul produise une session sans courbe,
+``SESSION_TELEMETRY_DEFAULT_VOLTAGE`` peut définir une tension de secours côté
+backend. La valeur par défaut est ``0`` : aucun fallback n'est appliqué et le
+firmware doit publier ``voltage``. Pour les essais avec alimentation fixe 12 V,
+mettre ``SESSION_TELEMETRY_DEFAULT_VOLTAGE=12`` permet de créer
+``SessionTelemetry`` même si l'ESP32 ne remonte que ``current`` et
+``energy_kwh``.
 
 Les commandes vers un ESP32 utilisent :
 
@@ -609,6 +617,9 @@ Les conditions de résolution automatique sont :
   désactivée avec une valeur inférieure ou égale à ``0``.
 * ``session_without_telemetry`` : une nouvelle mesure ``SessionTelemetry`` est
   reçue pour la session active ou la session est clôturée.
+* ``session_stopping_too_long`` : la session sort de l'état ``stopping`` parce
+  que l'endpoint de clôture backend a terminé la session, ou parce qu'un
+  opérateur clôture/résout l'incident après diagnostic.
 
 Le firmware est traité séparément. Chaque ``Device`` conserve maintenant la
 version remontée par l'ESP32, la version attendue, le statut de conformité et
@@ -642,6 +653,12 @@ Elle scanne les sessions ouvertes plus anciennes que
 ``SessionTelemetry`` récente n'existe, le backend crée ou maintient une alerte
 ``session_without_telemetry``. L'alerte est résolue automatiquement dès que la
 télémétrie revient ou lorsque la session se termine.
+
+Le même scan vérifie aussi les sessions restées trop longtemps en état
+``stopping``. Ce cas indique que le ``STOP`` a été demandé ou confirmé par
+l'ESP32, mais que la clôture backend n'a pas abouti. Le délai est contrôlé par
+``SESSION_STOPPING_STALE_MINUTES``, ``2`` par défaut. L'alerte produite est
+``session_stopping_too_long``.
 Dans Docker Compose, ``celery-beat`` exécute ce contrôle toutes les
 ``CELERY_BEAT_SESSION_TELEMETRY_HEALTH_SECONDS`` secondes, ``60`` par défaut, et
 déclenche aussi ``api.notify_pending_alerts`` toutes les
@@ -738,9 +755,9 @@ Le fichier ``grafana/provisioning/alerting/station-alerts.yml`` provisionne les
 alertes Grafana de production. Elles sont évaluées toutes les minutes sur la
 datasource ``station-timescaledb`` :
 
-* ``ESP32 offline`` : un ESP32 ne publie plus de status ou de télémétrie récente ;
-* ``Température ESP32 élevée`` : une mesure DHT22 dépasse le seuil critique ;
-* ``Courant anormal`` : une mesure INA219 dépasse le seuil de courant attendu ;
+* ``Contrôleur sans signal`` : un contrôleur ne publie plus d'état ou de télémétrie récente ;
+* ``Température contrôleur élevée`` : une mesure DHT22 dépasse le seuil critique ;
+* ``Courant anormal`` : une mesure de courant SEN0214 ou INA219 dépasse le seuil attendu ;
 * ``Charge sans session active`` : un device remonte ``charging`` sans session
   backend ouverte ;
 * ``Session active sans télémétrie`` : une session ouverte ne reçoit plus de
