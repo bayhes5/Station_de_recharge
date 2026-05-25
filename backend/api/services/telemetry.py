@@ -6,6 +6,7 @@ import re
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -44,6 +45,7 @@ SENSOR_FIELDS = {
     "current": ("current", "A"),
     "voltage": ("voltage", "V"),
     "power": ("power", "W"),
+    "energy_kwh": ("energy_kwh", "kWh"),
 }
 
 RESOLVED_ALERT_STATUSES = ["resolved", "resolue", "closed", "fermee"]
@@ -128,6 +130,14 @@ def _as_float(value: Any):
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _setting_float(name: str, default: float) -> float:
+    """Return a float setting value with a defensive fallback."""
+    try:
+        return float(getattr(settings, name, default))
+    except (TypeError, ValueError):
+        return default
 
 
 def _bool_as_float(value: Any):
@@ -442,6 +452,17 @@ def _alert_resolution_candidates(payload: dict[str, Any]):
     current = _as_float(payload.get("current"))
     if current is not None and current < 3.0:
         candidates.append("overcurrent")
+    energy = _as_float(payload.get("energy_kwh"))
+    energy_activity_min = _setting_float("ENERGY_ACTIVITY_MIN_KWH", 0.001)
+    session_energy_limit = _setting_float("SESSION_ENERGY_ALERT_KWH", 1.5)
+    if state not in CHARGING_STATES or (
+        energy is not None and energy < energy_activity_min
+    ):
+        candidates.append("energy_without_session")
+    if session_energy_limit <= 0 or (
+        energy is not None and energy < session_energy_limit
+    ):
+        candidates.append("energy_over_limit")
     return candidates
 
 
@@ -489,6 +510,43 @@ def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp, 
     current = _as_float(payload.get("current"))
     if current is not None and current >= 3.0:
         triggered_alerts.append(("overcurrent", f"Surconsommation detectee: {current:.2f} A.", "haute", "current"))
+
+    energy = _as_float(payload.get("energy_kwh"))
+    energy_activity_min = _setting_float("ENERGY_ACTIVITY_MIN_KWH", 0.001)
+    session_energy_limit = _setting_float("SESSION_ENERGY_ALERT_KWH", 1.5)
+    if (
+        state in CHARGING_STATES
+        and session is None
+        and energy is not None
+        and energy >= energy_activity_min
+    ):
+        triggered_alerts.append(
+            (
+                "energy_without_session",
+                f"Energie active sans session backend sur {_device_slot_id(device)}: {energy:.3f} kWh.",
+                "critique",
+                "energy_kwh",
+            )
+        )
+    elif session is not None or state not in CHARGING_STATES:
+        _resolve_alerts_for_device(device, "energy_without_session", timestamp)
+
+    if (
+        session is not None
+        and energy is not None
+        and session_energy_limit > 0
+        and energy >= session_energy_limit
+    ):
+        triggered_alerts.append(
+            (
+                "energy_over_limit",
+                f"Energie de session elevee: {energy:.3f} kWh, seuil {session_energy_limit:.3f} kWh.",
+                "haute",
+                "energy_kwh",
+            )
+        )
+    elif session is None or state not in CHARGING_STATES:
+        _resolve_alerts_for_device(device, "energy_over_limit", timestamp)
 
     created = []
     triggered_types = {alert_type for alert_type, _message, _severity, _sensor_type in triggered_alerts}

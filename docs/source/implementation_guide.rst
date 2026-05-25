@@ -409,6 +409,10 @@ actuelles sont :
 * ``state_error`` si l'état vaut ``error``, ``emergency`` ou ``fault`` ;
 * ``charge_without_session`` si l'ESP32 remonte une charge avec un ``session_id``
   inconnu du backend ;
+* ``energy_without_session`` si l'ESP32 remonte une énergie active pendant une
+  charge sans session backend ;
+* ``energy_over_limit`` si l'énergie cumulée d'une session dépasse
+  ``SESSION_ENERGY_ALERT_KWH`` ;
 * ``session_without_telemetry`` si une session active ne reçoit plus de mesure
   récente, via le contrôle périodique Celery Beat ;
 * ``firmware_outdated`` si ``EXPECTED_ESP32_FIRMWARE_VERSION`` est défini et que

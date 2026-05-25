@@ -251,7 +251,7 @@
       },
       "gridPos": {
         "h": 7,
-        "w": 24,
+        "w": 12,
         "x": 0,
         "y": 14
       },
@@ -279,6 +279,58 @@
         }
       ],
       "title": "Puissance",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "unit": "kwatth"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT cd.timestamp AS time, cd.valeur AS value, COALESCE(s.nom, 'Station') || ' / ' || COALESCE(b.nom, 'Borne') || ' / emplacement ' || COALESCE(e.numero::text, '-') AS metric\nFROM capteur_data cd\nJOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nLEFT JOIN emplacement e ON e.id_emplacement = d.id_emplacement\nLEFT JOIN borne b ON b.id_borne = e.id_borne\nLEFT JOIN station s ON s.id_station = e.id_station\nWHERE c.type = 'energy_kwh' AND $__timeFilter(cd.timestamp)\n  AND ('${station:raw}' = 'all' OR s.id_station::text = '${station:raw}')\n  AND ('${borne:raw}' = 'all' OR b.id_borne::text = '${borne:raw}')\n  AND ('${emplacement:raw}' = 'all' OR e.id_emplacement::text = '${emplacement:raw}')\nORDER BY cd.timestamp;",
+          "refId": "A"
+        }
+      ],
+      "title": "Énergie consommée",
       "type": "timeseries"
     },
     {
@@ -434,6 +486,6 @@
   "timezone": "browser",
   "title": "Station - Supervision technique",
   "uid": "station-supervision",
-  "version": 4,
+  "version": 5,
   "weekStart": ""
 }

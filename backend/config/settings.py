@@ -17,6 +17,13 @@ def env_int(name, default):
         return default
 
 
+def env_float(name, default):
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
 def env_list(name, default):
     raw = os.environ.get(name)
     if not raw:
@@ -25,6 +32,7 @@ def env_list(name, default):
 
 
 DEBUG = env_bool("DEBUG", True)
+DEV_AUTO_TRUST_PRIVATE_NETWORK = env_bool("DEV_AUTO_TRUST_PRIVATE_NETWORK", DEBUG)
 
 SECRET_KEY = os.environ.get("SECRET_KEY")
 if not SECRET_KEY:
@@ -37,6 +45,8 @@ ALLOWED_HOSTS = env_list(
     "ALLOWED_HOSTS",
     ["localhost", "127.0.0.1"] if DEBUG else [],
 )
+if DEBUG and DEV_AUTO_TRUST_PRIVATE_NETWORK and "*" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS = [*ALLOWED_HOSTS, "*"]
 if not DEBUG and not ALLOWED_HOSTS and os.environ.get("DJANGO_SETTINGS_MODULE") != "config.test_settings":
     raise ImproperlyConfigured("ALLOWED_HOSTS must be set when DEBUG is false.")
 
@@ -94,6 +104,9 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+if DEBUG and DEV_AUTO_TRUST_PRIVATE_NETWORK:
+    MIDDLEWARE.insert(2, "api.middleware.DevelopmentPrivateNetworkHostMiddleware")
 
 ROOT_URLCONF = "config.urls"
 
@@ -241,10 +254,14 @@ ALERT_TECHNICIAN_EMAIL_TYPES = env_list(
         "lock_unlocked",
         "state_error",
         "charge_without_session",
+        "energy_without_session",
+        "energy_over_limit",
         "session_without_telemetry",
     ],
 )
 SESSION_TELEMETRY_STALE_MINUTES = env_int("SESSION_TELEMETRY_STALE_MINUTES", 2)
+ENERGY_ACTIVITY_MIN_KWH = env_float("ENERGY_ACTIVITY_MIN_KWH", 0.001)
+SESSION_ENERGY_ALERT_KWH = env_float("SESSION_ENERGY_ALERT_KWH", 1.5)
 TELEMETRY_RETENTION_DAYS = env_int("TELEMETRY_RETENTION_DAYS", 90)
 EXPECTED_ESP32_FIRMWARE_VERSION = os.environ.get("EXPECTED_ESP32_FIRMWARE_VERSION", "").strip()
 
@@ -359,6 +376,17 @@ CORS_ALLOWED_ORIGINS = env_list(
         "http://127.0.0.1:9000",
     ],
 )
+CORS_ALLOWED_ORIGIN_REGEXES = env_list("CORS_ALLOWED_ORIGIN_REGEXES", [])
+if DEBUG and DEV_AUTO_TRUST_PRIVATE_NETWORK:
+    CORS_ALLOWED_ORIGIN_REGEXES = [
+        *CORS_ALLOWED_ORIGIN_REGEXES,
+        r"^https?://localhost(?::\d+)?$",
+        r"^https?://127(?:\.\d{1,3}){3}(?::\d+)?$",
+        r"^https?://10(?:\.\d{1,3}){3}(?::\d+)?$",
+        r"^https?://172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2}(?::\d+)?$",
+        r"^https?://192\.168(?:\.\d{1,3}){2}(?::\d+)?$",
+        r"^https?://169\.254(?:\.\d{1,3}){2}(?::\d+)?$",
+    ]
 CORS_ALLOW_CREDENTIALS = True
 
 LANGUAGE_CODE = "fr-fr"

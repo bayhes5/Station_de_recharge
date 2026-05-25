@@ -1,10 +1,10 @@
 """MicroPython firmware for one ESP32 charging slot.
 
 This version is adapted for the current hardware test:
-- DHT22 on GPIO25 for temperature and humidity.
+- DHT22 on GPIO15 for temperature and humidity.
+- DFRobot SEN0214 analog 20A current sensor on GPIO34.
 - ESP32 identity fields: firmware version, IP address and MAC address.
-- Current, voltage, door, cable, relay and lock are optional and disabled by
-  default until wired.
+- Door, cable, relay and lock are optional and disabled by default until wired.
 
 It speaks the project MQTT contract:
 station/<mqtt_prefix>/<slot_id>/cmd
@@ -44,23 +44,43 @@ SLOT_ID = "slot1"
 CLIENT_ID = "esp32-station-demo-borne-1-slot1"
 FIRMWARE_VERSION = "1.1.0-sensors"
 
-# Only DHT22 and ESP32 identity are wired/reported for now.
+# DHT22, ESP32 identity and SEN0214 current are wired/reported for now.
 PHYSICAL_INPUTS_ENABLED = False
 OUTPUTS_ENABLED = False
 SIMULATE_MISSING_SENSORS = False
 
 # DHT22 prototype wiring from TEMPERATUREHUMIDY.txt.
-DHT_PIN = 25
+DHT_PIN = 15
 
-# Current prototype wiring from CURRENT.txt.
-# This is an analog current sensor, not an INA219.
-CURRENT_SENSOR_MODE = "none"  # "none" now, "adc" or "ina219" when wired.
-ADC_CURRENT_PIN = 15
+# SEN0214 is a 5V analog 20A current sensor.
+# Its output voltage is centered around VCC/2 and changes by about 100mV/A.
+# IMPORTANT: protect the ESP32 ADC pin if the SEN0214 is powered at 5V.
+CURRENT_SENSOR_MODE = "sen0214"  # "none", "sen0214", "adc" or "ina219".
+ADC_CURRENT_PIN = 34
 ADC_VREF = 3.3
 ADC_RESOLUTION = 4095
-ADC_ZERO_CURRENT_VOLTAGE = ADC_VREF / 2
-ADC_SENSITIVITY_V_PER_A = 0.100
+ADC_CURRENT_INPUT_SCALE = 1.515
+ADC_CURRENT_ZERO_VOLTAGE = 0.0
+ADC_CURRENT_SENSITIVITY_V_PER_A = 0.100
+SEN0214_ZERO_CURRENT_VOLTAGE = 2.5
+SEN0214_SENSITIVITY_V_PER_A = 0.100
+SEN0214_AUTO_CALIBRATE_ZERO = True
+SEN0214_CALIBRATION_ROUNDS = 20
+SEN0214_CALIBRATION_SAMPLES = 80
+SEN0214_ABSOLUTE_CURRENT = True
+ADC_AVERAGE_SAMPLES = 120
+ADC_AVERAGE_DELAY_US = 500
 ADC_NOISE_FLOOR_A = 0.05
+
+# Prototype bus voltage. "fixed" publishes this configured value so Grafana can
+# estimate power/energy. Use "adc" or "ina219" when a real voltage sensor is
+# wired.
+VOLTAGE_SENSOR_MODE = "fixed"  # "none", "fixed", "adc" or "ina219".
+FIXED_BUS_VOLTAGE = 12.0
+ADC_VOLTAGE_PIN = 35
+ADC_VOLTAGE_SCALE = 1.0
+ADC_VOLTAGE_OFFSET = 0.0
+ADC_VOLTAGE_NOISE_FLOOR_V = 0.02
 
 # Optional future INA219 wiring.
 INA219_SDA_PIN = 21
@@ -90,7 +110,9 @@ energy_kwh = 0.0
 
 dht_sensor = None
 current_adc = None
+voltage_adc = None
 ina219_i2c = None
+current_zero_voltage = None
 hall = None
 door = None
 lock = None
@@ -229,6 +251,54 @@ def init_adc_current_sensor():
         return None
 
 
+def read_average_adc(adc, samples=ADC_AVERAGE_SAMPLES, delay_us=ADC_AVERAGE_DELAY_US):
+    """Return an averaged ADC value to reduce sensor noise."""
+    total = 0
+    for _ in range(samples):
+        total += adc.read()
+        if delay_us:
+            time.sleep_us(delay_us)
+    return total / samples
+
+
+def adc_raw_to_sensor_voltage(raw):
+    """Convert ESP32 ADC reading to the sensor output voltage."""
+    gpio_voltage = (raw / ADC_RESOLUTION) * ADC_VREF
+    return gpio_voltage * ADC_CURRENT_INPUT_SCALE
+
+
+def calibrate_current_zero(adc):
+    """Measure the no-load sensor voltage used as the zero-current reference."""
+    print("Calibrating zero current. Make sure no load is connected.")
+    time.sleep(2)
+
+    total = 0.0
+    for _ in range(SEN0214_CALIBRATION_ROUNDS):
+        raw = read_average_adc(adc, samples=SEN0214_CALIBRATION_SAMPLES)
+        total += adc_raw_to_sensor_voltage(raw)
+        time.sleep(0.1)
+
+    zero_voltage = total / SEN0214_CALIBRATION_ROUNDS
+    print("Zero current voltage = {:.3f} V".format(zero_voltage))
+    return zero_voltage
+
+
+def init_adc_voltage_sensor():
+    """Initialize the analog voltage input used by the prototype."""
+    try:
+        adc = ADC(Pin(ADC_VOLTAGE_PIN))
+        adc.atten(ADC.ATTN_11DB)
+        try:
+            adc.width(ADC.WIDTH_12BIT)
+        except Exception as exc:
+            print("ADC voltage width configuration skipped:", exc)
+        print("Analog voltage input ready on GPIO{}".format(ADC_VOLTAGE_PIN))
+        return adc
+    except Exception as exc:
+        print("ADC voltage init failed:", exc)
+        return None
+
+
 def init_ina219():
     """Initialize optional INA219 I2C mode for future wiring."""
     try:
@@ -245,12 +315,33 @@ def init_ina219():
 
 def init_current_sensor():
     """Initialize the configured current sensor backend."""
+    global current_zero_voltage
     if CURRENT_SENSOR_MODE == "ina219":
         return None, init_ina219()
-    if CURRENT_SENSOR_MODE == "adc":
-        return init_adc_current_sensor(), None
+    if CURRENT_SENSOR_MODE in ("adc", "sen0214"):
+        adc = init_adc_current_sensor()
+        if adc and CURRENT_SENSOR_MODE == "sen0214":
+            if SEN0214_AUTO_CALIBRATE_ZERO:
+                current_zero_voltage = calibrate_current_zero(adc)
+            else:
+                current_zero_voltage = SEN0214_ZERO_CURRENT_VOLTAGE
+        return adc, None
     print("Current sensor disabled.")
     return None, None
+
+
+def init_voltage_sensor():
+    """Initialize the configured voltage sensor backend."""
+    if VOLTAGE_SENSOR_MODE == "adc":
+        return init_adc_voltage_sensor()
+    if VOLTAGE_SENSOR_MODE == "ina219":
+        print("Voltage will be read through INA219.")
+        return None
+    if VOLTAGE_SENSOR_MODE == "fixed":
+        print("Fixed prototype bus voltage: {:.2f}V.".format(FIXED_BUS_VOLTAGE))
+        return None
+    print("Voltage sensor disabled.")
+    return None
 
 
 def read_u16_register(i2c, address, register):
@@ -301,14 +392,56 @@ def read_adc_current():
     """Read current from the analog current sensor used by the prototype."""
     if current_adc is None:
         return None
-    raw = current_adc.read()
-    voltage = (raw / ADC_RESOLUTION) * ADC_VREF
-    current = (voltage - ADC_ZERO_CURRENT_VOLTAGE) / ADC_SENSITIVITY_V_PER_A
+    raw = read_average_adc(current_adc)
+    adc_voltage = (raw / ADC_RESOLUTION) * ADC_VREF
+    sensor_voltage = adc_raw_to_sensor_voltage(raw)
+
+    if CURRENT_SENSOR_MODE == "sen0214":
+        zero_voltage = current_zero_voltage
+        if zero_voltage is None:
+            zero_voltage = SEN0214_ZERO_CURRENT_VOLTAGE
+        current = (
+            sensor_voltage - zero_voltage
+        ) / SEN0214_SENSITIVITY_V_PER_A
+        if SEN0214_ABSOLUTE_CURRENT:
+            current = abs(current)
+    else:
+        current = (
+            sensor_voltage - ADC_CURRENT_ZERO_VOLTAGE
+        ) / ADC_CURRENT_SENSITIVITY_V_PER_A
+
     if abs(current) < ADC_NOISE_FLOOR_A:
         current = 0.0
-    current = max(0.0, current)
-    print("Current ADC raw={} voltage={:.3f}V current={:.2f}A".format(raw, voltage, current))
+    if current < 0:
+        current = 0.0
+    print(
+        "Current ADC raw={} adc={:.3f}V sensor={:.3f}V current={:.2f}A".format(
+            raw,
+            adc_voltage,
+            sensor_voltage,
+            current,
+        )
+    )
     return current
+
+
+def read_adc_voltage():
+    """Read voltage from a simple analog input and publish it as telemetry."""
+    if voltage_adc is None:
+        return None
+    raw = voltage_adc.read()
+    adc_voltage = (raw / ADC_RESOLUTION) * ADC_VREF
+    measured_voltage = (adc_voltage * ADC_VOLTAGE_SCALE) + ADC_VOLTAGE_OFFSET
+    if abs(measured_voltage) < ADC_VOLTAGE_NOISE_FLOOR_V:
+        measured_voltage = 0.0
+    print(
+        "Voltage ADC raw={} adc={:.3f}V measured={:.2f}V".format(
+            raw,
+            adc_voltage,
+            measured_voltage,
+        )
+    )
+    return max(0.0, measured_voltage)
 
 
 def read_ina219_power():
@@ -326,17 +459,36 @@ def read_ina219_power():
 
 def read_power_sample():
     """Read electrical telemetry in the shape expected by the backend."""
+    current = None
+    voltage = None
+    power = None
+
     if CURRENT_SENSOR_MODE == "ina219":
         sample = read_ina219_power()
         if sample["current"] is not None:
             return sample
 
-    current = read_adc_current() if CURRENT_SENSOR_MODE == "adc" else None
+    if CURRENT_SENSOR_MODE in ("adc", "sen0214"):
+        current = read_adc_current()
     if current is None and CURRENT_SENSOR_MODE != "none" and SIMULATE_MISSING_SENSORS:
         current = 1.2 if state == "charging" else 0.0
 
-    voltage = None
-    power = None
+    if VOLTAGE_SENSOR_MODE == "adc":
+        voltage = read_adc_voltage()
+    elif VOLTAGE_SENSOR_MODE == "fixed":
+        voltage = FIXED_BUS_VOLTAGE
+    elif VOLTAGE_SENSOR_MODE == "ina219":
+        sample = read_ina219_power()
+        voltage = sample.get("voltage")
+        if current is None:
+            current = sample.get("current")
+
+    if voltage is None and VOLTAGE_SENSOR_MODE != "none" and SIMULATE_MISSING_SENSORS:
+        voltage = 12.0 if state == "charging" else 0.0
+
+    if current is not None and voltage is not None:
+        power = voltage * current
+
     return {"current": current, "voltage": voltage, "power": power}
 
 
@@ -581,6 +733,7 @@ def publish_telemetry(client):
         "uptime_seconds": now_seconds(),
     }
     payload.update(device_identity())
+    print("Telemetry payload:", ujson.dumps(payload))
     publish_json(client, TOPIC_TELEMETRY, payload)
 
 
@@ -600,11 +753,12 @@ def current_telemetry_interval():
 
 def setup_hardware():
     """Initialize the sensors and optional physical I/O."""
-    global dht_sensor, current_adc, ina219_i2c
+    global dht_sensor, current_adc, voltage_adc, ina219_i2c
     init_outputs()
     init_physical_inputs()
     dht_sensor = init_dht22()
     current_adc, ina219_i2c = init_current_sensor()
+    voltage_adc = init_voltage_sensor()
     stop_charge_output()
     lock_slot()
 

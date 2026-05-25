@@ -521,12 +521,111 @@ def test_process_mqtt_message_stores_session_telemetry_for_active_session(user, 
     )
 
     assert result["session_telemetry_created"] is True
+    assert result["capteur_count"] == 5
+    assert CapteurData.objects.filter(capteur__type="energy_kwh", capteur__unite="kWh").count() == 1
     telemetry = SessionTelemetry.objects.get(session=session)
     assert telemetry.courant == 1.35
     assert telemetry.tension == 41.7
     assert telemetry.energie_kwh == 0.12
     session.refresh_from_db()
     assert session.charge_state == ChargeSessionState.CHARGING
+
+
+@pytest.mark.django_db
+@override_settings(SESSION_ENERGY_ALERT_KWH=0.05)
+def test_process_mqtt_message_creates_energy_limit_alert_for_active_session(user, emplacements):
+    """Raise a contextual energy alert when one session exceeds the configured cap."""
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="TELENER1",
+        auth_choice="qr",
+        date_debut=timezone.now() - timedelta(minutes=10),
+        date_fin=timezone.now() + timedelta(minutes=20),
+        statut="active",
+    )
+    session = Session.objects.create(
+        reservation=reservation,
+        emplacement=emplacements[0],
+        start_time=timezone.now() - timedelta(minutes=5),
+    )
+    Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="demo",
+        mac_address="slot1",
+        status="offline",
+    )
+
+    result = process_mqtt_message(
+        "station/slot1/telemetry",
+        json.dumps(
+            {
+                "session_id": str(session.id_session),
+                "state": "charging",
+                "current": 1.35,
+                "voltage": 41.7,
+                "power": 56.3,
+                "energy_kwh": 0.06,
+            }
+        ),
+    )
+
+    assert result["alert_count"] == 1
+    alert = Alerte.objects.get(type="energy_over_limit")
+    assert alert.session == session
+    assert alert.data.capteur.type == "energy_kwh"
+    assert alert.niveau_severite == "haute"
+
+    session.end_time = timezone.now()
+    session.charge_state = ChargeSessionState.STOPPED
+    session.save(update_fields=["end_time", "charge_state"])
+    process_mqtt_message(
+        "station/slot1/telemetry",
+        json.dumps({"state": "idle", "energy_kwh": 0.06}),
+    )
+
+    alert.refresh_from_db()
+    assert alert.status == "resolue"
+
+
+@pytest.mark.django_db
+@override_settings(ENERGY_ACTIVITY_MIN_KWH=0.001)
+def test_process_mqtt_message_creates_energy_without_session_alert(emplacements):
+    """Raise an alert when an ESP32 reports charging energy without an active backend session."""
+    Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="demo",
+        mac_address="slot1",
+        status="offline",
+    )
+
+    result = process_mqtt_message(
+        "station/slot1/telemetry",
+        json.dumps(
+            {
+                "state": "charging",
+                "current": 0.8,
+                "voltage": 12.0,
+                "power": 9.6,
+                "energy_kwh": 0.004,
+            }
+        ),
+    )
+
+    assert result["alert_count"] == 1
+    alert = Alerte.objects.get(type="energy_without_session")
+    assert alert.data.capteur.type == "energy_kwh"
+    assert alert.niveau_severite == "critique"
+
+    process_mqtt_message(
+        "station/slot1/telemetry",
+        json.dumps({"state": "idle", "energy_kwh": 0.004}),
+    )
+
+    alert.refresh_from_db()
+    assert alert.status == "resolue"
 
 
 @pytest.mark.django_db

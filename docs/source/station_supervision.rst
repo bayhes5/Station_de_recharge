@@ -211,6 +211,13 @@ Exemple de message :
      "timestamp": "2026-05-05T10:30:00Z"
    }
 
+Le backend historise ``current``, ``voltage``, ``power`` et ``energy_kwh`` dans
+``capteur_data`` afin que Grafana puisse afficher les courbes de courant, de
+tension, de puissance et d'énergie consommée avec les mêmes filtres
+station/borne/emplacement. Lorsqu'une session de charge active est identifiée,
+les mesures électriques sont aussi rattachées à ``session_telemetry`` pour le
+suivi métier de la session.
+
 Les commandes vers un ESP32 utilisent :
 
 .. code-block:: text
@@ -595,6 +602,11 @@ Les conditions de résolution automatique sont :
 * ``state_error`` : l'état n'est plus ``error``, ``emergency`` ou ``fault``.
 * ``charge_without_session`` : l'ESP32 ne remonte plus un état de charge ou la
   télémétrie porte de nouveau un ``session_id`` ouvert côté backend.
+* ``energy_without_session`` : l'ESP32 ne remonte plus d'état de charge sans
+  session active, ou l'énergie repasse sous ``ENERGY_ACTIVITY_MIN_KWH``.
+* ``energy_over_limit`` : la session n'est plus active, la charge est arrêtée,
+  l'énergie de session repasse sous ``SESSION_ENERGY_ALERT_KWH`` ou la règle est
+  désactivée avec une valeur inférieure ou égale à ``0``.
 * ``session_without_telemetry`` : une nouvelle mesure ``SessionTelemetry`` est
   reçue pour la session active ou la session est clôturée.
 
@@ -634,6 +646,29 @@ Dans Docker Compose, ``celery-beat`` exécute ce contrôle toutes les
 ``CELERY_BEAT_SESSION_TELEMETRY_HEALTH_SECONDS`` secondes, ``60`` par défaut, et
 déclenche aussi ``api.notify_pending_alerts`` toutes les
 ``CELERY_BEAT_ALERT_NOTIFICATIONS_SECONDS`` secondes.
+
+Politique énergie
+-----------------
+
+L'énergie n'est pas traitée comme un seuil physique brut. Une valeur élevée en
+``kWh`` n'est pas dangereuse par elle-même ; elle devient intéressante lorsqu'elle
+contredit le contexte de session.
+
+Deux règles de cohérence sont appliquées par le backend :
+
+* ``energy_without_session`` : une télémétrie indique une charge et une énergie
+  cumulée supérieure ou égale à ``ENERGY_ACTIVITY_MIN_KWH`` alors qu'aucune
+  session backend active n'est rattachée à l'emplacement ;
+* ``energy_over_limit`` : une session active dépasse le plafond configurable
+  ``SESSION_ENERGY_ALERT_KWH``. La valeur par défaut est ``1.5`` kWh,
+  volontairement haute pour un vélo électrique de prototype. Elle peut être
+  ajustée selon la puissance réelle, la durée payée ou la politique
+  d'exploitation. Une valeur ``0`` désactive cette règle.
+
+Cette approche évite une alerte peu exploitable du type "énergie supérieure à X"
+hors contexte. Elle détecte plutôt les incohérences : consommation sans session,
+session qui dépasse un plafond métier ou compteur d'énergie qui continue alors
+que le backend ne voit plus de charge active.
 
 Accès technicien
 ----------------

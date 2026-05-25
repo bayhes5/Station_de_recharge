@@ -4,18 +4,22 @@ Ce dossier contient le firmware MicroPython à flasher avec Thonny sur l'ESP32 d
 
 ## Câblage pris en compte
 
-- DHT22 sur `GPIO25` pour température et humidité.
-- Identité ESP32 remontée automatiquement : version firmware, adresse IP et
-  adresse MAC.
-- Courant, tension, serrure, relais, détection de câble et contact de porte non
-  câblés pour l'instant.
+- DHT22 sur `GPIO15` pour la température et l'humidité.
+- Capteur de courant analogique DFRobot SEN0214 sur `GPIO34`.
+- Identité ESP32 remontée automatiquement : version firmware, adresse IP et adresse MAC.
+- Tension bus fixe de prototype à `12 V` pour estimer la puissance.
+- Serrure, relais, détection de câble et contact de porte non câblés pour l'instant.
 
-Le fichier [main.py](main.py) désactive donc par défaut les entrées/sorties physiques non câblées :
+Le fichier [main.py](main.py) garde donc les entrées/sorties physiques non câblées désactivées :
 
 ```python
 PHYSICAL_INPUTS_ENABLED = False
 OUTPUTS_ENABLED = False
-CURRENT_SENSOR_MODE = "none"
+CURRENT_SENSOR_MODE = "sen0214"
+VOLTAGE_SENSOR_MODE = "fixed"
+FIXED_BUS_VOLTAGE = 12.0
+DHT_PIN = 15
+ADC_CURRENT_PIN = 34
 ```
 
 ## Paramètres à modifier avant flash
@@ -47,26 +51,61 @@ et écoute :
 station/station-demo/borne-1/slot1/cmd
 ```
 
-## Courant ADC ou INA219
+## Capteur de courant SEN0214
 
-Pour le test actuel, le courant est désactivé afin de ne pas publier de fausse
-mesure :
+Le SEN0214 est un capteur de courant analogique. Sa sortie est une tension de mesure, mais cette tension ne doit pas être publiée comme tension de charge. Le firmware l'utilise uniquement pour calculer le champ MQTT `current`.
 
-```python
-CURRENT_SENSOR_MODE = "none"
-```
-
-Si le capteur analogique de `CURRENT.txt` est câblé plus tard, passer à :
+Configuration actuelle :
 
 ```python
-CURRENT_SENSOR_MODE = "adc"
-ADC_CURRENT_PIN = 15
+CURRENT_SENSOR_MODE = "sen0214"
+ADC_CURRENT_PIN = 34
+ADC_CURRENT_INPUT_SCALE = 1.515
+SEN0214_AUTO_CALIBRATE_ZERO = True
+SEN0214_SENSITIVITY_V_PER_A = 0.100
+SEN0214_ABSOLUTE_CURRENT = True
+ADC_NOISE_FLOOR_A = 0.05
+ADC_AVERAGE_SAMPLES = 120
+ADC_AVERAGE_DELAY_US = 500
 ```
 
-Si le capteur INA219 est câblé plus tard, passer à :
+Points de calibration à vérifier avec le montage réel :
+
+- Au démarrage, l'ESP32 calibre automatiquement le zéro courant. Aucun consommateur ne doit être branché pendant les premières secondes.
+- `SEN0214_ZERO_CURRENT_VOLTAGE` sert de valeur de secours si `SEN0214_AUTO_CALIBRATE_ZERO = False`.
+- `SEN0214_SENSITIVITY_V_PER_A` dépend de la version exacte du module.
+- Si un pont diviseur est ajouté entre le capteur et l'ESP32, `ADC_CURRENT_INPUT_SCALE` doit convertir la tension ADC en tension réelle du capteur.
+- Si le SEN0214 est alimenté en 5 V, la broche ADC de l'ESP32 doit être protégée pour ne jamais recevoir plus de 3,3 V.
+
+## Tension de charge et puissance
+
+La tension de charge réelle n'est pas encore mesurée. Pour le prototype, le firmware utilise une tension bus fixe afin d'estimer la puissance et l'énergie :
+
+```python
+VOLTAGE_SENSOR_MODE = "fixed"
+FIXED_BUS_VOLTAGE = 12.0
+```
+
+Le firmware publie donc :
+
+- `current` : courant calculé depuis le SEN0214 ;
+- `voltage` : `12.0`, valeur fixe de prototype, non mesurée ;
+- `power` : puissance estimée avec `FIXED_BUS_VOLTAGE * current` ;
+- `energy_kwh` : énergie estimée à partir de la puissance.
+
+En production, cette tension fixe devra être remplacée par une mesure réelle. Quand un capteur de tension ou un INA219 sera ajouté, il faudra activer le mode correspondant :
+
+```python
+VOLTAGE_SENSOR_MODE = "adc"
+ADC_VOLTAGE_PIN = 35
+ADC_VOLTAGE_SCALE = 1.0
+```
+
+ou :
 
 ```python
 CURRENT_SENSOR_MODE = "ina219"
+VOLTAGE_SENSOR_MODE = "ina219"
 INA219_SDA_PIN = 21
 INA219_SCL_PIN = 22
 ```
@@ -88,6 +127,9 @@ La supervision backend/Grafana reçoit ensuite :
 
 - température DHT22 ;
 - humidité DHT22 ;
+- courant SEN0214 publié dans le champ MQTT `current` ;
+- tension fixe de prototype publiée dans `voltage` ;
+- puissance et énergie estimées ;
 - version firmware ESP32 ;
 - adresse IP Wi-Fi ;
 - adresse MAC.

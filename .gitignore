@@ -23,6 +23,8 @@ mosquitto/config/passwords
 sbom/
 sbom-source/
 rapport_final/
+presentation_final/
+.codex_tmp/
 scripts/build-report.ps1
 debug.log
 .dev-logs/

@@ -86,9 +86,15 @@ démarrage du poste de développement :
 
    .\scripts\update-local-ip.ps1
 
-Après changement de réseau, relancer ce script puis redémarrer les services qui
-lisent ``.env``. Le QR de session mobile affiché par le kiosque doit contenir une
-URL joignable depuis le téléphone, pas une URL en ``localhost``.
+En développement, ``DEV_AUTO_TRUST_PRIVATE_NETWORK=True`` autorise
+automatiquement ``localhost`` et les adresses privées du réseau local côté
+``ALLOWED_HOSTS`` et CORS. Il n'est donc plus nécessaire d'ajouter manuellement
+la nouvelle IP Wi-Fi à chaque changement de réseau. Le script reste utile pour
+mettre à jour les valeurs de repli comme ``FRONTEND_BASE_URL`` lorsque le QR ne
+peut pas déduire l'origine publique depuis le kiosque.
+
+Le QR de session mobile affiché par le kiosque doit contenir une URL joignable
+depuis le téléphone, pas une URL en ``localhost``.
 
 Pour le parcours kiosque, l'interface Raspberry envoie aussi au backend l'origine
 frontend visible depuis le navigateur. En développement, si le kiosque est ouvert
