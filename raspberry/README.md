@@ -318,10 +318,11 @@ RFID :
 2. Le Raspberry lit l'UID.
 3. Le Raspberry appelle le backend terminal.
 4. Le backend valide la réservation et renvoie la session de charge.
-5. La borne affiche "Recharger à l'emplacement X".
-6. L'utilisateur démarre.
-7. Le Raspberry publie `START` vers l'ESP32.
-8. L'écran passe à "Chargement en cours".
+5. Le Raspberry publie `UNLOCK` vers l'ESP32 pour ouvrir le boîtier.
+6. La borne affiche "Recharger à l'emplacement X".
+7. L'utilisateur branche le câble puis démarre la charge.
+8. Le Raspberry publie `START` vers l'ESP32.
+9. L'écran passe à "Chargement en cours".
 
 QR de réservation :
 

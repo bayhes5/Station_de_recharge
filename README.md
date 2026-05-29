@@ -79,6 +79,8 @@ https://localhost/api/      -> API Django
 https://localhost/admin/    -> administration Django
 https://localhost/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=now-6h&to=now&refresh=5s
                          -> dashboard Grafana de supervision
+https://localhost/grafana/d/session-detail/session-detail-charge?orgId=1&from=now-6h&to=now&refresh=5s
+                         -> détail Grafana d'une session de charge
 https://localhost/kiosk/    -> kiosque Raspberry
 ```
 
@@ -344,7 +346,7 @@ Pages principales :
 - `architecture.rst` : architecture globale ;
 - `user_scenarios.rst` : scénarios complets d'accès, mobile, RFID, QR, SMS, mode dégradé et ESP32 ;
 - `raspberry_kiosk.rst` : installation, RFID ACR122U, mode dégradé et commandes du kiosque ;
-- `esp32_firmware.rst` : firmware MicroPython, DHT22, INA219, ACK MQTT et déploiement Thonny ;
+- `esp32_firmware.rst` : firmware MicroPython, DHT22, SEN0214, serrure, ACK MQTT et déploiement Thonny ;
 - `implementation_guide.rst` : fonctionnalités, implantation et choix d'architecture ;
 - `data_model.rst` : modèle de données, correspondance MCD et implémentation Django ;
 - `requirements_traceability.rst` : correspondance avec le cahier des charges ;

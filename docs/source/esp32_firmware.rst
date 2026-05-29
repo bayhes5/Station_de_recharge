@@ -59,12 +59,14 @@ Extrait de configuration :
 L'emplacement démarre verrouillé. La serrure testée physiquement utilise
 ``GPIO26`` avec un relais actif-bas : ``0`` alimente la serrure et ouvre, ``1``
 remet le relais au repos. Le firmware ouvre donc la serrure par impulsion de
-``5`` secondes lors de ``START``, ``STOP`` ou ``UNLOCK``, puis remet le relais
+``5`` secondes lors de ``UNLOCK`` après authentification, puis remet le relais
 au repos pour éviter une alimentation continue.
 
-Le ``START`` publie un ACK ``accepted`` avant l'impulsion de serrure afin de ne
-pas dépasser le timeout d'ACK du Raspberry. Le statut réel de l'emplacement est
-ensuite publié sur ``status`` et ``telemetry``.
+Le ``START`` est volontairement séparé de l'ouverture. Il ne démarre la charge
+qu'après branchement du câble et vérification des capteurs disponibles. En
+fonctionnement cible, le Raspberry envoie ``START`` automatiquement lorsque la
+télémétrie ESP32 remonte ``cable=true`` pour l'emplacement autorisé. Le statut
+réel de l'emplacement est ensuite publié sur ``status`` et ``telemetry``.
 
 Déploiement avec Thonny
 -----------------------
@@ -141,8 +143,10 @@ Payload de commande :
 Actions :
 
 ``START``
-   Déverrouille l'emplacement, coupe le relais par sécurité, passe en état
-   ``reserved`` et attend câble présent + boîtier fermé avant de démarrer la
+   Démarre uniquement la charge électrique. L'ouverture du boîtier est gérée
+   avant par ``UNLOCK``. Le ``START`` est envoyé automatiquement par le Raspberry
+   lorsque la télémétrie de l'emplacement remonte ``cable=true``. L'ESP32 doit
+   encore vérifier localement le câble et le boîtier avant d'activer le relais de
    charge.
 
 ``STOP``
@@ -214,9 +218,18 @@ l'état physique de l'emplacement, pas la décision métier de réservation :
 
 Transitions principales :
 
-* ``START`` fait passer de ``idle`` à ``reserved`` ;
-* câble présent et boîtier fermé font passer de ``reserved`` à ``charging`` ;
+* ``UNLOCK`` fait passer l'emplacement en attente de branchement ;
+* ``START`` est reçu automatiquement après détection câble ;
+* câble présent et boîtier fermé font passer l'emplacement à ``charging`` ;
 * ``STOP`` ou une anomalie font revenir à ``idle``.
+
+Pour les essais sans capteur Hall câblé, le firmware conserve
+``SIMULATE_CABLE_PRESENT_FOR_AUTO_START = False`` par défaut. Tant que cette
+valeur reste à ``False`` et que ``PHYSICAL_INPUTS_ENABLED = False``, la
+télémétrie publie ``cable=null`` et le kiosk attendra normalement le branchement.
+Mettre cette option à ``True`` permet uniquement un essai de banc : l'ESP32
+publie alors ``cable=true`` pendant ``waiting_plug`` afin de déclencher le
+``START`` automatique sans capteur physique.
 
 Le Raspberry maintient en parallèle une machine d'état locale plus explicite
 (``reserved``, ``access_validated``, ``waiting_plug``, ``charging``,

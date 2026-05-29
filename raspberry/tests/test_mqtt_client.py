@@ -255,3 +255,27 @@ def test_publish_slot_command_accepts_matching_ack_when_required(monkeypatch):
     assert result["command_confirmed"] is True
     assert result["ack"]["topic"] == "station/slot1/ack"
     assert result["ack"]["payload"]["status"] == "accepted"
+
+
+def test_slot_monitor_records_latest_telemetry(monkeypatch):
+    mqtt_client = load_mqtt_client(monkeypatch)
+    monitor = mqtt_client.MqttSlotMonitor()
+
+    monitor.record_message(
+        "station/station-demo/borne-1/slot1/telemetry",
+        json.dumps({
+            "slot_id": "slot1",
+            "session_id": "session-1",
+            "state": "waiting_plug",
+            "cable": True,
+            "door": True,
+        }),
+    )
+
+    snapshot = monitor.snapshot("slot1")
+
+    assert snapshot["slot_id"] == "slot1"
+    assert snapshot["state"] == "waiting_plug"
+    assert snapshot["cable_present"] is True
+    assert snapshot["door_closed"] is True
+    assert snapshot["telemetry"]["payload"]["session_id"] == "session-1"

@@ -154,6 +154,26 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
     assert session.end_time is None
     assert session.charge_state == ChargeSessionState.ACCESS_VALIDATED
 
+    unlock_ack = process_mqtt_message(
+        f"station/{mqtt_prefix}/slot1/ack",
+        json.dumps(
+            {
+                "command_id": "cmd-unlock-e2e",
+                "action": "UNLOCK",
+                "status": "unlocked",
+                "message": "Boîtier déverrouillé.",
+                "session_id": str(session.id_session),
+                "source": "raspberry",
+            }
+        ),
+    )
+
+    assert unlock_ack["message_type"] == "ack"
+    assert unlock_ack["topic_prefix"] == mqtt_prefix
+    assert unlock_ack["command_status"] == "unlocked"
+    session.refresh_from_db()
+    assert session.charge_state == ChargeSessionState.WAITING_PLUG
+
     start_ack = process_mqtt_message(
         f"station/{mqtt_prefix}/slot1/ack",
         json.dumps(
@@ -250,7 +270,7 @@ def test_qr_mobile_kiosk_charge_session_end_to_end(
     assert slot1.last_command_id == "cmd-stop-e2e"
     assert slot1.last_command_action == "STOP"
     assert slot1.last_command_status == "stopped"
-    assert DeviceCommandLog.objects.filter(device=slot1, session=session).count() == 2
+    assert DeviceCommandLog.objects.filter(device=slot1, session=session).count() == 3
 
 
 @pytest.mark.django_db

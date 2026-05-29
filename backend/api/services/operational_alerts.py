@@ -15,6 +15,7 @@ RESOLVED_ALERT_STATUSES = {"resolved", "resolue", "closed", "fermee"}
 PRESERVED_ACTIVE_ALERT_STATUSES = {AlertStatus.IN_PROGRESS}
 SESSION_WITHOUT_TELEMETRY = "session_without_telemetry"
 SESSION_STOPPING_TOO_LONG = "session_stopping_too_long"
+SESSION_WAITING_PLUG_TOO_LONG = "session_waiting_plug_too_long"
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,12 @@ def _stopping_stale_delta() -> timedelta:
     return timedelta(minutes=max(1, int(minutes)))
 
 
+def _waiting_plug_stale_delta() -> timedelta:
+    """Return the tolerated time for a validated access waiting for cable plug-in."""
+    minutes = getattr(settings, "SESSION_WAITING_PLUG_STALE_MINUTES", 5)
+    return timedelta(minutes=max(1, int(minutes)))
+
+
 def _session_location_label(session: Session) -> str:
     """Return a readable physical location for alert messages."""
     emplacement = session.emplacement
@@ -54,6 +61,11 @@ def _open_session_telemetry_alerts():
 def _open_stopping_alerts():
     """Return unresolved alerts for sessions stuck in stopping state."""
     return _open_session_alerts(SESSION_STOPPING_TOO_LONG)
+
+
+def _open_waiting_plug_alerts():
+    """Return unresolved alerts for sessions stuck before cable plug-in."""
+    return _open_session_alerts(SESSION_WAITING_PLUG_TOO_LONG)
 
 
 def _open_session_alerts(alert_type: str):
@@ -141,6 +153,21 @@ def _upsert_stopping_alert(session: Session, now) -> bool:
     )
 
 
+def _upsert_waiting_plug_alert(session: Session, now) -> bool:
+    """Create or update the alert for one access waiting too long for cable plug-in."""
+    return _upsert_session_alert(
+        session=session,
+        now=now,
+        alert_type=SESSION_WAITING_PLUG_TOO_LONG,
+        message=(
+            "Accès validé sans branchement du câble depuis trop longtemps sur "
+            f"{_session_location_label(session)}. Vérifier que l'utilisateur a "
+            "bien branché le câble et que le capteur de présence remonte son état."
+        ),
+        severity="moyenne",
+    )
+
+
 def _resolve_non_stale_alerts(open_alerts, stale_session_ids: set, now) -> int:
     """Resolve alerts whose session recovered or ended."""
     resolved = 0
@@ -168,7 +195,10 @@ def scan_session_telemetry_gaps(now=None) -> OperationalAlertScanResult:
             "emplacement__borne",
         )
         .filter(end_time__isnull=True, start_time__lte=cutoff)
-        .exclude(charge_state=ChargeSessionState.STOPPING)
+        .exclude(charge_state__in=[
+            ChargeSessionState.STOPPING,
+            ChargeSessionState.WAITING_PLUG,
+        ])
         .exclude(telemetries__timestamp__gte=cutoff)
         .distinct()
     )
@@ -192,6 +222,24 @@ def scan_session_telemetry_gaps(now=None) -> OperationalAlertScanResult:
         session.id_session for session in stale_stopping_sessions
     }
 
+    waiting_plug_cutoff = now - _waiting_plug_stale_delta()
+    stale_waiting_plug_sessions = list(
+        Session.objects.select_related(
+            "emplacement",
+            "emplacement__station",
+            "emplacement__borne",
+        )
+        .filter(
+            end_time__isnull=True,
+            charge_state=ChargeSessionState.WAITING_PLUG,
+            charge_state_updated_at__lte=waiting_plug_cutoff,
+        )
+        .distinct()
+    )
+    stale_waiting_plug_session_ids = {
+        session.id_session for session in stale_waiting_plug_sessions
+    }
+
     created = 0
     updated = 0
     for session in stale_sessions:
@@ -206,6 +254,12 @@ def scan_session_telemetry_gaps(now=None) -> OperationalAlertScanResult:
         else:
             updated += 1
 
+    for session in stale_waiting_plug_sessions:
+        if _upsert_waiting_plug_alert(session, now):
+            created += 1
+        else:
+            updated += 1
+
     resolved = _resolve_non_stale_alerts(
         _open_session_telemetry_alerts,
         stale_session_ids,
@@ -214,6 +268,11 @@ def scan_session_telemetry_gaps(now=None) -> OperationalAlertScanResult:
     resolved += _resolve_non_stale_alerts(
         _open_stopping_alerts,
         stale_stopping_session_ids,
+        now,
+    )
+    resolved += _resolve_non_stale_alerts(
+        _open_waiting_plug_alerts,
+        stale_waiting_plug_session_ids,
         now,
     )
     return OperationalAlertScanResult(created=created, updated=updated, resolved=resolved)

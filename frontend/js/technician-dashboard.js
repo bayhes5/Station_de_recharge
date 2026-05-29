@@ -130,6 +130,105 @@ function createDataTable(container, columns, rows, emptyMessage) {
     container.appendChild(tableWrap);
 }
 
+function normalizeValue(value) {
+    if (value === null || value === undefined) return "";
+    return String(value).trim();
+}
+
+function stationIdFromRow(row = {}) {
+    return normalizeValue(row.station_id || row.station || row.id_station);
+}
+
+function stationLabelFromRow(row = {}) {
+    return normalizeValue(row.station_nom || row.station_name || row.station_label || row.station);
+}
+
+function collectStations(supervision = {}, maintenances = []) {
+    const stations = new Map();
+
+    function add(row) {
+        const stationId = stationIdFromRow(row);
+        const stationLabel = stationLabelFromRow(row);
+        const key = stationId || stationLabel;
+        if (!key || key === "-") return;
+        stations.set(key, {
+            id: key,
+            label: stationLabel || key,
+        });
+    }
+
+    [
+        supervision.devices || [],
+        supervision.alerts || [],
+        supervision.measurements || [],
+        supervision.commands || [],
+        maintenances || [],
+    ].forEach((rows) => rows.forEach(add));
+
+    return [...stations.values()].sort((left, right) => left.label.localeCompare(right.label, "fr"));
+}
+
+function populateStationFilter(select, stations) {
+    if (!select) return;
+    const previousValue = select.value;
+    select.replaceChildren();
+
+    const allOption = document.createElement("option");
+    allOption.value = "";
+    allOption.textContent = "Toutes mes stations";
+    select.appendChild(allOption);
+
+    stations.forEach((station) => {
+        const option = document.createElement("option");
+        option.value = station.id;
+        option.textContent = station.label;
+        select.appendChild(option);
+    });
+
+    select.value = stations.some((station) => station.id === previousValue) ? previousValue : "";
+}
+
+function matchesSelectedStation(row, stationId) {
+    if (!stationId) return true;
+    return stationIdFromRow(row) === stationId || stationLabelFromRow(row) === stationId;
+}
+
+function filterByStation(rows, stationId) {
+    return (rows || []).filter((row) => matchesSelectedStation(row, stationId));
+}
+
+function computeVisibleStats(supervision, stationId) {
+    const backendStats = supervision.stats || {};
+    if (!stationId) return backendStats;
+
+    const devices = supervision.devices || [];
+    const alerts = supervision.alerts || [];
+    const measurements = supervision.measurements || [];
+    const activeAlerts = alerts.filter((alert) => !CLOSED_ALERT_STATUSES.has(alert.status));
+
+    return {
+        ...backendStats,
+        devices_total: devices.length,
+        devices_online: devices.filter((device) => device.online).length,
+        devices_offline: devices.filter((device) => !device.online).length,
+        active_alerts: activeAlerts.length,
+        critical_alerts: activeAlerts.filter((alert) => ["critical", "critique"].includes(alert.niveau_severite)).length,
+        telemetry_samples_24h: measurements.length,
+    };
+}
+
+function filterSupervision(supervision = {}, stationId = "") {
+    const filtered = {
+        ...supervision,
+        devices: filterByStation(supervision.devices, stationId),
+        alerts: filterByStation(supervision.alerts, stationId),
+        measurements: filterByStation(supervision.measurements, stationId),
+        commands: filterByStation(supervision.commands, stationId),
+    };
+    filtered.stats = computeVisibleStats(filtered, stationId);
+    return filtered;
+}
+
 function renderMaintenances(container, maintenances) {
     container.innerHTML = "";
 
@@ -181,12 +280,12 @@ function renderSupervision(supervision) {
             },
             { label: "Dernier état", render: (device) => device.status_display || device.status || "-" },
             { label: "Serrure", render: (device) => device.lock_state || "-" },
-            { label: "Firmware", render: (device) => device.firmware_version || "-" },
+            { label: "Version", render: (device) => device.firmware_version || "-" },
             { label: "IP", render: (device) => device.ip_address || "-" },
             { label: "Dernier signal", render: (device) => formatDateTime(device.last_seen) },
         ],
         supervision.devices || [],
-        "Aucun ESP32 visible sur vos stations."
+        "Aucun contrôleur visible sur vos stations."
     );
 
     createDataTable(
@@ -287,11 +386,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     const realtimeStatus = document.getElementById("tech-realtime-status");
     const logoutBtn = document.getElementById("logout-tech");
     const list = document.getElementById("maintenances-list");
+    const stationFilter = document.getElementById("tech-station-filter");
     let isLoading = false;
     let supervisionSocket = null;
     let supervisionReconnectTimer = null;
     let supervisionRealtimeStarted = false;
     let supervisionReconnectAttempts = 0;
+    let currentMaintenances = [];
+    let currentSupervision = {};
 
     logoutBtn.addEventListener("click", () => window.AuthAPI.logout());
 
@@ -314,6 +416,20 @@ document.addEventListener("DOMContentLoaded", async () => {
         return;
     }
 
+    window.AppNavigation.render(session, { active: "technician", preferredRole: "technician" });
+
+    function renderCurrentDashboard() {
+        const stationId = stationFilter?.value || "";
+        renderMaintenances(list, filterByStation(currentMaintenances, stationId));
+        renderSupervision(filterSupervision(currentSupervision, stationId));
+    }
+
+    function syncStationFilter() {
+        populateStationFilter(stationFilter, collectStations(currentSupervision, currentMaintenances));
+    }
+
+    stationFilter?.addEventListener("change", renderCurrentDashboard);
+
     async function loadDashboard() {
         if (isLoading) return;
         isLoading = true;
@@ -323,8 +439,10 @@ document.addEventListener("DOMContentLoaded", async () => {
                 window.AuthAPI.getTechnicianMaintenances(),
                 window.AuthAPI.getTechnicianSupervision(),
             ]);
-            renderMaintenances(list, maintenances.results || []);
-            renderSupervision(supervision || {});
+            currentMaintenances = maintenances.results || [];
+            currentSupervision = supervision || {};
+            syncStationFilter();
+            renderCurrentDashboard();
             status.classList.remove("error");
             status.textContent = "";
         } finally {
@@ -416,7 +534,9 @@ document.addEventListener("DOMContentLoaded", async () => {
                 return;
             }
             if (message?.type !== "supervision.snapshot" || !message.payload) return;
-            renderSupervision(message.payload);
+            currentSupervision = message.payload;
+            syncStationFilter();
+            renderCurrentDashboard();
         });
 
         socket.addEventListener("close", async (event) => {

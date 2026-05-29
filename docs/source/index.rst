@@ -21,6 +21,7 @@ https://bayhes5.github.io/Station_de_recharge/
    data_model
    requirements_traceability
    station_supervision
+   semantic_web_sparql
    operations_runbook
    debian_production_deployment
    testing_strategy

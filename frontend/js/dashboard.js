@@ -13,6 +13,15 @@ function renderBadge(status) {
     return badge;
 }
 
+function formatAuthMode(mode) {
+    const labels = {
+        rfid: "Badge RFID",
+        qr: "QR code",
+        code: "Code SMS temporaire",
+    };
+    return labels[mode] || mode || "-";
+}
+
 function renderSessionCard(session) {
     const item = document.createElement("article");
     item.className = "list-item";
@@ -62,7 +71,7 @@ function appendAccessPayload(container, result) {
         const qrFrame = document.createElement("div");
         qrFrame.className = "qr-frame";
         if (!window.AuthAPI.renderQrSvg(qrFrame, access.qr_svg)) {
-            qrFrame.textContent = "QR indisponible. Vérifiez la dépendance backend qrcode[pil].";
+            qrFrame.textContent = "QR indisponible pour le moment.";
         }
 
         const meta = document.createElement("p");
@@ -111,7 +120,7 @@ function renderReservationCard(reservation, onCancel, onAccess) {
         `Emplacement ${reservation.emplacement_numero || reservation.emplacement || "-"}`,
         `Début : ${formatDateTime(reservation.date_debut)}`,
         `Fin : ${formatDateTime(reservation.date_fin)}`,
-        `Mode : ${reservation.auth_mode || "-"}`,
+        `Moyen d'accès : ${formatAuthMode(reservation.auth_mode)}`,
         `Code : ${reservation.reference_code || "-"}`,
     ].forEach((line) => {
         const paragraph = document.createElement("p");
@@ -127,7 +136,7 @@ function renderReservationCard(reservation, onCancel, onAccess) {
             accessButton.className = "btn btn-secondary";
             accessButton.type = "button";
             accessButton.dataset.accessToggle = reservation.id_reservation;
-            accessButton.textContent = reservation.auth_mode === "qr" ? "+ Afficher le QR" : "Recevoir le code SMS";
+            accessButton.textContent = reservation.auth_mode === "qr" ? "Afficher le QR" : "Recevoir le code SMS";
             accessButton.addEventListener("click", () => onAccess(reservation, item, accessButton));
             actions.appendChild(accessButton);
         }
@@ -238,7 +247,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             accessContainer.innerHTML = "";
             accessContainer.dataset.visible = "false";
             if (triggerButton) {
-                triggerButton.textContent = "+ Afficher le QR";
+                triggerButton.textContent = "Afficher le QR";
             }
             return;
         }
@@ -249,7 +258,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             appendAccessPayload(accessContainer, result);
             accessContainer.dataset.visible = "true";
             if (triggerButton) {
-                triggerButton.textContent = "- Masquer le QR";
+                triggerButton.textContent = "Masquer le QR";
             }
             setActiveTab("reservations");
         } catch (error) {
@@ -274,7 +283,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 accessContainer.dataset.visible = "false";
                 const toggleButton = document.querySelector(`[data-access-toggle="${reservationId}"]`);
                 if (toggleButton) {
-                    toggleButton.textContent = "+ Afficher le QR";
+                    toggleButton.textContent = "Afficher le QR";
                 }
             }
         }
@@ -283,19 +292,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     async function loadDashboard() {
         const result = await window.AuthAPI.getDashboard();
         const user = result.user;
-        const snapshot = window.AuthAPI.getSessionSnapshot();
 
         adminLink.hidden = !user.is_staff;
         document.getElementById("dashboard-pseudo").textContent = user.pseudo;
         document.getElementById("dashboard-email").textContent = user.email;
         document.getElementById("dashboard-statut").textContent = user.statut || "-";
-
-        document.getElementById("access-expiry").textContent = snapshot.accessExpired
-            ? "Expiré"
-            : `Expire dans ${snapshot.accessReadable}`;
-        document.getElementById("refresh-expiry").textContent = snapshot.refreshExpiry
-            ? (snapshot.refreshExpired ? "Expiré" : `Expire dans ${snapshot.refreshReadable}`)
-            : (snapshot.hasRefreshToken ? "Cookie HttpOnly actif" : "Inconnu");
 
         document.getElementById("kpi-sessions-total").textContent = result.stats.sessions_total;
         document.getElementById("kpi-reservations-total").textContent = result.stats.reservations_total;
@@ -351,6 +352,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         }, 1200);
         return;
     }
+
+    window.AppNavigation.render(session, { active: "dashboard" });
 
     try {
         await loadDashboard();

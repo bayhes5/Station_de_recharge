@@ -138,7 +138,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     let supervisionReconnectTimer = null;
     let supervisionRealtimeStarted = false;
     let supervisionReconnectAttempts = 0;
-    const expandedStations = new Set();
     const paginatedTables = ["users", "stations", "technicians", "technicianAssignments", "maintenances"];
     const supervisionPaginationState = {
         devices: { page: 1, pageSize: 10 },
@@ -745,222 +744,54 @@ document.addEventListener("DOMContentLoaded", async () => {
     function renderStations() {
         const container = document.getElementById("stations-list");
         const rows = filterRows("stations", stations);
-        container.innerHTML = "";
 
-        if (!rows.length) {
-            const empty = document.createElement("div");
-            empty.className = "empty-state";
-            empty.textContent = emptyMessageFor("stations", "Aucune station.");
-            container.appendChild(empty);
-            return;
-        }
-
-        const columnsCount = 8;
-        const tableWrap = document.createElement("div");
-        tableWrap.className = "data-table-wrap admin-data-table-wrap";
-        const table = document.createElement("table");
-        table.className = "data-table admin-data-table station-tree-table";
-        const thead = document.createElement("thead");
-        const headRow = document.createElement("tr");
-        ["Station", "Localisation", "Latitude", "Longitude", "Statut", "Bornes", "Emplacements", "Actions"].forEach((label) => {
-            const th = document.createElement("th");
-            th.textContent = label;
-            headRow.appendChild(th);
-        });
-        thead.appendChild(headRow);
-        table.appendChild(thead);
-
-        const tbody = document.createElement("tbody");
-        rows.forEach((station) => {
-            const stationId = String(station.id_station);
-            const stationBornes = bornes
-                .filter((borne) => String(borne.station) === stationId)
-                .sort((left, right) => Number(left.numero) - Number(right.numero));
-            const stationEmplacements = emplacements
-                .filter((emplacement) => String(emplacement.station) === stationId)
-                .sort((left, right) => Number(left.borne_numero ?? 0) - Number(right.borne_numero ?? 0) || Number(left.numero) - Number(right.numero));
-            const expanded = expandedStations.has(stationId);
-
-            const stationRow = document.createElement("tr");
-            stationRow.className = "expandable-row";
-            stationRow.tabIndex = 0;
-            stationRow.setAttribute("aria-expanded", String(expanded));
-
-            const nameCell = document.createElement("td");
-            const toggle = createActionButton(expanded ? "Masquer" : "Voir", () => {
-                if (expandedStations.has(stationId)) {
-                    expandedStations.delete(stationId);
-                } else {
-                    expandedStations.add(stationId);
-                }
-                renderStations();
-            });
-            toggle.className = "table-action station-toggle";
-            toggle.setAttribute("aria-label", `${expanded ? "Masquer" : "Afficher"} les bornes et emplacements de ${station.nom}`);
-            const nameStack = document.createElement("div");
-            nameStack.className = "station-name-cell";
-            const strong = document.createElement("strong");
-            strong.textContent = station.nom;
-            const small = document.createElement("small");
-            small.textContent = expanded ? "Infrastructure affichée" : "Cliquer pour dérouler";
-            nameStack.appendChild(strong);
-            nameStack.appendChild(small);
-            nameCell.appendChild(toggle);
-            nameCell.appendChild(nameStack);
-            stationRow.appendChild(nameCell);
-
-            [station.localisation_text, station.latitude, station.longitude, station.statut, stationBornes.length, stationEmplacements.length].forEach((value) => {
-                const td = document.createElement("td");
-                td.textContent = value ?? "-";
-                stationRow.appendChild(td);
-            });
-
-            const actionsCell = document.createElement("td");
-            actionsCell.className = "actions-column";
-            actionsCell.appendChild(renderActions({
-                resource: "station",
-                id: station.id_station,
-                label: station.nom,
-                onDelete: () => deleteAndReload(
-                    `Supprimer la station ${station.nom} ?`,
-                    () => window.AuthAPI.deleteAdminStation(station.id_station)
-                ),
-            }));
-            stationRow.appendChild(actionsCell);
-
-            const toggleStation = () => {
-                if (expandedStations.has(stationId)) {
-                    expandedStations.delete(stationId);
-                } else {
-                    expandedStations.add(stationId);
-                }
-                renderStations();
-            };
-            stationRow.addEventListener("click", (event) => {
-                if (event.target.closest("a, button")) return;
-                toggleStation();
-            });
-            stationRow.addEventListener("keydown", (event) => {
-                if (event.key !== "Enter" && event.key !== " ") return;
-                if (event.target.closest("a, button")) return;
-                event.preventDefault();
-                toggleStation();
-            });
-            tbody.appendChild(stationRow);
-
-            if (expanded) {
-                const detailsRow = document.createElement("tr");
-                detailsRow.className = "station-details-row";
-                const detailsCell = document.createElement("td");
-                detailsCell.colSpan = columnsCount;
-                detailsCell.appendChild(renderStationEmplacements(station, stationBornes, stationEmplacements));
-                detailsRow.appendChild(detailsCell);
-                tbody.appendChild(detailsRow);
-            }
-        });
-
-        table.appendChild(tbody);
-        tableWrap.appendChild(table);
-        container.appendChild(tableWrap);
+        createDataTable(
+            container,
+            [
+                {
+                    label: "Station",
+                    renderNode: (station) => {
+                        const wrapper = document.createElement("div");
+                        wrapper.className = "station-name-cell";
+                        const link = createActionLink(station.nom, `/admin-station.html?id=${station.id_station}`);
+                        link.className = "table-action station-profile-link";
+                        const hint = document.createElement("small");
+                        hint.textContent = "Fiche station";
+                        wrapper.appendChild(link);
+                        wrapper.appendChild(hint);
+                        return wrapper;
+                    },
+                },
+                { label: "Localisation", render: (station) => station.localisation_text || "-" },
+                { label: "Statut", render: (station) => station.statut || "-" },
+                {
+                    label: "Bornes",
+                    render: (station) => bornes.filter((borne) => String(borne.station) === String(station.id_station)).length,
+                },
+                {
+                    label: "Emplacements",
+                    render: (station) => emplacements.filter((emplacement) => String(emplacement.station) === String(station.id_station)).length,
+                },
+                {
+                    label: "Actions",
+                    className: "actions-column",
+                    renderNode: (station) => {
+                        const actions = document.createElement("div");
+                        actions.className = "table-actions";
+                        actions.appendChild(createActionLink("Ouvrir", `/admin-station.html?id=${station.id_station}`));
+                        actions.appendChild(createActionLink("Modifier", editHref("station", station.id_station)));
+                        actions.appendChild(createActionButton("Supprimer", () => deleteAndReload(
+                            `Supprimer la station ${station.nom} ?`,
+                            () => window.AuthAPI.deleteAdminStation(station.id_station)
+                        ), "danger-action"));
+                        return actions;
+                    },
+                },
+            ],
+            rows,
+            emptyMessageFor("stations", "Aucune station.")
+        );
         renderPagination("stations-list", "stations");
-    }
-
-    function renderStationEmplacements(station, stationBornes, stationEmplacements) {
-        const wrapper = document.createElement("div");
-        wrapper.className = "station-emplacements-panel";
-
-        const heading = document.createElement("div");
-        heading.className = "station-emplacements-heading";
-        const title = document.createElement("strong");
-        title.textContent = `Bornes et emplacements de ${station.nom}`;
-        const addBorneLink = createActionLink("Ajouter une borne", "/admin-form.html?resource=borne");
-        addBorneLink.className = "table-action";
-        const addLink = createActionLink("Ajouter un emplacement", "/admin-form.html?resource=emplacement");
-        addLink.className = "table-action";
-        heading.appendChild(title);
-        heading.appendChild(addBorneLink);
-        heading.appendChild(addLink);
-        wrapper.appendChild(heading);
-
-        if (!stationBornes.length && !stationEmplacements.length) {
-            const empty = document.createElement("div");
-            empty.className = "empty-state";
-            empty.textContent = "Aucune borne ni emplacement pour cette station.";
-            wrapper.appendChild(empty);
-            return wrapper;
-        }
-
-        const grid = document.createElement("div");
-        grid.className = "slot-grid";
-        const bornesToRender = stationBornes.length
-            ? stationBornes
-            : [{ id_borne: "__unassigned__", nom: "Borne non renseign\u00e9e", numero: "-", statut: "-" }];
-
-        bornesToRender.forEach((borne) => {
-            const borneEmplacements = stationEmplacements.filter((emplacement) => String(emplacement.borne) === String(borne.id_borne));
-            const card = document.createElement("article");
-            card.className = "slot-card";
-            const head = document.createElement("div");
-            head.className = "slot-card-head";
-            const borneTitle = document.createElement("strong");
-            borneTitle.textContent = borne.nom || `Borne ${borne.numero}`;
-            const statusBadge = createStatusBadge(borne.statut || "-", borne.statut === "active" ? "success" : "warning");
-            head.appendChild(borneTitle);
-            head.appendChild(statusBadge);
-
-            const actions = document.createElement("div");
-            actions.className = "table-actions";
-            if (borne.id_borne !== "__unassigned__") {
-                actions.appendChild(createActionLink("Modifier", editHref("borne", borne.id_borne)));
-                actions.appendChild(createActionButton("Supprimer", () => deleteAndReload(
-                    `Supprimer la borne ${borne.nom || borne.numero} ?`,
-                    () => window.AuthAPI.deleteAdminBorne(borne.id_borne)
-                ), "danger-action"));
-            }
-
-            const slots = document.createElement("div");
-            slots.className = "stacked-list";
-            if (!borneEmplacements.length) {
-                const empty = document.createElement("p");
-                empty.className = "helper";
-                empty.textContent = "Aucun emplacement rattach\u00e9.";
-                slots.appendChild(empty);
-            } else {
-                borneEmplacements.forEach((emplacement) => {
-                    const row = document.createElement("div");
-                    row.className = "list-item compact-list-item";
-                    const rowHead = document.createElement("div");
-                    rowHead.className = "list-item-head";
-                    const emplacementTitle = document.createElement("strong");
-                    emplacementTitle.textContent = `Emplacement ${emplacement.numero}`;
-                    rowHead.appendChild(emplacementTitle);
-                    rowHead.appendChild(createStatusBadge(emplacement.statut || "-", emplacement.statut === "disponible" ? "success" : "warning"));
-
-                    const lock = document.createElement("p");
-                    lock.textContent = `Serrure : ${emplacement.lock_state || "-"}`;
-
-                    const slotActions = document.createElement("div");
-                    slotActions.className = "table-actions";
-                    slotActions.appendChild(createActionLink("Modifier", editHref("emplacement", emplacement.id_emplacement)));
-                    slotActions.appendChild(createActionButton("Supprimer", () => deleteAndReload(
-                        `Supprimer l'emplacement ${emplacement.numero} ?`,
-                        () => window.AuthAPI.deleteAdminEmplacement(emplacement.id_emplacement)
-                    ), "danger-action"));
-
-                    row.appendChild(rowHead);
-                    row.appendChild(lock);
-                    row.appendChild(slotActions);
-                    slots.appendChild(row);
-                });
-            }
-
-            card.appendChild(head);
-            card.appendChild(actions);
-            card.appendChild(slots);
-            grid.appendChild(card);
-        });
-        wrapper.appendChild(grid);
-        return wrapper;
     }
 
     function renderTechnicians() {
@@ -1120,20 +951,20 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Emplacement", render: (device) => device.slot_label || device.slot_id || "-" },
                 { label: "Connexion", renderNode: (device) => createStatusBadge(device.online ? "En ligne" : "Hors ligne", device.online ? "success" : "danger") },
                 { label: "Dernier état reçu", render: (device) => device.status_display || device.status || "-" },
-                { label: "Dernier ACK", render: formatCommandAck },
+                { label: "Dernière confirmation", render: formatCommandAck },
                 { label: "Station", render: (device) => device.station_nom || "-" },
                 { label: "Borne", render: (device) => device.borne_nom || "-" },
                 { label: "Emplacement", render: (device) => device.emplacement_numero ?? "-" },
                 { label: "Serrure", render: (device) => device.lock_state || "-" },
-                { label: "Firmware", render: (device) => device.firmware_version || "-" },
-                { label: "Cible", render: (device) => device.effective_expected_firmware_version || device.expected_firmware_version || "-" },
-                { label: "OTA", render: (device) => device.firmware_update_status || "-" },
+                { label: "Version", render: (device) => device.firmware_version || "-" },
+                { label: "Version attendue", render: (device) => device.effective_expected_firmware_version || device.expected_firmware_version || "-" },
+                { label: "Mise à jour", render: (device) => device.firmware_update_status || "-" },
                 { label: "IP", render: (device) => device.ip_address || "-" },
-                { label: "MAC ESP32", render: (device) => device.hardware_mac || "-" },
+                { label: "Adresse matérielle", render: (device) => device.hardware_mac || "-" },
                 { label: "Dernier signal", render: (device) => formatDateTime(device.last_seen) },
             ],
             paginateRows(supervision.devices || [], supervisionPaginationState.devices),
-            "Aucun ESP32 enregistré."
+            "Aucun contrôleur enregistré."
         );
 
         renderClientPagination("admin-devices-list", "devices", supervision.devices || [], renderSupervision);
@@ -1150,7 +981,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "Session", render: (command) => command.session_id || "-" },
             ],
             paginateRows(supervision.commands || [], supervisionPaginationState.commands),
-            "Aucune commande ESP32 reçue."
+            "Aucune commande reçue."
         );
 
         renderClientPagination("admin-commands-list", "commands", supervision.commands || [], renderSupervision);
@@ -1341,12 +1172,18 @@ document.addEventListener("DOMContentLoaded", async () => {
             return;
         }
 
+        const initialTab = (window.location.hash || "#overview").replace("#", "");
+        const allowedTabs = ["overview", "supervision", "users", "infrastructure", "reservations", "sessions", "operations"];
+        const selectedTab = allowedTabs.includes(initialTab) ? initialTab : "overview";
+        window.AppNavigation.render(dashboard, {
+            active: selectedTab === "overview" ? "admin" : selectedTab,
+            preferredRole: "admin",
+        });
+
         await loadAll();
         supervisionRealtimeStarted = true;
         connectSupervisionSocket();
-        const initialTab = (window.location.hash || "#overview").replace("#", "");
-        const allowedTabs = ["overview", "supervision", "users", "infrastructure", "reservations", "sessions", "operations"];
-        setAdminTab(allowedTabs.includes(initialTab) ? initialTab : "overview", false);
+        setAdminTab(selectedTab, false);
 
         window.setInterval(async () => {
             try {

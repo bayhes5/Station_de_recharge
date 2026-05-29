@@ -99,6 +99,7 @@ const TERMINAL_BORNE_ID =
     || window.localStorage.getItem("terminalBorneId")
     || "";
 const RFID_POLL_INTERVAL_MS = 700;
+const SLOT_STATUS_POLL_INTERVAL_MS = 1500;
 const DEFAULT_IDLE_RETURN_SECONDS = 120;
 const idleTimeoutParam = Number(new URLSearchParams(window.location.search).get("idle_timeout"));
 const idleTimeoutStorage = Number(window.localStorage.getItem("terminalIdleTimeoutSeconds"));
@@ -143,7 +144,6 @@ const resultDetails = document.getElementById("result-details");
 const readySlot = document.getElementById("ready-slot");
 const readyMessage = document.getElementById("ready-message");
 const readyDetails = document.getElementById("ready-details");
-const readyStartButton = document.getElementById("ready-start");
 const readyCancelButton = document.getElementById("ready-cancel");
 const chargingSlot = document.getElementById("charging-slot");
 const chargingMessage = document.getElementById("charging-message");
@@ -159,6 +159,8 @@ let lastRfidScanId = Number(window.sessionStorage.getItem("lastRfidScanId") || "
 let mobileSessionToken = "";
 let mobileSessionTimer = null;
 let currentCharge = null;
+let slotStatusTimer = null;
+let autoStartPending = false;
 
 function showScreen(name) {
     activeScreen = name;
@@ -173,7 +175,7 @@ function showScreen(name) {
     }
     if (name === "rfid") {
         rfidValueInput.value = "";
-        setRfidStatus("En attente du badge.");
+        setRfidStatus("Lecteur prêt.");
         rfidValueInput.focus();
     }
     if (name === "code") {
@@ -183,7 +185,7 @@ function showScreen(name) {
     if (name === "link") {
         linkCodeInput.value = "";
         linkRfidValueInput.value = "";
-        setLinkStatus("En attente du code.");
+        setLinkStatus("Entrez le code d'association.");
         updateLinkDisplay();
     }
     if (name === "mobile") {
@@ -280,7 +282,7 @@ function appendLinkKey(key) {
     updateLinkDisplay();
     if (linkCodeInput.value.length === 4) {
         linkRfidValueInput.focus();
-        setLinkStatus("Code saisi. Présentez votre badge.");
+        setLinkStatus("Code saisi. Présentez le badge.");
     }
 }
 
@@ -325,8 +327,12 @@ function terminalContextPayload() {
 }
 
 function resolveMobileFrontendBaseUrl() {
-    if (window.__MOBILE_FRONTEND_BASE_URL__) {
-        return String(window.__MOBILE_FRONTEND_BASE_URL__).replace(/\/$/, "");
+    const params = new URLSearchParams(window.location.search);
+    const configuredUrl = params.get("mobile_frontend")
+        || window.__MOBILE_FRONTEND_BASE_URL__
+        || window.localStorage.getItem("terminalMobileFrontendBaseUrl");
+    if (configuredUrl) {
+        return String(configuredUrl).replace(/\/$/, "");
     }
 
     if (KIOSK_BASE_PATH) {
@@ -334,7 +340,7 @@ function resolveMobileFrontendBaseUrl() {
     }
 
     const frontendUrl = new URL(window.location.origin);
-    if (frontendUrl.port === "9000") {
+    if (frontendUrl.port === "9000" || frontendUrl.port === "9001") {
         frontendUrl.port = "5173";
     }
     return frontendUrl.toString().replace(/\/$/, "");
@@ -416,14 +422,38 @@ async function sendEdgeMqttCommand(payload) {
             body: JSON.stringify(payload),
         });
     } catch (_error) {
-        throw new Error("Commande de charge indisponible.");
+        throw new Error("Commande équipement indisponible.");
     }
 
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-        throw new Error(displayErrorMessage(data.detail, "Commande de charge refusée."));
+        throw new Error(displayErrorMessage(data.detail, "Commande équipement refusée."));
     }
     return data;
+}
+
+async function readSlotStatus(session) {
+    const slotId = slotIdFromSession(session);
+    if (!slotId) {
+        throw new Error("Aucun emplacement actif.");
+    }
+    let response;
+    try {
+        response = await fetch(`${EDGE_BASE_URL}/mqtt/slot-status?slot_id=${encodeURIComponent(slotId)}`, {
+            method: "GET",
+            headers: {
+                Accept: "application/json",
+            },
+        });
+    } catch (_error) {
+        throw new Error("État de l'emplacement indisponible.");
+    }
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(displayErrorMessage(data.detail, "État de l'emplacement indisponible."));
+    }
+    return data.result || {};
 }
 
 function mqttDetails(result) {
@@ -434,8 +464,21 @@ function mqttDetails(result) {
     const ackPayload = mqtt.ack?.payload || {};
     const status = ackPayload.status || ackPayload.state || "validé";
     const message = ackPayload.message ? ` - ${ackPayload.message}` : "";
-    const prefix = mqtt.command_confirmed === false ? "Équipement non validé" : "Équipement validé";
-    return `${prefix}${message || ` - ${status}`}`;
+    const statusLabels = {
+        accepted: "démarrage confirmé",
+        ok: "action confirmée",
+        started: "charge active",
+        stopped: "arrêt confirmé",
+        charging: "charge active",
+        unlocked: "boîtier déverrouillé",
+        locked: "boîtier verrouillé",
+        waiting_plug: "en attente du branchement",
+        denied: "commande refusée",
+        idle: "équipement disponible",
+    };
+    const readableStatus = statusLabels[String(status).toLowerCase()] || status;
+    const prefix = mqtt.command_confirmed === false ? "Équipement à vérifier" : "Équipement confirmé";
+    return `${prefix}${message || ` - ${readableStatus}`}`;
 }
 
 function chargeStateDetails(result) {
@@ -582,6 +625,7 @@ async function closeTerminalSession(sessionId) {
 
 function resetToHome() {
     stopMobilePairing();
+    stopSlotStatusPolling();
     window.clearTimeout(inactivityTimer);
     reservationCodeInput.value = "";
     authValueInput.value = "";
@@ -592,9 +636,9 @@ function resetToHome() {
         linkRfidValueInput.value = "";
         updateLinkDisplay();
     }
-    setStatus("Saisissez le code de réservation.");
-    setRfidStatus("En attente du badge.");
-    setLinkStatus("En attente du code.");
+    setStatus("Commencez par la référence de réservation.");
+    setRfidStatus("Lecteur prêt.");
+    setLinkStatus("Entrez le code d'association.");
     updateDisplays();
     showScreen("home");
 }
@@ -628,21 +672,33 @@ function slotIdFromSession(session) {
     return `slot${session.emplacement}`;
 }
 
-async function startSlotFromSession(result) {
-    const session = result.session || {};
+function slotCommandPayloadFromSession(result, action) {
+    const session = extractSession(result);
     const slotId = slotIdFromSession(session);
     if (!slotId) {
-        return null;
+        throw new Error("Aucun emplacement n'est associé à cette session.");
     }
-    return sendEdgeMqttCommand({
+    return {
         slot_id: slotId,
-        action: "START",
+        action,
         session_id: session.id || "",
         topic_prefix: session.mqtt_prefix || session.topic_prefix || "",
         station: session.station || "",
         borne: session.borne || "",
         emplacement: session.emplacement || "",
-    });
+    };
+}
+
+async function sendSlotCommandFromSession(result, action) {
+    return sendEdgeMqttCommand(slotCommandPayloadFromSession(result, action));
+}
+
+async function unlockSlotFromSession(result) {
+    return sendSlotCommandFromSession(result, "UNLOCK");
+}
+
+async function startSlotFromSession(result) {
+    return sendSlotCommandFromSession(result, "START");
 }
 
 function accessDetails(sessionResult, mqttResult) {
@@ -653,6 +709,20 @@ function accessDetails(sessionResult, mqttResult) {
     ].filter(Boolean).join(" | ");
 }
 
+function chargePreparationMessage() {
+    return "Boîtier déverrouillé. Branchez le câble pour démarrer la charge.";
+}
+
+async function showChargeReadyAfterUnlock(result, details = "") {
+    setStatus("Ouverture du boîtier.");
+    const unlockResult = await unlockSlotFromSession(result);
+    showChargeReady(
+        result,
+        chargePreparationMessage(),
+        accessDetails(result, unlockResult) || details,
+    );
+}
+
 function showChargeReady(result, message, details = "") {
     const session = extractSession(result);
     currentCharge = {
@@ -661,13 +731,15 @@ function showChargeReady(result, message, details = "") {
         details,
     };
     readySlot.textContent = slotLabelFromSession(session);
-    readyMessage.textContent = message || "Branchez votre vélo puis démarrez la charge.";
+    readyMessage.textContent = message || chargePreparationMessage();
     readyDetails.textContent = details || sessionDetails(result) || "Emplacement attribué.";
-    pushEvent("Accès autorisé. Emplacement prêt.");
+    pushEvent("Accès autorisé.");
     showScreen("ready");
+    startCablePolling();
 }
 
 function showCharging(mqttResult = null) {
+    stopSlotStatusPolling();
     const session = currentCharge?.session || {};
     chargingSlot.textContent = slotLabelFromSession(session);
     chargingMessage.textContent = `La charge est active sur l'emplacement ${slotLabelFromSession(session)}.`;
@@ -675,10 +747,107 @@ function showCharging(mqttResult = null) {
         currentCharge?.details || sessionDetails({ session }),
         mqttDetails(mqttResult),
         chargeStateDetails(mqttResult),
-        "Suivi en cours.",
+        "Session en cours.",
     ].filter(Boolean).join(" | ");
     pushEvent("Chargement en cours.");
     showScreen("charging");
+}
+
+function slotStatusPayloads(slotStatus) {
+    return [
+        slotStatus?.latest,
+        slotStatus?.telemetry?.payload,
+        slotStatus?.status?.payload,
+    ].filter(Boolean);
+}
+
+function booleanFromPayloads(slotStatus, key) {
+    if (slotStatus?.[key] === true || slotStatus?.[key] === false) {
+        return slotStatus[key];
+    }
+    const fallbackKey = key === "door_closed" ? "door" : key.replace("_present", "");
+    for (const payload of slotStatusPayloads(slotStatus)) {
+        const value = payload[key] ?? payload[fallbackKey];
+        if (value === true || value === false) {
+            return value;
+        }
+        const normalized = String(value ?? "").trim().toLowerCase();
+        if (["true", "1", "yes", "on", "present", "closed"].includes(normalized)) {
+            return true;
+        }
+        if (["false", "0", "no", "off", "absent", "open"].includes(normalized)) {
+            return false;
+        }
+    }
+    return null;
+}
+
+function slotState(slotStatus) {
+    return String(slotStatus?.state || slotStatus?.latest?.state || slotStatus?.latest?.status || "").trim().toLowerCase();
+}
+
+function waitingPlugDetails(slotStatus) {
+    const cablePresent = booleanFromPayloads(slotStatus, "cable_present");
+    const doorClosed = booleanFromPayloads(slotStatus, "door_closed");
+    const parts = [];
+    if (cablePresent === true) {
+        parts.push("Câble détecté.");
+    } else if (cablePresent === false) {
+        parts.push("En attente du câble.");
+    } else {
+        parts.push("En attente du signal câble.");
+    }
+    if (doorClosed === false) {
+        parts.push("Refermez le boîtier.");
+    }
+    return parts.join(" ");
+}
+
+function stopSlotStatusPolling() {
+    window.clearInterval(slotStatusTimer);
+    slotStatusTimer = null;
+}
+
+function startCablePolling() {
+    stopSlotStatusPolling();
+    slotStatusTimer = window.setInterval(pollCableAndAutoStart, SLOT_STATUS_POLL_INTERVAL_MS);
+    pollCableAndAutoStart();
+}
+
+async function pollCableAndAutoStart() {
+    if (!currentCharge || submitting || autoStartPending || activeScreen !== "ready") {
+        return;
+    }
+    try {
+        const slotStatus = await readSlotStatus(currentCharge.session);
+        const state = slotState(slotStatus);
+        if (["charging", "charging_started"].includes(state)) {
+            showCharging({ charge_state: { state: "charging" } });
+            return;
+        }
+        const cablePresent = booleanFromPayloads(slotStatus, "cable_present");
+        const doorClosed = booleanFromPayloads(slotStatus, "door_closed");
+        if (readyDetails) {
+            readyDetails.textContent = [
+                currentCharge?.details || "",
+                waitingPlugDetails(slotStatus),
+            ].filter(Boolean).join(" | ");
+        }
+        if (cablePresent === true && doorClosed !== false) {
+            autoStartPending = true;
+            readyMessage.textContent = "Câble détecté. Démarrage automatique de la charge.";
+            await startCurrentCharge({ automatic: true });
+        }
+    } catch (error) {
+        if (readyDetails) {
+            readyDetails.textContent = [
+                currentCharge?.details || "",
+                error.message,
+            ].filter(Boolean).join(" | ");
+        }
+    } finally {
+        autoStartPending = false;
+    }
 }
 
 async function startCurrentCharge() {
@@ -686,8 +855,6 @@ async function startCurrentCharge() {
         return;
     }
     submitting = true;
-    readyStartButton.disabled = true;
-    readyStartButton.textContent = "Démarrage...";
     try {
         const mqttResult = await startSlotFromSession({ session: currentCharge.session });
         showCharging(mqttResult);
@@ -696,8 +863,6 @@ async function startCurrentCharge() {
         showResult(false, error.message, "La réservation est validée, mais l'équipement n'a pas validé le démarrage.");
     } finally {
         submitting = false;
-        readyStartButton.disabled = false;
-        readyStartButton.textContent = "Démarrer la charge";
     }
 }
 
@@ -716,7 +881,7 @@ async function stopCurrentCharge() {
 
     submitting = true;
     chargingStopButton.disabled = true;
-    chargingStopButton.textContent = "Arrêt...";
+    chargingStopButton.textContent = "Arrêt en cours";
     try {
         const mqttResult = await sendEdgeMqttCommand({
             slot_id: slotId,
@@ -766,21 +931,17 @@ async function pollMobileSession() {
         const result = await readMobileSession(mobileSessionToken);
         const session = result.mobile_session || {};
         if (session.status === "pending") {
-            setMobileStatus(`Terminez sur votre téléphone (${session.expires_in || 0}s).`);
+            setMobileStatus(`Finalisez sur votre téléphone (${session.expires_in || 0}s).`);
             return;
         }
 
         if (session.status === "authorized") {
             stopMobilePairing();
             submitting = true;
-            setMobileStatus("Autorisation reçue.");
+            setMobileStatus("Autorisation confirmée.");
             const consumed = await consumeMobileSession(mobileSessionToken);
             const details = sessionDetails(consumed);
-            showChargeReady(
-                consumed,
-                "Branchez votre vélo puis démarrez la charge.",
-                details,
-            );
+            await showChargeReadyAfterUnlock(consumed, details);
             return;
         }
 
@@ -806,7 +967,7 @@ async function startMobilePairing() {
     mobileSessionToken = "";
     mobileQrBox.replaceChildren();
     mobileUrlOutput.textContent = "";
-    setMobileStatus("Préparation du QR code...");
+    setMobileStatus("Génération du QR.");
 
     try {
         const result = await createMobileSession();
@@ -816,7 +977,7 @@ async function startMobilePairing() {
             mobileQrBox.textContent = "QR code indisponible.";
         }
         mobileUrlOutput.textContent = result.url || "";
-        setMobileStatus("Scannez le QR code avec votre téléphone.");
+        setMobileStatus("Scannez le QR avec votre téléphone.");
         mobileSessionTimer = window.setInterval(pollMobileSession, 2000);
     } catch (error) {
         setMobileStatus(error.message, true);
@@ -829,7 +990,7 @@ async function submitPayload(payload, successMessage) {
         return;
     }
     submitting = true;
-    setStatus("Vérification en cours...");
+    setStatus("Vérification en cours.");
     if (payload.auth_mode === "rfid") {
         setRfidStatus("Vérification en cours...");
     }
@@ -841,20 +1002,16 @@ async function submitPayload(payload, successMessage) {
         if (payload.auth_mode === "rfid") {
             setRfidStatus("Badge accepté.");
         }
-        showChargeReady(
-            result,
-            "Branchez votre vélo puis démarrez la charge.",
-            details,
-        );
+        await showChargeReadyAfterUnlock(result, details);
     } catch (error) {
         if (error.networkUnavailable) {
             try {
                 const offlinePayload = { ...payload, ...terminalContextPayload() };
                 const offlineResult = await sendOfflineAuthentication(offlinePayload);
                 const details = `${sessionDetails(offlineResult)} | Mode hors ligne.`;
-                const offlineMessage = "Branchez votre vélo puis démarrez la charge.";
+                const offlineMessage = chargePreparationMessage();
                 pushEvent(offlineMessage);
-                showChargeReady(offlineResult, offlineMessage, details);
+                await showChargeReadyAfterUnlock(offlineResult, details);
                 return;
             } catch (offlineError) {
                 setStatus(offlineError.message, true);
@@ -932,19 +1089,19 @@ async function submitLink() {
         return;
     }
     submitting = true;
-    setLinkStatus("Enregistrement du badge...");
+    setLinkStatus("Association du badge en cours.");
     try {
         const result = await sendRfidLink({
             link_code: linkCode,
             uid,
         });
         const pseudo = result.user?.pseudo ? ` pour ${result.user.pseudo}` : "";
-        pushEvent(`Badge enregistré${pseudo}.`);
-        showResult(true, "Badge enregistré.", "Vous pouvez maintenant utiliser ce badge pour vos réservations.");
+        pushEvent(`Badge associé${pseudo}.`);
+        showResult(true, "Badge associé.", "Vous pouvez maintenant utiliser ce badge pour vos réservations.");
     } catch (error) {
         setLinkStatus(error.message, true);
         pushEvent(error.message, true);
-        showResult(false, error.message, "Demandez un nouveau code d'enregistrement si nécessaire.");
+        showResult(false, error.message, "Demandez un nouveau code d'association si nécessaire.");
     } finally {
         submitting = false;
     }
@@ -999,7 +1156,7 @@ const rfidSubmitButton = document.getElementById("submit-rfid");
 if (rfidClearButton) {
     rfidClearButton.addEventListener("click", () => {
         rfidValueInput.value = "";
-        setRfidStatus("En attente du badge.");
+        setRfidStatus("Lecteur prêt.");
         updateDisplays();
         rfidValueInput.focus();
     });
@@ -1014,7 +1171,7 @@ if (linkClearButton) {
         linkCodeInput.value = "";
         linkRfidValueInput.value = "";
         updateLinkDisplay();
-        setLinkStatus("En attente du code.");
+        setLinkStatus("Entrez le code d'association.");
     });
 }
 if (linkSubmitButton) {
@@ -1025,9 +1182,6 @@ if (mobileRefreshButton) {
 }
 if (mobileCancelButton) {
     mobileCancelButton.addEventListener("click", resetToHome);
-}
-if (readyStartButton) {
-    readyStartButton.addEventListener("click", startCurrentCharge);
 }
 if (readyCancelButton) {
     readyCancelButton.addEventListener("click", resetToHome);

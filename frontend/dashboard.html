@@ -23,12 +23,12 @@
                     <h1 id="dashboard-title">Tableau de bord</h1>
                     <p class="lead">R&eacute;servations, sessions de recharge et &eacute;tat de votre compte.</p>
                 </div>
-                <div class="header-actions">
+                <nav class="header-actions" aria-label="Navigation principale" data-app-nav>
                     <a id="dashboard-admin-link" class="btn btn-secondary" href="/admin-dashboard.html" hidden>Administration</a>
                     <a class="btn btn-primary" href="/reservation.html">R&eacute;server</a>
                     <a class="btn btn-secondary" href="/profile.html">Profil</a>
                     <button id="dashboard-logout" class="btn btn-secondary" type="button">Se d&eacute;connecter</button>
-                </div>
+                </nav>
             </header>
 
             <div id="dashboard-status" class="status" aria-live="polite"></div>
@@ -76,19 +76,6 @@
                     </div>
                 </aside>
 
-                <section class="dashboard-panel dashboard-token-panel">
-                    <p class="panel-title">S&eacute;curit&eacute; de session</p>
-                    <div class="dashboard-kpis kpi-row">
-                        <div class="kpi">
-                            <span class="label">Jeton d&rsquo;acc&egrave;s</span>
-                            <span id="access-expiry" class="value">-</span>
-                        </div>
-                        <div class="kpi">
-                            <span class="label">Jeton de renouvellement</span>
-                            <span id="refresh-expiry" class="value">-</span>
-                        </div>
-                    </div>
-                </section>
             </section>
 
             <section class="admin-data-stack" role="tabpanel" data-tab-panel="reservations" hidden>

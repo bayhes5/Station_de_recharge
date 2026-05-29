@@ -1,18 +1,26 @@
-const CACHE_VERSION = "metropole-verte-v2";
+const CACHE_VERSION = "metropole-verte-v3";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/login.html",
-  "/mobile-session.html",
-  "/dashboard.html",
-  "/reservation.html",
-  "/profile.html",
+  "/register.html",
+  "/offline.html",
   "/manifest.webmanifest",
   "/icons/pwa-icon.svg",
   "/icons/pwa-icon-192.png",
   "/icons/pwa-icon-512.png",
   "/icons/pwa-maskable-512.png"
 ];
+const PRIVATE_NAVIGATION_PATHS = new Set([
+  "/admin-dashboard.html",
+  "/admin-form.html",
+  "/admin-station.html",
+  "/dashboard.html",
+  "/mobile-session.html",
+  "/profile.html",
+  "/reservation.html",
+  "/technician-dashboard.html"
+]);
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -69,11 +77,18 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
+          if (!PRIVATE_NAVIGATION_PATHS.has(url.pathname) && response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
+          }
           return response;
         })
-        .catch(() => caches.match(request).then((cached) => cached || caches.match("/index.html")))
+        .catch(() => {
+          if (PRIVATE_NAVIGATION_PATHS.has(url.pathname)) {
+            return caches.match("/offline.html");
+          }
+          return caches.match(request).then((cached) => cached || caches.match("/offline.html"));
+        })
     );
     return;
   }

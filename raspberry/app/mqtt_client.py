@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -105,6 +106,163 @@ def _ack_confirms_command(ack_payload: dict[str, Any] | None, action: str) -> bo
     return ack_confirms_command(ack_payload, action)
 
 
+class MqttSlotMonitor:
+    """Background MQTT subscriber keeping the latest ESP32 slot messages."""
+
+    def __init__(self, settings: MqttSettings | None = None):
+        self.settings = settings or MqttSettings()
+        self._lock = threading.Lock()
+        self._messages: dict[str, dict[str, dict[str, Any]]] = {}
+        self._thread: threading.Thread | None = None
+        self._running = False
+        self.status = "stopped"
+        self.detail = ""
+
+    def start(self) -> None:
+        """Start the monitor in background if it is not already running."""
+        if self._running:
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._run_forever, daemon=True)
+        self._thread.start()
+
+    def snapshot(self, slot_id: str) -> dict[str, Any]:
+        """Return the latest known MQTT messages for one slot."""
+        normalized_slot = str(slot_id or "").strip()
+        with self._lock:
+            messages = dict(self._messages.get(normalized_slot, {}))
+        telemetry = messages.get("telemetry", {})
+        status = messages.get("status", {})
+        ack = messages.get("ack", {})
+        latest_payload = (
+            telemetry.get("payload")
+            or status.get("payload")
+            or ack.get("payload")
+            or {}
+        )
+        return {
+            "slot_id": normalized_slot,
+            "monitor": {
+                "status": self.status,
+                "detail": self.detail,
+            },
+            "telemetry": telemetry,
+            "status": status,
+            "ack": ack,
+            "latest": latest_payload,
+            "cable_present": _extract_bool(
+                telemetry.get("payload", {}).get("cable")
+                if telemetry.get("payload")
+                else status.get("payload", {}).get("cable")
+            ),
+            "door_closed": _extract_bool(
+                telemetry.get("payload", {}).get("door")
+                if telemetry.get("payload")
+                else status.get("payload", {}).get("door")
+            ),
+            "state": str(
+                latest_payload.get("state")
+                or latest_payload.get("status")
+                or latest_payload.get("event")
+                or ""
+            ).strip().lower(),
+        }
+
+    def record_message(self, topic: str, raw_payload: bytes | str) -> None:
+        """Record one MQTT message. Public to make the parser testable."""
+        parsed = _parse_slot_topic(topic)
+        if not parsed:
+            return
+        slot_id, suffix = parsed
+        if suffix not in {"telemetry", "status", "ack", "alert"}:
+            return
+        payload = _decode_ack(
+            raw_payload.encode("utf-8") if isinstance(raw_payload, str) else raw_payload
+        )
+        message = {
+            "topic": topic,
+            "payload": payload,
+            "received_at": datetime.now(timezone.utc).isoformat(),
+        }
+        with self._lock:
+            self._messages.setdefault(slot_id, {})[suffix] = message
+
+    def _run_forever(self) -> None:
+        while self._running:
+            try:
+                self._run_once()
+            except Exception as exc:  # noqa: BLE001 - monitor must be best-effort.
+                self.status = "error"
+                self.detail = str(exc)
+                time.sleep(5)
+
+    def _run_once(self) -> None:
+        try:
+            import paho.mqtt.client as mqtt
+        except ImportError:
+            self.status = "unavailable"
+            self.detail = "paho-mqtt n'est pas installé côté Raspberry."
+            time.sleep(30)
+            return
+
+        settings = self.settings
+        client = mqtt.Client(client_id=f"{settings.client_id}-monitor")
+
+        def on_connect(mqtt_client, _userdata, _flags, return_code, *_args):
+            if return_code != 0:
+                self.status = "error"
+                self.detail = f"Connexion MQTT refusée: {return_code}"
+                return
+            topic = f"{settings.base_topic.strip('/')}/#"
+            mqtt_client.subscribe(topic, qos=settings.qos)
+            self.status = "connected"
+            self.detail = f"Abonné à {topic}"
+
+        def on_message(_client, _userdata, message):
+            self.record_message(message.topic, message.payload)
+
+        client.on_connect = on_connect
+        client.on_message = on_message
+        if settings.username:
+            client.username_pw_set(settings.username, settings.password)
+        if settings.tls_enabled:
+            client.tls_set()
+        client.connect(settings.host, settings.port, settings.keepalive)
+        client.loop_forever()
+
+
+def _parse_slot_topic(topic: str) -> tuple[str, str] | None:
+    """Return slot id and suffix from station/.../<slot>/<suffix> topics."""
+    parts = [part for part in str(topic or "").strip("/").split("/") if part]
+    if len(parts) < 3:
+        return None
+    suffix = parts[-1]
+    slot_id = parts[-2]
+    if not slot_id or not suffix:
+        return None
+    return slot_id, suffix
+
+
+def _extract_bool(value: Any) -> bool | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    normalized = str(value).strip().lower()
+    if normalized in {"true", "1", "yes", "on", "present", "closed"}:
+        return True
+    if normalized in {"false", "0", "no", "off", "absent", "open"}:
+        return False
+    return None
+
+
+def build_slot_monitor() -> MqttSlotMonitor:
+    """Factory used by the kiosk server."""
+    return MqttSlotMonitor()
+
+
 def publish_slot_command(slot_id: str, action: str, topic_prefix: str | None = None, **metadata: Any) -> dict[str, Any]:
     """Publish a command to one ESP32 slot through the local MQTT broker."""
 
@@ -145,7 +303,7 @@ def publish_slot_command(slot_id: str, action: str, topic_prefix: str | None = N
     def on_subscribe(*_args):
         subscribed_event.set()
 
-    client = mqtt.Client(client_id=settings.client_id)
+    client = mqtt.Client(client_id=f"{settings.client_id}-cmd-{uuid.uuid4().hex[:8]}")
     client.on_message = on_message
     client.on_subscribe = on_subscribe
 

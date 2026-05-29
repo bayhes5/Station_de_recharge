@@ -31,6 +31,18 @@
       "tooltip": "Courbes capteurs et état des contrôleurs",
       "type": "link",
       "url": "/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=$__from&to=$__to&var-station=$station&var-borne=$borne&var-emplacement=$emplacement"
+    },
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Ouvrir le détail session",
+      "tooltip": "Analyse d'une session de charge par session_id",
+      "type": "link",
+      "url": "/grafana/d/session-detail/session-detail-charge?orgId=1&from=$__from&to=$__to"
     }
   ],
   "panels": [

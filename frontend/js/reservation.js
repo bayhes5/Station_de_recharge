@@ -204,11 +204,11 @@ function appendAccessPayload(container, result) {
         const qrFrame = document.createElement("div");
         qrFrame.className = "qr-frame";
         if (!window.AuthAPI.renderQrSvg(qrFrame, access.qr_svg)) {
-            qrFrame.textContent = "QR indisponible. Installez la dépendance backend qrcode[pil].";
+            qrFrame.textContent = "QR indisponible pour le moment.";
         }
 
         const meta = document.createElement("p");
-        meta.textContent = `Valide jusqu'à ${formatDateTime(access.expires_at)}. Le lecteur QR du terminal transmettra automatiquement le jeton sécurisé.`;
+        meta.textContent = `Valide jusqu'à ${formatDateTime(access.expires_at)}. Présentez ce QR code à la borne pendant votre créneau.`;
 
         qrCard.appendChild(title);
         qrCard.appendChild(qrFrame);
@@ -231,6 +231,8 @@ function appendAccessPayload(container, result) {
 
 document.addEventListener("DOMContentLoaded", async () => {
     const status = document.getElementById("reservation-status");
+    const logoutButton = document.getElementById("reservation-logout");
+    const adminLink = document.getElementById("reservation-admin-link");
     const form = document.getElementById("reservation-form");
     const stationInput = document.getElementById("reservation-station");
     const stationSearch = document.getElementById("station-search");
@@ -246,6 +248,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     const authValueInput = document.getElementById("reservation-auth-value");
     const availabilityBox = document.getElementById("availability-box");
     const reservationsList = document.getElementById("reservations-list");
+    logoutButton?.addEventListener("click", () => window.AuthAPI.logout());
+
     const session = await window.AuthAPI.ensureSession();
     if (!session) {
         status.classList.add("error");
@@ -255,6 +259,11 @@ document.addEventListener("DOMContentLoaded", async () => {
         }, 1200);
         return;
     }
+    if (adminLink) {
+        adminLink.hidden = !session.user?.is_staff;
+    }
+
+    window.AppNavigation.render(session, { active: "reservation" });
 
     let stations = [];
     let savedRfidValue = "";
@@ -379,7 +388,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     function canUseLeaflet() {
-        return Boolean(window.L && typeof window.L.map === "function");
+        return Boolean(window.__ENABLE_EXTERNAL_MAP__ === true && window.L && typeof window.L.map === "function");
     }
 
     function getStationCoordinates(station) {

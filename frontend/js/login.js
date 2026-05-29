@@ -4,6 +4,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const nextUrl = new URLSearchParams(window.location.search).get("next");
     const allowedNextPaths = new Set([
         "/admin-dashboard.html",
+        "/admin-form.html",
+        "/admin-station.html",
         "/dashboard.html",
         "/mobile-session.html",
         "/profile.html",
@@ -49,7 +51,9 @@ document.addEventListener("DOMContentLoaded", () => {
             window.AuthAPI.setTokens(result);
             status.textContent = "Connexion réussie.";
             window.setTimeout(() => {
-                if (safeNextUrl) {
+                if (result.user?.must_change_password) {
+                    window.location.href = "/profile.html?force_password_change=1";
+                } else if (safeNextUrl) {
                     window.location.href = safeNextUrl;
                 } else if (result.user?.is_staff) {
                     window.location.href = "/admin-dashboard.html";

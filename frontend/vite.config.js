@@ -6,12 +6,14 @@ const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || "http://localhost:80
 const pageNames = [
   "index",
   "login",
+  "offline",
   "mobile-session",
   "register",
   "dashboard",
   "profile",
   "reservation",
   "admin-dashboard",
+  "admin-station",
   "admin-form",
   "technician-dashboard",
 ];

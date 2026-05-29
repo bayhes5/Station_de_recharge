@@ -104,7 +104,7 @@ from .services.charge_session_state import (
     mark_stop_requested,
     mark_stopped,
 )
-from .services.email_notifications import send_reservation_qr_email
+from .services.email_notifications import send_reservation_qr_email, send_temporary_password_email
 from .services.firmware import schedule_ota_update, update_firmware_compliance_status
 from .services.sms import SmsDeliveryError, mask_phone_number, send_sms
 from .services.sms_access_policy import (
@@ -318,6 +318,8 @@ def _serialize_user(user):
         "is_staff": user.is_staff,
         "is_superuser": user.is_superuser,
         "is_technician": _user_is_technician(user),
+        "must_change_password": user.must_change_password,
+        "password_reset_at": user.password_reset_at.isoformat() if user.password_reset_at else None,
     }
 
 
@@ -1779,7 +1781,8 @@ def change_password(request):
         )
 
     user.set_password(serializer.validated_data["new_password"])
-    user.save(update_fields=["password"])
+    user.must_change_password = False
+    user.save(update_fields=["password", "must_change_password"])
     return Response({"message": "Mot de passe mis a jour"})
 
 
@@ -2151,15 +2154,43 @@ def admin_user_detail(request, user_id):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_reset_user_password(request, user_id):
-    """Generate and set a new temporary password for a user."""
+    """Generate, set and email a new temporary password for a user."""
     try:
         user = User.objects.get(id_user=user_id)
     except User.DoesNotExist:
         return Response({"detail": "Utilisateur introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
+    previous_password = user.password
+    previous_must_change_password = user.must_change_password
+    previous_password_reset_at = user.password_reset_at
     temporary_password = _generate_temporary_password(user)
     user.set_password(temporary_password)
-    user.save(update_fields=["password"])
+    user.must_change_password = True
+    user.password_reset_at = timezone.now()
+    user.save(update_fields=["password", "must_change_password", "password_reset_at"])
+
+    try:
+        sent_count = send_temporary_password_email(user, temporary_password)
+    except Exception as exc:  # noqa: BLE001 - keep account usable if email delivery fails.
+        logger.exception("Temporary password email failed for user %s", user.id_user)
+        user.password = previous_password
+        user.must_change_password = previous_must_change_password
+        user.password_reset_at = previous_password_reset_at
+        user.save(update_fields=["password", "must_change_password", "password_reset_at"])
+        return Response(
+            {"detail": f"Mot de passe non réinitialisé : envoi e-mail impossible ({exc})."},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    if sent_count < 1:
+        user.password = previous_password
+        user.must_change_password = previous_must_change_password
+        user.password_reset_at = previous_password_reset_at
+        user.save(update_fields=["password", "must_change_password", "password_reset_at"])
+        return Response(
+            {"detail": "Mot de passe non réinitialisé : aucun e-mail n'a été envoyé."},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
     _log_security_event(
         request,
         user,
@@ -2167,8 +2198,9 @@ def admin_reset_user_password(request, user_id):
     )
     return Response(
         {
-            "message": "Mot de passe temporaire généré.",
-            "temporary_password": temporary_password,
+            "message": "Mot de passe provisoire envoyé par e-mail. L'utilisateur devra le modifier à la prochaine connexion.",
+            "email_sent": True,
+            "must_change_password": True,
         }
     )
 
@@ -2320,6 +2352,9 @@ def admin_bornes(request):
     """List physical charging cabinets or create one from the administration API."""
     if request.method == "GET":
         bornes = Borne.objects.select_related("station").prefetch_related("emplacements").order_by("station__nom", "numero")
+        station_id = request.query_params.get("station")
+        if station_id:
+            bornes = bornes.filter(station_id=station_id)
         return _list_response(request, bornes, serializer_class=BorneSerializer)
 
     serializer = BorneSerializer(data=request.data)
@@ -2364,6 +2399,12 @@ def admin_emplacements(request):
     """List charging bays or create one from the administration API."""
     if request.method == "GET":
         emplacements = Emplacement.objects.select_related("station", "borne").order_by("station__nom", "borne__numero", "numero")
+        station_id = request.query_params.get("station")
+        borne_id = request.query_params.get("borne")
+        if station_id:
+            emplacements = emplacements.filter(station_id=station_id)
+        if borne_id:
+            emplacements = emplacements.filter(borne_id=borne_id)
         return _list_response(request, emplacements, serializer_class=EmplacementSerializer)
 
     serializer = EmplacementSerializer(data=request.data)
@@ -3484,6 +3525,7 @@ def mobile_session_detail(request, token):
     station_id = payload.get("station_id")
     borne_id = payload.get("borne_id")
     reservations = []
+    selected_reservation = None
     for reservation in _startable_user_reservations(request.user, timezone.now()):
         serialized = _serialize_reservation(reservation)
         serialized["compatible_station"] = not station_id or str(reservation.emplacement.station_id) == station_id
@@ -3492,13 +3534,16 @@ def mobile_session_detail(request, token):
         serialized["station_id"] = str(reservation.emplacement.station_id)
         serialized["borne_id"] = str(reservation.emplacement.borne_id)
         reservations.append(serialized)
+        if str(reservation.id_reservation) == str(payload.get("reservation_id") or ""):
+            selected_reservation = serialized
 
-    return Response(
-        {
-            "mobile_session": _serialize_mobile_session(payload),
-            "reservations": reservations,
-        }
-    )
+    response = {
+        "mobile_session": _serialize_mobile_session(payload),
+        "reservations": reservations,
+    }
+    if selected_reservation is not None:
+        response["reservation"] = selected_reservation
+    return Response(response)
 
 
 @_schema("Autoriser une réservation depuis le mobile", request=OpenApiTypes.OBJECT, tags=["Mobile"])

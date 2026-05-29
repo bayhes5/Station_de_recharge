@@ -21,22 +21,22 @@
                 <div>
                     <p class="eyebrow">M&eacute;tropole Verte</p>
                     <h1 id="profile-title">Profil utilisateur</h1>
-                    <p class="lead">Informations personnelles, sécurité, moyens d’authentification et données du compte.</p>
+                    <p class="lead">Informations personnelles, sécurité, moyens d’accès et données du compte.</p>
                 </div>
-                <div class="header-actions">
+                <nav class="header-actions" aria-label="Navigation principale" data-app-nav>
                     <a id="profile-admin-link" class="btn btn-secondary" href="/admin-dashboard.html" hidden>Administration</a>
                     <a class="btn btn-secondary" href="/dashboard.html">Tableau de bord</a>
                     <a class="btn btn-primary" href="/reservation.html">Réserver</a>
                     <button id="logout-btn" class="btn btn-secondary" type="button">Se déconnecter</button>
-                </div>
+                </nav>
             </header>
 
             <div id="profile-status" class="status" aria-live="polite"></div>
 
             <nav class="tab-bar" role="tablist" aria-label="Navigation du profil">
                 <button class="tab-button active" type="button" role="tab" aria-selected="true" data-tab-button="account">Compte</button>
-                <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-button="auth">Authentification</button>
-                <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-button="history">Historique</button>
+                <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-button="auth">Moyens d&rsquo;acc&egrave;s</button>
+                <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-button="history">Historique des acc&egrave;s</button>
                 <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-button="rgpd">Données</button>
             </nav>
 
@@ -98,7 +98,7 @@
                 <div class="dashboard-grid">
                     <section class="dashboard-panel">
                         <p class="panel-title">Badge RFID</p>
-                        <p class="lead">Générez un code court, puis saisissez-le sur le terminal de la station avant de passer votre badge. L'UID est lu uniquement par le Raspberry Pi.</p>
+                        <p class="lead">G&eacute;n&eacute;rez un code court, saisissez-le sur la borne, puis pr&eacute;sentez votre badge.</p>
                         <form id="auth-method-form" class="account-form">
                             <button class="btn btn-primary" type="submit">Générer un code d'association</button>
                         </form>
@@ -107,8 +107,8 @@
                     </section>
 
                     <section class="dashboard-panel">
-                        <p class="panel-title">Aperçu de réservation</p>
-                        <p class="lead">Les accès générés à la réservation apparaissent ici pour contrôle.</p>
+                        <p class="panel-title">Derniers acc&egrave;s de r&eacute;servation</p>
+                        <p class="lead">Retrouvez les acc&egrave;s r&eacute;cents associ&eacute;s &agrave; vos r&eacute;servations.</p>
                         <div id="auth-history-preview" class="stacked-list section-stack"></div>
                     </section>
                 </div>
@@ -116,8 +116,8 @@
 
             <section class="section-block" role="tabpanel" data-tab-panel="history" hidden>
                 <section class="dashboard-panel">
-                    <p class="panel-title">Historique d’authentification</p>
-                        <p class="lead">Retrouvez les réservations, les modes d’accès et leurs périodes de validité.</p>
+                    <p class="panel-title">Historique des acc&egrave;s</p>
+                        <p class="lead">Retrouvez les r&eacute;servations, les moyens d&rsquo;acc&egrave;s et leurs p&eacute;riodes de validit&eacute;.</p>
                     <div id="auth-history-list" class="stacked-list section-stack"></div>
                 </section>
             </section>

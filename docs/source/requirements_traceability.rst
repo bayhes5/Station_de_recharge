@@ -101,16 +101,18 @@ Couverture par partie
      - Le terminal vérifie réservation active, moyen d'accès et station attendue.
      - Ajouter retours utilisateur détaillés pour mauvais emplacement.
    * - Serrure et charge
-     - Commande ``START`` envoyée à l'emplacement après authentification réussie.
-       Firmware ESP32 simule verrouillage et charge.
-     - Remplacer les sorties LED/simulation par relais et câblage physique.
+     - Commande ``UNLOCK`` envoyée après authentification réussie, puis
+       ``START`` automatique après détection du câble. Firmware ESP32 pilote la
+       serrure par relais GPIO26 ; le relais de charge reste à câbler.
+     - Câbler le relais de charge réel et valider le cycle complet sous charge.
    * - Télémétrie
      - ESP32 publie température, humidité, courant, tension, énergie, porte,
        câble et état de l'emplacement. Le test matériel actuel couvre
-       uniquement température/humidité DHT22 et identité ESP32
-       (firmware, adresse IP, adresse MAC).
-     - Brancher INA219, porte, câble, serrure et relais réels, puis décider si
-       un journal local ESP32 est nécessaire en complément du cache Raspberry.
+       température/humidité DHT22, courant SEN0214, identité ESP32
+       (firmware, adresse IP, adresse MAC) et état logique de serrure.
+     - Brancher capteur de tension ou INA219, porte, câble et relais de charge,
+       puis décider si un journal local ESP32 est nécessaire en complément du
+       cache Raspberry.
    * - Alertes
      - Détection intrusion, câble retiré, surconsommation et surchauffe.
        Stockage dans ``Alerte`` avec cycle ``nouvelle`` -> ``active`` ->
@@ -141,8 +143,12 @@ Réserver et démarrer une charge
       -> reçoit ou consulte QR/code SMS/badge
       -> s'identifie au kiosque Raspberry
       -> API valide réservation + moyen d'accès + station
-      -> Raspberry publie START vers l'emplacement
-      -> ESP32 ouvre/verrouille le boîtier et démarre la charge
+      -> Raspberry publie UNLOCK vers l'emplacement
+      -> ESP32 ouvre le boîtier
+      -> utilisateur branche le câble
+      -> ESP32 publie cable=true
+      -> Raspberry publie START automatiquement vers l'emplacement
+      -> ESP32 verrouille le boîtier et démarre la charge
       -> télémétrie envoyée au backend puis à Grafana
 
 Supervision et alertes
@@ -210,13 +216,16 @@ Contraintes projet
 * **Qualité** : tests backend/frontend, documentation Sphinx, CI GitHub Actions,
   CodeQL et rapports supply chain.
 * **Matériel imposé** : Raspberry Pi 4, écran 7 pouces ``1024x600``, ESP32,
-  serrures électromagnétiques, capteurs DHT/Hall/contact/INA219.
+  serrure électromagnétique, DHT22, capteur de courant SEN0214 et capteurs
+  complémentaires à câbler.
 
 État de maturité
 ----------------
 
 La version logicielle couvre le parcours complet de réservation, validation
 d'accès, commande MQTT, télémétrie et supervision. Les éléments actuellement
-simulés sont clairement identifiés : charge, serrure, porte, câble, tension et
-courant, ainsi que certains lecteurs physiques. Le test matériel actuel couvre
-déjà la remontée DHT22 et l'identité ESP32 vers MQTT, backend et Grafana.
+partiels ou non câblés sont clairement identifiés : relais de charge, porte,
+câble, tension réelle et certains lecteurs physiques. Le test matériel actuel
+couvre déjà la remontée DHT22, le courant SEN0214, l'identité ESP32 et la
+commande de serrure par relais GPIO26. Le relais de charge, le contact de porte
+et la détection câble restent à câbler.

@@ -300,8 +300,10 @@ l'historique récent des commandes acquittées. Cela permet de distinguer une
 commande publiée, une commande confirmée et une charge réellement active
 remontée ensuite par le statut ou la télémétrie.
 
-Le backend met aussi à jour ``charging_session.charge_state``. Un ACK ``START``
-confirmé fait passer la session à ``waiting_plug`` ou ``charging`` selon le
+Le backend met aussi à jour ``charging_session.charge_state``. Un ACK
+``UNLOCK`` confirmé fait passer la session à ``waiting_plug`` : l'accès est
+validé, le boîtier est ouvert et l'utilisateur peut brancher le câble. Un ACK
+``START`` confirmé maintient ``waiting_plug`` ou passe à ``charging`` selon le
 statut reçu, une télémétrie ``charging`` confirme la charge active, un ACK
 ``STOP`` place la session en ``stopping`` jusqu'à la clôture backend, et
 ``terminal/sessions/stop`` termine le cycle en ``stopped``. Ce verrou métier
@@ -538,6 +540,8 @@ L'ingestion des télémétries alimente actuellement :
   existe sur l'emplacement ;
 * ``Alerte`` : anomalies telles qu'intrusion, câble retiré, serrure déverrouillée
   en charge, surchauffe ou surconsommation.
+* ``DeviceCommandLog`` : historique des ACK ``UNLOCK``, ``START``, ``STOP`` et
+  diagnostic du dernier ordre accepté ou refusé par l'ESP32.
 
 L'identité du device est séparée en deux niveaux : ``slot_id`` pour le routage
 MQTT de l'emplacement, et ``hardware_mac`` pour la carte ESP32 physique.
@@ -548,6 +552,14 @@ Les capteurs booléens ``door``, ``cable``, ``lock`` et ``intrusion`` sont stock
 numériquement dans ``CapteurData`` : ``1`` signifie vrai et ``0`` signifie faux.
 L'API de supervision expose en plus un libellé lisible pour l'interface :
 ``Boîtier fermé`` / ``Boîtier ouvert`` et ``Câble présent`` / ``Câble retiré``.
+
+Après une validation par badge RFID, les signes attendus dans la supervision
+admin sont :
+
+* une session en ``access_validated`` puis ``waiting_plug`` ;
+* un dernier ordre device ``UNLOCK`` / ``unlocked`` ;
+* une ligne ``DeviceCommandLog`` rattachée à la session ;
+* un heartbeat ou une télémétrie ESP32 si le firmware publie après l'ouverture.
 
 Dans l'interface administrateur, la colonne ``Connexion`` indique si l'ESP32 a
 émis récemment une télémétrie ou un statut MQTT. Elle est calculée à partir de
@@ -620,6 +632,9 @@ Les conditions de résolution automatique sont :
 * ``session_stopping_too_long`` : la session sort de l'état ``stopping`` parce
   que l'endpoint de clôture backend a terminé la session, ou parce qu'un
   opérateur clôture/résout l'incident après diagnostic.
+* ``session_waiting_plug_too_long`` : la session quitte l'état ``waiting_plug``
+  parce que le câble a été détecté et que la charge démarre, parce que la
+  session est annulée, ou parce qu'un opérateur traite l'incident.
 
 Le firmware est traité séparément. Chaque ``Device`` conserve maintenant la
 version remontée par l'ESP32, la version attendue, le statut de conformité et
@@ -650,9 +665,19 @@ par cron, Celery Beat ou un job de supervision :
 
 Elle scanne les sessions ouvertes plus anciennes que
 ``SESSION_TELEMETRY_STALE_MINUTES`` minutes, ``2`` par défaut. Si aucune mesure
-``SessionTelemetry`` récente n'existe, le backend crée ou maintient une alerte
-``session_without_telemetry``. L'alerte est résolue automatiquement dès que la
+``SessionTelemetry`` récente n'existe pour une session réellement attendue en
+charge, le backend crée ou maintient une alerte ``session_without_telemetry``.
+L'état ``waiting_plug`` est volontairement exclu de cette règle : après
+validation d'accès, l'utilisateur peut encore être en train d'ouvrir le boîtier
+et de brancher le câble. L'alerte est résolue automatiquement dès que la
 télémétrie revient ou lorsque la session se termine.
+
+Le même scan vérifie les sessions restées trop longtemps en ``waiting_plug``.
+Ce cas signifie que l'accès a été validé, que le boîtier a été ouvert, mais que
+l'ESP32 n'a pas encore remonté ``cable=true``. Le délai est contrôlé par
+``SESSION_WAITING_PLUG_STALE_MINUTES``, ``5`` par défaut. L'alerte produite est
+``session_waiting_plug_too_long`` ; elle permet de distinguer un utilisateur qui
+n'a pas branché son câble d'une vraie perte de télémétrie pendant la charge.
 
 Le même scan vérifie aussi les sessions restées trop longtemps en état
 ``stopping``. Ce cas indique que le ``STOP`` a été demandé ou confirmé par
@@ -710,7 +735,7 @@ Grafana
 -------
 
 Grafana est provisionné automatiquement avec une datasource PostgreSQL nommée
-``Station TimescaleDB`` et deux dashboards complémentaires.
+``Station TimescaleDB`` et trois dashboards complémentaires.
 
 Le point d'entrée recommandé est ``Station - Vue globale supervision`` :
 
@@ -743,6 +768,25 @@ Il affiche :
 
 Il reprend les mêmes variables ``station``, ``borne`` et ``emplacement`` que le
 dashboard d'accueil afin de conserver le même périmètre d'analyse.
+
+Le dashboard ``Session - Détail charge`` sert à analyser une session précise :
+
+.. code-block:: text
+
+   https://localhost/grafana/d/session-detail/session-detail-charge?orgId=1&from=now-6h&to=now&refresh=5s
+
+Il expose une variable ``session`` alimentée par les sessions ouvertes et les
+sessions récentes. Cette vue lit principalement ``session_telemetry`` afin
+d'éviter de mélanger plusieurs charges passées sur le même emplacement. Elle
+affiche :
+
+* le contexte de session : utilisateur, réservation, station, borne,
+  emplacement, état et durée ;
+* le courant, la tension, la puissance calculée et l'énergie consommée ;
+* la température et l'humidité mesurées sur l'emplacement pendant la fenêtre de
+  session ;
+* les commandes et confirmations liées à la session ;
+* les alertes rattachées à la session ou à l'emplacement pendant cette session.
 
 Cette supervision technique complète l'interface web métier. L'application web
 reste destinée aux utilisateurs, administrateurs et techniciens ; Grafana sert à

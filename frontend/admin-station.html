@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Fiche d'administration d'une station de recharge Métropole Verte.">
+    <meta name="theme-color" content="#1f8f55">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icons/pwa-icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icons/pwa-icon-192.png">
+    <meta http-equiv="Cache-Control" content="no-store">
+    <title>Fiche station | Métropole Verte</title>
+    <link rel="stylesheet" href="/css/auth.css">
+    <script type="module" src="/src/pages/admin-station.js"></script>
+</head>
+<body>
+    <a class="skip-link" href="#contenu">Aller au contenu</a>
+    <main class="page admin-page">
+        <section id="contenu" class="dashboard-card admin-shell app-shell station-profile-shell" aria-labelledby="station-title">
+            <header class="page-header admin-header">
+                <div>
+                    <p class="eyebrow">Infrastructure</p>
+                    <h1 id="station-title">Station</h1>
+                    <p id="station-lead" class="lead">Bornes, emplacements et état opérationnel de la station.</p>
+                </div>
+                <nav class="header-actions" aria-label="Navigation principale" data-app-nav>
+                    <a class="btn btn-secondary" href="/admin-dashboard.html#infrastructure">Infrastructure</a>
+                    <a class="btn btn-secondary" href="/admin-dashboard.html">Administration</a>
+                    <button id="logout-admin-station" class="btn btn-secondary" type="button">Se déconnecter</button>
+                </nav>
+            </header>
+
+            <nav class="breadcrumb-nav" aria-label="Fil d'Ariane">
+                <a href="/admin-dashboard.html">Administration</a>
+                <span aria-hidden="true">/</span>
+                <a href="/admin-dashboard.html#infrastructure">Infrastructure</a>
+                <span aria-hidden="true">/</span>
+                <span>Fiche station</span>
+            </nav>
+
+            <div id="station-status" class="status" aria-live="polite"></div>
+
+            <section class="dashboard-panel station-profile-card">
+                <div class="panel-heading table-toolbar">
+                    <div>
+                        <p class="panel-title">Informations station</p>
+                        <p class="table-caption">Localisation, statut et structure physique rattachée.</p>
+                    </div>
+                    <div class="table-toolbar-actions">
+                        <a id="station-edit-link" class="btn btn-secondary compact" href="#">Modifier la station</a>
+                        <button id="station-delete" class="btn btn-secondary compact danger-action" type="button">Supprimer</button>
+                    </div>
+                </div>
+                <div class="dashboard-kpis admin-kpis station-profile-kpis">
+                    <div class="kpi">
+                        <span class="label">Statut</span>
+                        <span id="station-statut" class="value">-</span>
+                    </div>
+                    <div class="kpi">
+                        <span class="label">Bornes</span>
+                        <span id="station-bornes-count" class="value">-</span>
+                    </div>
+                    <div class="kpi">
+                        <span class="label">Emplacements</span>
+                        <span id="station-emplacements-count" class="value">-</span>
+                    </div>
+                </div>
+                <dl class="station-profile-details">
+                    <div>
+                        <dt>Localisation</dt>
+                        <dd id="station-location">-</dd>
+                    </div>
+                    <div>
+                        <dt>Coordonnées</dt>
+                        <dd id="station-coordinates">-</dd>
+                    </div>
+                </dl>
+            </section>
+
+            <section class="dashboard-panel table-panel admin-table-panel">
+                <div class="panel-heading table-toolbar">
+                    <div>
+                        <p class="panel-title">Bornes et emplacements</p>
+                        <p class="table-caption">Gestion opérationnelle des équipements rattachés à cette station.</p>
+                    </div>
+                    <div class="table-toolbar-actions">
+                        <a id="station-add-borne" class="btn btn-primary compact" href="#">Ajouter une borne</a>
+                    </div>
+                </div>
+                <div id="station-bornes-list" class="station-borne-grid"></div>
+            </section>
+        </section>
+    </main>
+</body>
+</html>

@@ -28,7 +28,10 @@ Le flux le plus complet est le suivant :
    utilisateur réserve
       -> backend attribue un emplacement
       -> utilisateur s'identifie au kiosque
-      -> Raspberry publie START vers l'emplacement
+      -> Raspberry publie UNLOCK vers l'emplacement
+      -> utilisateur branche le câble
+      -> ESP32 publie cable=true
+      -> Raspberry publie START automatiquement vers l'emplacement
       -> ESP32 démarre la charge
       -> ESP32 publie la télémétrie
       -> le bridge d'ingestion transmet à Celery
@@ -84,6 +87,18 @@ Le choix JWT vient du besoin d'une API consommée par plusieurs clients :
 frontend, kiosque et outils de test. Le refresh token est placé dans un cookie
 ``HttpOnly`` pour réduire l'exposition côté JavaScript. Le frontend garde
 l'access token en mémoire et sait le renouveler depuis ``frontend/js/api.js``.
+
+La réinitialisation de mot de passe par l'administrateur passe par
+``POST /api/admin/users/<id>/reset-password/``. Le backend génère un mot de
+passe provisoire conforme aux règles Django, l'enregistre avec
+``set_password()``, marque le compte avec ``must_change_password=True`` et
+envoie le mot de passe par e-mail via la configuration SMTP locale, typiquement
+Mailpit en développement. Le mot de passe provisoire n'est plus renvoyé dans la
+réponse JSON de l'API. À la connexion suivante, le payload utilisateur contient
+``must_change_password`` ; ``frontend/js/login.js`` redirige alors vers
+``profile.html?force_password_change=1`` et ``frontend/js/profile.js`` force
+l'utilisateur à choisir un nouveau mot de passe. Le changement réussi via
+``/api/me/change-password/`` remet ``must_change_password`` à ``False``.
 
 Les écrans concernés sont :
 
@@ -234,8 +249,19 @@ compatibles avec la station, puis en choisit une. Le backend marque alors la
 session comme autorisée.
 
 Le kiosque interroge la session jusqu'à obtenir un statut autorisé, consomme
-l'autorisation, puis publie seulement ensuite la commande ``START`` vers
-l'ESP32. Si la session expire, il faut générer un nouveau QR de borne.
+l'autorisation, puis publie ``UNLOCK`` vers l'ESP32 pour ouvrir le boîtier. Le
+``START`` reste une action séparée, mais elle est automatisée : il est envoyé
+seulement lorsque l'utilisateur a branché le câble et que la télémétrie ESP32
+remonte ``cable=true``. Si la session expire, il faut générer un nouveau QR de
+borne.
+
+La PWA mobile suit aussi l'état après autorisation. ``frontend/js/mobile-session.js``
+appelle ``GET /api/mobile-sessions/<token>/`` tant que la session n'est pas
+consommée par le kiosque. L'écran mobile affiche donc deux étapes distinctes :
+``Autorisation confirmée`` puis ``Borne autorisée`` lorsque le statut passe à
+``consumed``. Si l'utilisateur recharge la page après avoir
+autorisé la session, ``mobile_session_detail()`` renvoie la réservation déjà
+sélectionnée afin de reconstruire l'affichage sans perdre le contexte.
 
 Le point important est la séparation des rôles :
 
@@ -278,7 +304,9 @@ autres sources.
 En mode nominal, le Raspberry ne décide pas seul d'ouvrir un emplacement. Il
 appelle d'abord l'API terminal, qui valide la réservation, le moyen d'accès, la
 station attendue et crée ou retrouve la session de charge. Après cette réponse,
-le Raspberry relaie la commande ``START`` vers l'ESP32 concerné.
+le Raspberry relaie la commande ``UNLOCK`` vers l'ESP32 concerné. Le ``START``
+part ensuite automatiquement depuis le kiosque lorsque l'ESP32 signale que le
+câble est branché.
 
 Le mode dégradé doit rester limité : si le backend devient indisponible, le
 Raspberry peut s'appuyer sur un cache local d'autorisations déjà synchronisées,
@@ -299,9 +327,11 @@ L'endpoint central est ``POST /api/terminal/authenticate/``. Il vérifie :
 * l'existence ou la création d'une ``Session`` active.
 
 Si la validation réussit, l'API renvoie l'emplacement et les informations utiles
-au kiosque. Celui-ci peut alors publier ``START`` vers l'ESP32. Le comportement
+au kiosque. Celui-ci peut alors publier ``UNLOCK`` vers l'ESP32. Le comportement
 est volontairement idempotent : si une session active existe déjà, le terminal
-peut retrouver le même état sans créer de session doublon.
+peut retrouver le même état sans créer de session doublon. Le démarrage
+électrique reste porté par ``START`` après branchement, mais le déclenchement est
+automatique dès que le capteur câble confirme la présence du câble.
 
 ESP32 et simulation Wokwi
 -------------------------
@@ -415,6 +445,8 @@ actuelles sont :
   ``SESSION_ENERGY_ALERT_KWH`` ;
 * ``session_without_telemetry`` si une session active ne reçoit plus de mesure
   récente, via le contrôle périodique Celery Beat ;
+* ``session_waiting_plug_too_long`` si l'accès a été validé mais que l'ESP32 ne
+  remonte pas ``cable=true`` avant ``SESSION_WAITING_PLUG_STALE_MINUTES`` ;
 * ``firmware_outdated`` si ``EXPECTED_ESP32_FIRMWARE_VERSION`` est défini et que
   la version remontée par l'ESP32 est différente.
 
@@ -490,7 +522,8 @@ Grafana est provisionné depuis ``grafana/provisioning/``. La datasource
 PostgreSQL est dans ``grafana/provisioning/datasources/datasource.yml`` et le
 dashboard d'accueil dans ``grafana/dashboards/station-overview.json``. Le
 dashboard détaillé des séries capteurs reste dans
-``grafana/dashboards/station-supervision.json``.
+``grafana/dashboards/station-supervision.json``. La vue dédiée à une session de
+charge précise est dans ``grafana/dashboards/session-detail.json``.
 
 Les dashboards lisent directement les tables Django : ``charging_session``,
 ``session_telemetry``, ``capteur_data``, ``capteur``, ``device``,
@@ -542,12 +575,28 @@ L'endpoint ``GET /api/technician/maintenances/`` permet à un technicien connect
 de consulter ses interventions. L'administration peut créer, modifier et
 supprimer les techniciens et maintenances.
 
+Le dashboard technicien ``frontend/technician-dashboard.html`` applique le même
+principe de moindre privilège côté interface. Les snapshots de supervision
+contiennent le ``station_id`` des contrôleurs ESP32, alertes, mesures et
+commandes récentes. ``frontend/js/technician-dashboard.js`` construit alors un
+filtre par station à partir du périmètre autorisé, ce qui permet à un
+technicien affecté à plusieurs stations de réduire immédiatement la vue à une
+station précise.
+
 Frontend
 --------
 
 Le frontend est volontairement multi-pages. Chaque page HTML charge un module
 sous ``frontend/src/pages/`` qui importe ensuite le script métier sous
 ``frontend/js/``. Le client API commun est ``frontend/js/api.js``.
+``frontend/js/navigation.js`` centralise la navigation par rôle et évite de
+répéter les mêmes liens dans chaque page.
+
+L'administration de l'infrastructure suit un parcours hiérarchique. Le tableau
+admin liste les stations, puis l'utilisateur ouvre ``admin-station.html`` pour
+consulter la fiche d'une station et gérer ses bornes et emplacements. Cette
+navigation reflète le modèle métier réel ``Station > Borne > Emplacement`` et
+évite de disperser les actions dans une seule page trop dense.
 
 La couche PWA se compose de :
 
@@ -559,6 +608,31 @@ La couche PWA se compose de :
 Ce cache ne remplace pas l'API : les réservations, statuts de session et moyens
 d'accès restent récupérés en ligne afin de conserver une source de vérité côté
 backend.
+
+Le mode hors ligne de la PWA est volontairement limité. Il sert à afficher une
+réponse propre lorsque le téléphone ne peut plus joindre le service, pas à
+valider une réservation sans backend. Le service worker met en cache les pages
+publiques essentielles comme ``index.html``, ``login.html``, ``register.html``
+et ``offline.html``. Les appels ``/api/`` ne sont jamais mis en cache.
+
+Les pages privées ne sont pas servies depuis un ancien cache :
+
+* ``dashboard.html`` ;
+* ``reservation.html`` ;
+* ``profile.html`` ;
+* ``mobile-session.html`` ;
+* ``admin-dashboard.html`` ;
+* ``admin-station.html`` ;
+* ``technician-dashboard.html``.
+
+Si l'utilisateur tente d'ouvrir l'une de ces pages sans réseau, la PWA affiche
+``offline.html``. Cette règle évite de présenter un écran de compte ou de
+session potentiellement obsolète après une déconnexion, une expiration de jeton
+ou une révocation côté serveur.
+
+Ce mode hors ligne PWA est différent du mode dégradé Raspberry. La PWA améliore
+l'expérience mobile quand le réseau tombe ; le Raspberry, lui, peut continuer à
+valider localement certains accès déjà synchronisés grâce à son cache SQLite.
 
 Ce choix garde une structure lisible et maintenable : une page correspond à un
 parcours métier. Vite apporte le serveur de développement, le build de
@@ -572,6 +646,7 @@ Les pages principales sont :
 * ``reservation.html`` : réservation ;
 * ``profile.html`` : profil et moyens d'accès ;
 * ``admin-dashboard.html`` : administration et supervision ;
+* ``admin-station.html`` : fiche station, bornes et emplacements ;
 * ``admin-form.html`` : formulaires admin ;
 * ``technician-dashboard.html`` : vue technicien.
 

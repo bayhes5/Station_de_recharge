@@ -226,6 +226,12 @@ def test_mobile_session_authorizes_and_consumes_reservation(authenticated_client
     assert authorize_response.status_code == status.HTTP_200_OK
     assert authorize_response.data["mobile_session"]["status"] == "authorized"
 
+    authorized_detail_response = authenticated_client.get(reverse("api-mobile-session-detail", kwargs={"token": token}))
+
+    assert authorized_detail_response.status_code == status.HTTP_200_OK
+    assert authorized_detail_response.data["mobile_session"]["status"] == "authorized"
+    assert authorized_detail_response.data["reservation"]["reference_code"] == "MOBOK1"
+
     status_response = api_client.get(reverse("api-terminal-mobile-session-status", kwargs={"token": token}))
 
     assert status_response.status_code == status.HTTP_200_OK

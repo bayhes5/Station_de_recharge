@@ -50,6 +50,49 @@ Fichiers principaux
 ``raspberry/app/offline_store.py``
    Cache SQLite local utilisé uniquement lorsque le backend est indisponible.
 
+Parcours écran de l'interface tactile
+-------------------------------------
+
+L'interface du kiosque est pensée pour un écran tactile Waveshare en résolution
+``1024x600``. L'objectif est de limiter les actions devant la borne et de ne pas
+afficher de vocabulaire technique à l'utilisateur final.
+
+Le parcours nominal est le suivant :
+
+1. l'écran d'accueil affiche uniquement l'action principale : présenter le badge
+   RFID ;
+2. les moyens secondaires restent disponibles en bas de l'écran : téléphone,
+   code SMS, QR de réservation et association de badge ;
+3. aucune action de charge n'est visible avant la validation de l'accès ;
+4. après validation, l'écran ``Recharger à l'emplacement X`` affiche
+   l'emplacement attribué et demande de brancher le câble ;
+5. dès que le câble est détecté par l'ESP32, le Raspberry publie
+   automatiquement ``START`` ;
+6. pendant la charge, l'écran ``Chargement en cours`` affiche l'emplacement actif
+   et le bouton ``Arrêter la charge`` ;
+7. l'arrêt publie ``STOP`` vers l'ESP32, clôture la session côté backend, puis
+   revient au parcours d'accueil.
+
+Les écrans secondaires ont un rôle strict :
+
+* ``Téléphone`` affiche un QR de session mobile temporaire. Ce QR ne correspond
+  pas à une réservation : il relie le téléphone à cette borne, puis l'utilisateur
+  choisit sa réservation depuis la PWA.
+* ``Code SMS`` demande deux valeurs : la référence de réservation et le code SMS
+  temporaire. Le clavier virtuel reprend volontairement l'alphabet limité
+  ``0-9`` et ``A-D`` pour rester cohérent avec un clavier matriciel physique.
+* ``QR réservation`` attend le QR généré lors de la réservation et reçu par
+  e-mail ou affiché dans l'application.
+* ``Associer badge`` demande le code d'association généré depuis le profil web,
+  puis attend le passage du badge RFID.
+
+L'interface revient automatiquement à l'accueil après une période d'inactivité
+sur les écrans d'accès. La durée par défaut est ``120`` secondes et peut être
+modifiée avec le paramètre ``idle_timeout`` dans l'URL ou avec
+``terminalIdleTimeoutSeconds`` dans le stockage local du navigateur. L'écran de
+charge active ne revient pas automatiquement à l'accueil afin de laisser
+l'utilisateur arrêter explicitement la charge.
+
 Variables d'environnement
 -------------------------
 
@@ -319,7 +362,11 @@ Vérifications attendues :
 * le backend reçoit ``POST /api/terminal/authenticate/`` ;
 * une réponse ``200`` valide l'accès ;
 * le kiosque affiche ``Recharger à l'emplacement X`` ;
-* ``START`` est publié sur MQTT lorsque l'utilisateur démarre ;
+* ``UNLOCK`` est publié sur MQTT pour ouvrir le boîtier ;
+* la supervision admin reçoit un ACK ``UNLOCK`` et passe la session en
+  ``waiting_plug`` ;
+* ``START`` est publié automatiquement sur MQTT lorsque l'utilisateur a branché
+  le câble et que le capteur remonte ``cable=true`` ;
 * ``STOP`` clôture la session lorsque l'utilisateur arrête.
 
 Si un autre badge est présenté, le backend peut répondre ``401``. Ce comportement
@@ -417,9 +464,20 @@ Le parcours nominal avec badge RFID est le suivant :
 3. Django vérifie le badge, la réservation active, la station attendue et le
    créneau ;
 4. Django crée ou retrouve la session de charge ;
-5. le Raspberry publie ``START`` sur ``station/<slot_id>/cmd`` ;
-6. l'ESP32 acquitte la commande sur ``station/<slot_id>/ack`` ;
-7. l'ESP32 déverrouille, attend câble et boîtier fermé, puis démarre le relais.
+5. le Raspberry publie ``UNLOCK`` sur ``station/<slot_id>/cmd`` ;
+6. l'ESP32 acquitte la commande et ouvre le boîtier par impulsion ;
+7. le backend ingère l'ACK ``UNLOCK`` et la supervision affiche le dernier ordre
+   ``UNLOCK`` / ``unlocked`` ;
+8. l'utilisateur branche le câble ;
+9. le Raspberry détecte ``cable=true`` dans la télémétrie de l'emplacement et
+   publie ``START`` automatiquement ;
+10. l'ESP32 vérifie le câble et le boîtier, puis démarre le relais de charge.
+
+Si le capteur câble n'est pas encore câblé, l'ESP32 doit soit publier une vraie
+télémétrie ``cable=true`` depuis le capteur, soit activer explicitement
+``SIMULATE_CABLE_PRESENT_FOR_AUTO_START`` pour un essai de banc. Sans ce signal,
+le kiosk reste volontairement sur l'écran de branchement et ne démarre pas la
+charge.
 
 Le même principe s'applique aux accès par QR ou code : la validation précède
 toujours la commande physique.
@@ -563,8 +621,8 @@ locale.
 
    idle          : aucun ordre local en cours
    reserved      : réservation connue localement, avant validation d'accès
-   access_validated : accès validé côté kiosk, commande START prête à partir
-   waiting_plug  : START confirmé par l'ESP32, attente câble + boîtier fermé
+   access_validated : accès validé côté kiosk, commande UNLOCK prête à partir
+   waiting_plug  : boîtier ouvert, attente câble + boîtier fermé avant START
    charging      : charge confirmée active
    stopping      : STOP demandé, attente confirmation ou clôture
    stopped       : session arrêtée localement

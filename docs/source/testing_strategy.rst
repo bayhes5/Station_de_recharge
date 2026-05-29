@@ -52,8 +52,9 @@ Tests couverts actuellement :
 * administration utilisateurs/réservations ;
 * génération et révocation QR/code SMS/RFID ;
 * authentification terminal QR/code SMS/RFID ;
-* parcours A à Z réservation QR -> session mobile -> kiosque -> START MQTT ->
-  télémétrie de l'emplacement réservé -> STOP -> clôture de session ;
+* parcours A à Z réservation QR -> session mobile -> kiosque -> UNLOCK MQTT ->
+  START MQTT -> télémétrie de l'emplacement réservé -> STOP -> clôture de
+  session ;
 * ingestion des télémétries vers capteurs/alertes ;
 * performance de requêtes ciblées.
 

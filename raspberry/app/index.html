@@ -14,41 +14,44 @@
                 <span class="brand-mark" aria-hidden="true">MV</span>
                 <div>
                     <strong>Métropole Verte</strong>
-                    <span>Borne de recharge vélo</span>
+                    <span>Recharge vélo</span>
                 </div>
             </div>
             <div class="station-state" aria-live="polite">
                 <span class="state-dot" aria-hidden="true"></span>
-                <span>Disponible</span>
+                <span>En service</span>
             </div>
-            <button class="topbar-help" data-go="help" type="button">Assistance</button>
+            <button class="topbar-help" data-go="help" type="button">Aide</button>
         </header>
 
         <section id="screen-home" class="screen screen-home active" aria-labelledby="home-title">
             <div class="home-primary">
                 <div class="home-copy">
-                    <p class="eyebrow">Accès principal</p>
+                    <p class="eyebrow">Badge RFID</p>
                     <h1 id="home-title">Présentez votre badge</h1>
-                    <p>La borne détecte votre réservation et prépare l'emplacement attribué.</p>
+                    <p>La borne identifie votre réservation et prépare l'emplacement attribué.</p>
+                    <div class="reader-pulse" aria-hidden="true">
+                        <span></span>
+                    </div>
                 </div>
             </div>
 
             <nav class="home-actions" aria-label="Autres moyens d'accès">
                 <button class="action-card" data-go="mobile" type="button">
                     <strong>Téléphone</strong>
-                    <small>Scanner le QR affiché sur la borne.</small>
+                    <small>Continuer depuis l'espace mobile.</small>
                 </button>
                 <button class="action-card" data-go="code" type="button">
                     <strong>Code SMS</strong>
-                    <small>Accès de secours avec code de réservation.</small>
+                    <small>Saisir la référence et le code reçu.</small>
                 </button>
                 <button class="action-card" data-go="qr" type="button">
                     <strong>QR réservation</strong>
-                    <small>Utiliser le QR reçu lors de la réservation.</small>
+                    <small>Présenter le QR reçu par e-mail.</small>
                 </button>
                 <button class="action-card secondary-action" data-go="link" type="button">
-                    <strong>Enregistrer un badge</strong>
-                    <small>Ajouter un badge RFID à votre compte.</small>
+                    <strong>Associer badge</strong>
+                    <small>Ajouter un badge RFID au compte.</small>
                 </button>
             </nav>
         </section>
@@ -61,14 +64,14 @@
                 </div>
                 <div class="scan-stage single-stage">
                     <div class="step-copy">
-                        <p class="eyebrow">Lecture en cours</p>
-                        <h2 id="rfid-title">Gardez le badge sur le lecteur</h2>
-                        <p>Retirez-le lorsque la borne valide l'accès.</p>
-                        <div id="rfid-status" class="status">En attente du badge.</div>
+                        <p class="eyebrow">Identification</p>
+                        <h2 id="rfid-title">Présentez le badge</h2>
+                        <p>La vérification démarre automatiquement.</p>
+                        <div id="rfid-status" class="status">Lecteur prêt.</div>
                     </div>
                     <input id="rfid-value" type="text" autocomplete="off" spellcheck="false" class="hidden-control" aria-hidden="true">
-                    <button id="rfid-clear" class="hidden-control" type="button">Effacer</button>
-                    <button id="submit-rfid" class="hidden-control" type="button">Confirmer</button>
+                    <button id="rfid-clear" class="hidden-control" type="button" tabindex="-1" aria-hidden="true">Effacer</button>
+                    <button id="submit-rfid" class="hidden-control" type="button" tabindex="-1" aria-hidden="true">Confirmer</button>
                 </div>
             </div>
         </section>
@@ -85,10 +88,10 @@
                         <output id="mobile-url" class="mobile-url"></output>
                     </div>
                     <div class="step-copy mobile-copy">
-                        <p class="eyebrow">Session sécurisée</p>
-                        <h2 id="mobile-title">Scannez ce QR code</h2>
-                        <p>Connectez-vous sur votre téléphone, choisissez votre réservation, puis validez cette borne.</p>
-                        <div id="mobile-status" class="status">Préparation du QR code.</div>
+                        <p class="eyebrow">Validation mobile</p>
+                        <h2 id="mobile-title">Validez depuis votre téléphone</h2>
+                        <p>Scannez le QR, connectez-vous, choisissez la réservation puis confirmez cette borne.</p>
+                        <div id="mobile-status" class="status">Génération du QR.</div>
                         <div class="inline-actions">
                             <button id="mobile-refresh" class="ghost" type="button">Nouveau QR</button>
                             <button id="mobile-cancel" class="ghost danger-ghost" type="button">Annuler</button>
@@ -106,13 +109,13 @@
                 </div>
                 <div class="code-screen">
                     <div class="code-heading">
-                        <p class="eyebrow">Accès de secours</p>
-                        <h2 id="code-title">Entrez vos codes</h2>
-                        <div id="status" class="status">Saisissez le code de réservation.</div>
+                        <p class="eyebrow">Saisie manuelle</p>
+                        <h2 id="code-title">Saisir les deux codes</h2>
+                        <div id="status" class="status">Commencez par la référence de réservation.</div>
                     </div>
                     <div class="field-stack">
                         <button class="code-field active" data-field="reservation" type="button">
-                            <span>Réservation</span>
+                            <span>Référence</span>
                             <output id="reservation-display">--------</output>
                         </button>
                         <button class="code-field" data-field="auth" type="button">
@@ -122,7 +125,7 @@
                     </div>
                     <input id="reservation-code" type="text" inputmode="none" autocomplete="off" hidden>
                     <input id="auth-value" type="text" inputmode="none" autocomplete="off" hidden>
-                    <button id="clear-field" class="hidden-control" type="button">Effacer le champ actif</button>
+                    <button id="clear-field" class="hidden-control" type="button" tabindex="-1" aria-hidden="true">Effacer le champ actif</button>
                     <div class="keypad" aria-label="Clavier tactile">
                         <button type="button" class="keypad-key" data-key="1">1</button>
                         <button type="button" class="keypad-key" data-key="2">2</button>
@@ -136,7 +139,7 @@
                         <button type="button" class="keypad-key" data-key="8">8</button>
                         <button type="button" class="keypad-key" data-key="9">9</button>
                         <button type="button" class="keypad-key accent-key" data-key="C">C</button>
-                        <button type="button" class="keypad-key utility-key" data-action="backspace">Effacer</button>
+                        <button type="button" class="keypad-key utility-key" data-action="backspace" aria-label="Effacer le dernier caractère">⌫</button>
                         <button type="button" class="keypad-key" data-key="0">0</button>
                         <button type="button" class="keypad-key validate-key" data-action="submit">OK</button>
                         <button type="button" class="keypad-key accent-key" data-key="D">D</button>
@@ -154,15 +157,15 @@
                 </div>
                 <div class="scan-stage qr-stage single-stage">
                     <div class="step-copy">
-                        <p class="eyebrow">Lecture automatique</p>
-                        <h2 id="qr-title">Présentez votre QR de réservation</h2>
-                        <p>La validation se lance dès que le lecteur a terminé la lecture.</p>
-                        <div class="status">En attente du QR code.</div>
+                        <p class="eyebrow">Lecture QR</p>
+                        <h2 id="qr-title">Présentez le QR de réservation</h2>
+                        <p>Le lecteur valide le QR reçu par e-mail ou affiché dans l'application.</p>
+                        <div class="status">Lecteur prêt.</div>
                     </div>
                     <form id="qr-form" class="scanner-form">
                         <label class="sr-only" for="qr-payload">Contenu scanné</label>
                         <textarea id="qr-payload" class="scanner-input" rows="1" autocomplete="off" spellcheck="false"></textarea>
-                        <button class="hidden-control" type="submit">Confirmer</button>
+                        <button class="hidden-control" type="submit" tabindex="-1" aria-hidden="true">Confirmer</button>
                     </form>
                 </div>
             </div>
@@ -176,12 +179,12 @@
                 </div>
                 <div class="link-screen">
                     <div class="link-heading">
-                        <p class="eyebrow">Enregistrement badge</p>
-                        <h2 id="link-title">Entrez le code, puis présentez le badge</h2>
-                        <div id="link-status" class="status">En attente du code.</div>
+                        <p class="eyebrow">Association</p>
+                        <h2 id="link-title">Associer un badge RFID</h2>
+                        <div id="link-status" class="status">Entrez le code d'association.</div>
                     </div>
                     <button class="link-code-field active" type="button">
-                        <span>Code badge</span>
+                        <span>Code association</span>
                         <output id="link-code-display">----</output>
                     </button>
                     <input id="link-code" type="text" inputmode="none" autocomplete="off" hidden>
@@ -199,13 +202,13 @@
                         <button type="button" class="keypad-key" data-key="8">8</button>
                         <button type="button" class="keypad-key" data-key="9">9</button>
                         <button type="button" class="keypad-key accent-key" data-key="C">C</button>
-                        <button type="button" class="keypad-key utility-key" data-action="backspace">Effacer</button>
+                        <button type="button" class="keypad-key utility-key" data-action="backspace" aria-label="Effacer le dernier caractère">⌫</button>
                         <button type="button" class="keypad-key" data-key="0">0</button>
                         <button type="button" class="keypad-key validate-key" data-action="submit">OK</button>
                         <button type="button" class="keypad-key accent-key" data-key="D">D</button>
                     </div>
-                    <button id="link-clear" class="ghost" type="button">Recommencer</button>
-                    <button id="submit-link" class="hidden-control" type="button">Confirmer</button>
+                    <button id="link-clear" class="ghost" type="button">Réinitialiser</button>
+                    <button id="submit-link" class="hidden-control" type="button" tabindex="-1" aria-hidden="true">Confirmer</button>
                 </div>
             </div>
         </section>
@@ -214,10 +217,10 @@
             <div class="screen-shell">
                 <div class="screen-header">
                     <button class="ghost back-home" type="button">Accueil</button>
-                    <span class="mode-pill">Assistance</span>
+                    <span class="mode-pill">Aide</span>
                 </div>
                 <div class="help-panel">
-                    <h2 id="help-title">Moyens d'accès disponibles</h2>
+                    <h2 id="help-title">Aide à l'accès</h2>
                     <div class="help-grid">
                         <article>
                             <strong>Badge RFID</strong>
@@ -244,11 +247,10 @@
             <div class="charge-step-card">
                 <span class="charge-step-label">Accès autorisé</span>
                 <h2 id="ready-title">Recharger à l'emplacement <span id="ready-slot">-</span></h2>
-                <p id="ready-message">Branchez votre vélo puis démarrez la charge.</p>
+                <p id="ready-message">Boîtier déverrouillé. Branchez le câble pour démarrer la charge.</p>
                 <div id="ready-details" class="charge-details"></div>
                 <div class="charge-actions">
                     <button id="ready-cancel" class="ghost" type="button">Annuler</button>
-                    <button id="ready-start" class="submit-button" type="button">Démarrer</button>
                 </div>
             </div>
         </section>
@@ -271,7 +273,7 @@
             <h2 id="result-title">Validation</h2>
             <p id="result-message"></p>
             <div id="result-details" class="result-details"></div>
-            <button class="submit-button back-home" type="button">Retour à l'accueil</button>
+            <button class="submit-button back-home" type="button">Retour accueil</button>
         </section>
 
     </main>

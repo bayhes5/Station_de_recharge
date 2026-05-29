@@ -23,11 +23,11 @@
                     <h1 id="admin-title">Administration</h1>
                     <p class="lead">Vue large des donn&eacute;es, actions par ligne et suivi des r&eacute;servations et sessions.</p>
                 </div>
-                <div class="header-actions">
+                <nav class="header-actions" aria-label="Navigation principale" data-app-nav>
                     <a class="btn btn-secondary" href="/dashboard.html">Tableau de bord</a>
                     <a class="btn btn-secondary" href="/profile.html">Profil</a>
                     <button id="logout-admin" class="btn btn-secondary" type="button">Se d&eacute;connecter</button>
-                </div>
+                </nav>
             </header>
 
             <div id="admin-status" class="status" aria-live="polite"></div>
@@ -81,7 +81,7 @@
                     <div class="panel-heading table-toolbar supervision-heading">
                         <div>
                             <p class="panel-title">Supervision temps r&eacute;el</p>
-                            <p class="table-caption">Connexion des ESP32, alertes et derni&egrave;res mesures capteurs.</p>
+                            <p class="table-caption">Disponibilit&eacute; des contr&ocirc;leurs, alertes et derni&egrave;res mesures capteurs.</p>
                         </div>
                         <div class="table-toolbar-actions">
                             <span id="supervision-realtime-status" class="realtime-status" aria-live="polite">Temps r&eacute;el en attente</span>
@@ -90,15 +90,15 @@
                     </div>
                     <div class="dashboard-kpis admin-kpis supervision-kpis">
                         <div class="kpi">
-                            <span class="label">ESP32 en ligne</span>
+                            <span class="label">Contr&ocirc;leurs en ligne</span>
                             <span id="stat-devices-online" class="value">-</span>
                         </div>
                         <div class="kpi">
-                            <span class="label">ESP32 hors ligne</span>
+                            <span class="label">Contr&ocirc;leurs hors ligne</span>
                             <span id="stat-devices-offline" class="value">-</span>
                         </div>
                         <div class="kpi">
-                            <span class="label">Firmwares &agrave; traiter</span>
+                            <span class="label">Mises &agrave; jour &agrave; traiter</span>
                             <span id="stat-devices-firmware" class="value">-</span>
                         </div>
                         <div class="kpi">
@@ -119,7 +119,7 @@
                 <section class="dashboard-panel table-panel admin-table-panel">
                     <div class="panel-heading table-toolbar">
                         <div>
-                            <p class="panel-title">Connexion des ESP32</p>
+                            <p class="panel-title">&Eacute;tat des contr&ocirc;leurs</p>
                             <p class="table-caption">Dernier signal, dernier &eacute;tat re&ccedil;u et emplacement physique.</p>
                         </div>
                     </div>
@@ -129,8 +129,8 @@
                 <section class="dashboard-panel table-panel admin-table-panel">
                     <div class="panel-heading table-toolbar">
                         <div>
-                            <p class="panel-title">Commandes ESP32 r&eacute;centes</p>
-                            <p class="table-caption">Historique des ACK START, STOP, LOCK et UNLOCK re&ccedil;us par MQTT.</p>
+                            <p class="panel-title">Commandes de charge r&eacute;centes</p>
+                            <p class="table-caption">Confirmations de d&eacute;marrage, d&rsquo;arr&ecirc;t et de verrouillage re&ccedil;ues par les contr&ocirc;leurs.</p>
                         </div>
                     </div>
                     <div id="admin-commands-list" class="table-host"></div>
@@ -150,7 +150,7 @@
                     <div class="panel-heading table-toolbar">
                         <div>
                             <p class="panel-title">Derni&egrave;res mesures</p>
-                            <p class="table-caption">T&eacute;l&eacute;m&eacute;trie capteurs re&ccedil;ue par le bridge MQTT.</p>
+                            <p class="table-caption">Mesures transmises par les emplacements.</p>
                         </div>
                     </div>
                     <div id="admin-measurements-list" class="table-host"></div>
@@ -181,7 +181,7 @@
                     <div class="panel-heading table-toolbar">
                         <div>
                             <p class="panel-title">Stations</p>
-                            <p class="table-caption">Cliquez sur une station pour afficher ses bornes et emplacements.</p>
+                            <p class="table-caption">Ouvrez une fiche station pour gérer ses bornes et ses emplacements.</p>
                         </div>
                         <div class="table-toolbar-actions">
                             <label class="search-field">
@@ -189,8 +189,6 @@
                                 <input type="search" data-admin-search="stations" placeholder="Nom, localisation, statut..." autocomplete="off">
                             </label>
                             <a class="btn btn-primary compact" href="/admin-form.html?resource=station">Ajouter une station</a>
-                            <a class="btn btn-secondary compact" href="/admin-form.html?resource=borne">Ajouter une borne</a>
-                            <a class="btn btn-secondary compact" href="/admin-form.html?resource=emplacement">Ajouter un emplacement</a>
                         </div>
                     </div>
                     <div id="stations-list" class="table-host"></div>

@@ -15,6 +15,7 @@
     --amber-soft: #f5ead9;
     --danger: #b42318;
     --danger-soft: #f9e6e3;
+    --charge: #1f8f68;
     --shadow: 0 16px 36px rgba(23, 33, 28, 0.13);
     --focus: 0 0 0 4px rgba(19, 115, 74, 0.2);
 }
@@ -214,6 +215,25 @@ button {
     max-width: 760px;
 }
 
+.reader-pulse {
+    width: min(460px, 82%);
+    height: 16px;
+    margin-top: 8px;
+    overflow: hidden;
+    border: 1px solid rgba(19, 115, 74, 0.18);
+    border-radius: 999px;
+    background: linear-gradient(90deg, #ffffff, var(--brand-soft));
+}
+
+.reader-pulse span {
+    display: block;
+    width: 38%;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, transparent, var(--charge), transparent);
+    animation: readerSweep 1.75s ease-in-out infinite;
+}
+
 .eyebrow {
     margin: 0;
     color: var(--brand-dark);
@@ -257,6 +277,7 @@ p {
 
 .action-card {
     min-width: 0;
+    position: relative;
     display: grid;
     align-content: center;
     gap: 7px;
@@ -264,6 +285,14 @@ p {
     color: var(--ink);
     text-align: left;
     cursor: pointer;
+}
+
+.action-card::before {
+    content: "";
+    width: 28px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--brand);
 }
 
 .action-card strong {
@@ -280,6 +309,10 @@ p {
 
 .secondary-action {
     background: var(--panel-muted);
+}
+
+.secondary-action::before {
+    background: var(--line-strong);
 }
 
 .screen-shell {
@@ -355,6 +388,17 @@ p {
     background: var(--blue-soft);
     color: #18536d;
     font-weight: 900;
+}
+
+.status:not(.error)::before {
+    content: "";
+    width: 10px;
+    height: 10px;
+    flex: 0 0 auto;
+    margin-right: 10px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.65;
 }
 
 .status.error {
@@ -605,9 +649,9 @@ p {
 }
 
 .charge-actions {
-    width: min(560px, 100%);
+    width: min(300px, 100%);
     display: grid;
-    grid-template-columns: 1fr 1.4fr;
+    grid-template-columns: 1fr;
     gap: 10px;
 }
 
@@ -626,6 +670,15 @@ p {
     border-radius: inherit;
     background: var(--brand);
     animation: meterMove 1.5s ease-in-out infinite;
+}
+
+@keyframes readerSweep {
+    0% {
+        transform: translateX(-110%);
+    }
+    100% {
+        transform: translateX(270%);
+    }
 }
 
 .result-screen.active {

@@ -44,7 +44,9 @@ function renderAuthMethods(listElement, methods, onDelete) {
         head.appendChild(badge);
 
         const value = document.createElement("p");
-        value.textContent = `Valeur : ${method.display_value || "Non affichable"}`;
+        value.textContent = method.display_value
+            ? `Badge : ${method.display_value}`
+            : "Badge enregistré";
 
         const meta = document.createElement("p");
         meta.textContent = "Utilisé automatiquement lors d’une réservation avec badge RFID.";
@@ -74,7 +76,7 @@ function renderAuthHistory(listElement, history) {
     if (!history.length) {
         const empty = document.createElement("div");
         empty.className = "empty-state";
-        empty.textContent = "Aucune réservation avec authentification pour le moment.";
+        empty.textContent = "Aucun accès de réservation pour le moment.";
         listElement.appendChild(empty);
         return;
     }
@@ -91,16 +93,18 @@ function renderAuthHistory(listElement, history) {
 
         const badge = document.createElement("span");
         badge.className = "badge";
-        badge.textContent = entry.auth_source === "generated" ? "Généré à la réservation" : "Enregistré";
+        badge.textContent = entry.auth_source === "generated" ? "Créé pour la réservation" : "Enregistré";
 
         head.appendChild(title);
         head.appendChild(badge);
 
         const ref = document.createElement("p");
-        ref.textContent = `Réservation : ${entry.reference_code || "-"} | ${formatDate(entry.date_debut)} → ${formatDate(entry.date_fin)}`;
+        ref.textContent = `Réservation : ${entry.reference_code || "-"} | ${formatDate(entry.date_debut)} - ${formatDate(entry.date_fin)}`;
 
         const value = document.createElement("p");
-        value.textContent = `Valeur : ${entry.auth_value || "Non disponible"}`;
+        value.textContent = entry.auth_value
+            ? `Référence d'accès : ${entry.auth_value}`
+            : "Accès non affichable";
 
         const meta = document.createElement("p");
         meta.textContent = entry.auth_expiration
@@ -187,6 +191,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const adminLink = document.getElementById("profile-admin-link");
     const tabButtons = [...document.querySelectorAll("[data-tab-button]")];
     const tabPanels = [...document.querySelectorAll("[data-tab-panel]")];
+    const forcePasswordChange = new URLSearchParams(window.location.search).has("force_password_change");
 
     let currentProfile = null;
 
@@ -284,9 +289,15 @@ document.addEventListener("DOMContentLoaded", async () => {
         return;
     }
 
+    window.AppNavigation.render(session, { active: "profile" });
+
     try {
         await Promise.all([loadProfile(), loadAuthMethods(), loadAuthHistory(), loadConsents()]);
         setTab("account");
+        if (forcePasswordChange || currentProfile?.user?.must_change_password) {
+            setStatus("Vous utilisez un mot de passe provisoire. Choisissez un nouveau mot de passe pour continuer.");
+            passwordForm.current_password.focus();
+        }
     } catch (_error) {
         setStatus("Impossible de charger le profil ou l’historique d’authentification.", true);
         return;
@@ -302,7 +313,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             const result = await window.AuthAPI.createRfidLinkCode();
             if (rfidLinkCode) {
                 rfidLinkCode.hidden = false;
-                rfidLinkCode.textContent = `Code association : ${result.code} - valable ${window.AuthAPI.formatDuration(result.expires_in)}. Saisissez ce code sur la borne, puis passez votre badge.`;
+                rfidLinkCode.textContent = `Code association : ${result.code} - valable ${window.AuthAPI.formatDuration(result.expires_in)}. Saisissez ce code sur la borne, puis présentez votre badge.`;
             }
             setStatus("Code d'association RFID généré.");
         } catch (error) {
@@ -365,6 +376,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         try {
             await window.AuthAPI.changePassword(payload);
             passwordForm.reset();
+            currentProfile = await window.AuthAPI.getProfile();
             setStatus("Mot de passe mis à jour.");
         } catch (error) {
             if (error.payload?.current_password) {

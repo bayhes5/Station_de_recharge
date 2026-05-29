@@ -112,12 +112,15 @@ def test_admin_supervision_returns_devices_alerts_and_measurements(admin_client,
     assert response.data["stats"]["active_alerts"] == 1
     assert response.data["devices"][0]["slot_id"] == "slot1"
     assert response.data["devices"][0]["slot_label"] == "Station Centre - Borne 1 - emplacement 1"
+    assert response.data["devices"][0]["station_id"] == str(emplacements[0].station_id)
     assert response.data["devices"][0]["borne_nom"] == "Borne 1"
     assert response.data["devices"][0]["status_display"] == "Charge en cours"
     assert response.data["alerts"][0]["type"] == "overheat"
+    assert response.data["alerts"][0]["station_id"] == str(emplacements[0].station_id)
     assert response.data["alerts"][0]["station_nom"] == "Station Centre"
     assert response.data["alerts"][0]["emplacement_numero"] == 1
     assert response.data["measurements"][0]["type"] == "temperature"
+    assert response.data["measurements"][0]["station_id"] == str(emplacements[0].station_id)
     assert response.data["measurements"][0]["slot_label"] == "Station Centre - Borne 1 - emplacement 1"
 
 
@@ -922,6 +925,50 @@ def test_admin_can_crud_borne(admin_client, station):
 
     assert delete_response.status_code == status.HTTP_204_NO_CONTENT
     assert not Borne.objects.filter(id_borne=borne_id).exists()
+
+
+@pytest.mark.django_db
+def test_admin_can_filter_bornes_and_emplacements_by_station(admin_client, station, borne, emplacements):
+    other_station = Station.objects.create(
+        nom="Station Est",
+        localisation_text="Quartier Est",
+        latitude=49.0,
+        longitude=2.5,
+        statut="active",
+    )
+    other_borne = Borne.objects.create(
+        station=other_station,
+        numero=1,
+        nom="Borne Est",
+        mqtt_prefix="station-est/borne-1",
+        statut="active",
+    )
+    other_emplacement = Emplacement.objects.create(
+        station=other_station,
+        borne=other_borne,
+        numero=1,
+        statut="disponible",
+        lock_state="verrouille",
+    )
+
+    bornes_response = admin_client.get(reverse("api-admin-bornes"), {"station": str(station.id_station)})
+    emplacements_response = admin_client.get(reverse("api-admin-emplacements"), {"station": str(station.id_station)})
+    borne_emplacements_response = admin_client.get(reverse("api-admin-emplacements"), {"borne": str(borne.id_borne)})
+
+    assert bornes_response.status_code == status.HTTP_200_OK
+    assert [item["id_borne"] for item in bornes_response.data["results"]] == [str(borne.id_borne)]
+    assert str(other_borne.id_borne) not in [item["id_borne"] for item in bornes_response.data["results"]]
+
+    assert emplacements_response.status_code == status.HTTP_200_OK
+    assert {item["id_emplacement"] for item in emplacements_response.data["results"]} == {
+        str(emplacement.id_emplacement) for emplacement in emplacements
+    }
+    assert str(other_emplacement.id_emplacement) not in {
+        item["id_emplacement"] for item in emplacements_response.data["results"]
+    }
+
+    assert borne_emplacements_response.status_code == status.HTTP_200_OK
+    assert {str(item["borne"]) for item in borne_emplacements_response.data["results"]} == {str(borne.id_borne)}
 
 
 @pytest.mark.django_db

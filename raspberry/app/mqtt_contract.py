@@ -6,13 +6,13 @@ from typing import Any
 
 
 COMMAND_ACTIONS = {"START", "STOP", "LOCK", "UNLOCK"}
-SESSION_COMMAND_ACTIONS = {"START", "STOP"}
+SESSION_COMMAND_ACTIONS = {"START", "STOP", "UNLOCK"}
 
 CONFIRMED_ACK_STATUSES = {
     "START": {"accepted", "reserved", "ready", "charging", "charging_started"},
     "STOP": {"accepted", "stopped", "idle"},
     "LOCK": {"accepted", "locked"},
-    "UNLOCK": {"accepted", "unlocked"},
+    "UNLOCK": {"accepted", "unlocked", "waiting_plug"},
 }
 REJECTED_ACK_STATUSES = {"denied", "error", "failed", "fault", "rejected"}
 
@@ -103,7 +103,7 @@ def validate_command_payload(payload: dict[str, Any]) -> list[str]:
     if action and action not in COMMAND_ACTIONS:
         errors.append(f"action must be one of {', '.join(sorted(COMMAND_ACTIONS))}.")
     if action in SESSION_COMMAND_ACTIONS and not str(payload.get("session_id") or "").strip():
-        errors.append("session_id is required for START and STOP commands.")
+        errors.append("session_id is required for START, STOP and UNLOCK commands.")
     return errors
 
 

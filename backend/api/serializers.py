@@ -216,6 +216,8 @@ class AdminUserUpdateSerializer(ProfileSerializer):
             "is_active",
             "is_staff",
             "is_superuser",
+            "must_change_password",
+            "password_reset_at",
         )
         extra_kwargs = {
             "telephone": {"required": False, "allow_blank": True},
@@ -223,6 +225,8 @@ class AdminUserUpdateSerializer(ProfileSerializer):
             "is_active": {"required": False},
             "is_staff": {"required": False},
             "is_superuser": {"required": False},
+            "must_change_password": {"read_only": True},
+            "password_reset_at": {"read_only": True},
         }
 
     def update(self, instance, validated_data):
@@ -295,6 +299,8 @@ class AdminUserSerializer(serializers.ModelSerializer):
             "is_active",
             "is_staff",
             "is_superuser",
+            "must_change_password",
+            "password_reset_at",
             "last_login",
             "date_joined",
             "nom",

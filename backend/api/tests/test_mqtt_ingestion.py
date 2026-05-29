@@ -361,6 +361,56 @@ def test_process_mqtt_ack_tracks_last_command(user, emplacements):
 
 
 @pytest.mark.django_db
+def test_process_mqtt_unlock_ack_marks_session_waiting_plug(user, emplacements):
+    """Opening the box after authentication moves the session to waiting_plug."""
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="UNLOCK1",
+        auth_choice="rfid",
+        date_debut=timezone.now() - timedelta(minutes=10),
+        date_fin=timezone.now() + timedelta(minutes=20),
+        statut="active",
+    )
+    session = Session.objects.create(
+        reservation=reservation,
+        emplacement=emplacements[0],
+        start_time=timezone.now() - timedelta(minutes=5),
+        charge_state=ChargeSessionState.ACCESS_VALIDATED,
+    )
+    Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="demo",
+        mac_address="slot1",
+        status="offline",
+    )
+
+    result = process_mqtt_message(
+        "station/slot1/ack",
+        json.dumps(
+            {
+                "command_id": "cmd-unlock-1",
+                "action": "UNLOCK",
+                "status": "unlocked",
+                "message": "Boîtier déverrouillé.",
+                "session_id": str(session.id_session),
+                "source": "raspberry",
+            }
+        ),
+    )
+
+    device = Device.objects.get(mac_address="slot1")
+    assert result["message_type"] == "ack"
+    assert result["command_action"] == "UNLOCK"
+    assert result["command_status"] == "unlocked"
+    assert device.last_command_action == "UNLOCK"
+    assert DeviceCommandLog.objects.get().session == session
+    session.refresh_from_db()
+    assert session.charge_state == ChargeSessionState.WAITING_PLUG
+
+
+@pytest.mark.django_db
 def test_process_mqtt_stop_ack_marks_session_stopping(user, emplacements):
     """Keep a stopped ESP32 visible until the backend closes the session."""
     reservation = Reservation.objects.create(

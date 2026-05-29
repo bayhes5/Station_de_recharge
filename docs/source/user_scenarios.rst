@@ -87,14 +87,17 @@ Déroulement
       l'emplacement, la révocation et l'expiration.
    6. Django crée ou retrouve la session de charge et passe ``charge_state`` à
       ``access_validated``.
-   7. Le Raspberry publie ``START`` sur ``station/<slot_id>/cmd``.
-   8. L'ESP32 acquitte la commande ; le backend passe la session à
-      ``waiting_plug`` ou ``charging`` selon l'ACK et la télémétrie.
+   7. Le Raspberry publie ``UNLOCK`` sur ``station/<slot_id>/cmd``.
+   8. L'ESP32 acquitte la commande et ouvre le boîtier par impulsion.
+   9. L'utilisateur branche le câble.
+   10. L'ESP32 publie ``cable=true`` ; le Raspberry publie automatiquement
+       ``START`` et le backend passe la session à
+       ``waiting_plug`` ou ``charging`` selon l'ACK et la télémétrie.
 
 Résultat attendu
-   Le kiosque affiche une confirmation. L'ESP32 passe en état réservé ou charge
-   selon sa logique locale. Un nouveau ``START`` est refusé si la session est
-   déjà engagée.
+   Le kiosque affiche l'emplacement à utiliser. L'ESP32 ouvre le boîtier, puis
+   passe en charge seulement après ``START``. Un nouveau ``START`` est refusé si
+   la session est déjà engagée.
 
 Cas d'erreur
    Un QR d'une autre station ou d'une autre borne, un QR expiré, un QR révoqué ou
@@ -125,13 +128,19 @@ Déroulement
    10. L'utilisateur choisit une réservation compatible avec la station et la
        borne devant laquelle il se trouve.
    11. La PWA appelle ``POST /api/mobile-sessions/<token>/authorize/``.
-   12. Le kiosque interroge périodiquement le statut de la session.
-   13. Quand le statut devient ``authorized``, le kiosque consomme l'autorisation,
-       crée ou retrouve la session de charge, puis publie ``START`` vers l'ESP32.
+   12. La PWA affiche l'étape ``Autorisation confirmée`` et interroge
+       périodiquement ``GET /api/mobile-sessions/<token>/`` pour suivre la
+       consommation par la borne.
+   13. Le kiosque interroge périodiquement le statut de la session.
+   14. Quand le statut devient ``authorized``, le kiosque consomme l'autorisation,
+       crée ou retrouve la session de charge, puis publie ``UNLOCK`` vers l'ESP32.
+   15. Quand le statut devient ``consumed``, la PWA affiche l'étape
+       ``Borne autorisée``.
 
 Résultat attendu
-   Le téléphone affiche que l'autorisation a été envoyée. Le kiosque affiche le
-   démarrage ou la réussite de la charge.
+   Le téléphone affiche que l'autorisation a été envoyée, puis confirme que la
+   borne a pris en compte l'autorisation lorsque le kiosque consomme le token.
+   Le kiosque ouvre le boîtier puis affiche les instructions de branchement.
 
 Cas d'erreur
    Si le token expire, il faut rescanner un nouveau QR du kiosque. Si aucune
@@ -170,7 +179,10 @@ Déroulement
       ``code``.
    6. Django vérifie la réservation, le hash du code SMS, la station, la borne et
       la fenêtre temporelle.
-   7. Si la validation réussit, le Raspberry publie ``START`` vers l'ESP32.
+   7. Si la validation réussit, le Raspberry publie ``UNLOCK`` vers l'ESP32.
+   8. L'utilisateur branche le câble.
+   9. L'ESP32 publie ``cable=true`` et le Raspberry publie automatiquement
+      ``START`` vers l'ESP32.
 
 Résultat attendu
    La charge démarre uniquement après validation serveur. Le bouton ou la touche
@@ -189,7 +201,8 @@ Scénario 5 : accès direct avec badge RFID
 -----------------------------------------
 
 Objectif
-   Démarrer une charge par présentation du badge RFID.
+   Valider l'accès par présentation du badge RFID, ouvrir le boîtier, puis
+   démarrer automatiquement la charge après branchement détecté.
 
 Préconditions
    Le badge RFID est associé au compte. La réservation active ou proche du début
@@ -205,11 +218,15 @@ Déroulement
    5. Django vérifie la station, la borne, le créneau, l'état de la réservation
       et la révocation du badge.
    6. Django crée ou retrouve la session de charge.
-   7. Le Raspberry publie ``START`` vers l'ESP32.
+   7. Le Raspberry publie ``UNLOCK`` vers l'ESP32 pour ouvrir le boîtier.
+   8. L'utilisateur branche le câble.
+   9. L'ESP32 publie ``cable=true`` et le Raspberry publie automatiquement
+      ``START`` vers l'ESP32.
 
 Résultat attendu
-   L'utilisateur n'a normalement rien à saisir sur la borne. Le badge est le
-   parcours le plus rapide.
+   L'utilisateur n'a normalement rien à saisir pour s'authentifier. Le badge est
+   le parcours le plus rapide, mais le démarrage électrique reste conditionné
+   à la détection du câble après ouverture du boîtier.
 
 Cas d'erreur
    Un badge inconnu est refusé. Un badge révoqué est refusé. Si plusieurs
@@ -284,8 +301,10 @@ Déroulement
    4. Le cache vérifie la station, la borne, le créneau, le mode d'accès et le
       hash du secret.
    5. Si le cache valide l'accès, le Raspberry enregistre un événement offline et
-      publie ``START`` vers l'ESP32.
-   6. Quand le backend revient, le Raspberry resynchronise les événements offline.
+      publie ``UNLOCK`` vers l'ESP32.
+   6. Le ``START`` est publié ensuite automatiquement lorsque le câble est
+      détecté.
+   7. Quand le backend revient, le Raspberry resynchronise les événements offline.
 
 Résultat attendu
    Seules les autorisations déjà synchronisées peuvent fonctionner. Le cache ne
@@ -308,7 +327,8 @@ Déroulement
    2. Il extrait la borne et l'emplacement, puis construit ``slot<numero>`` pour
       router la commande vers l'ESP32 concerné.
    3. Il publie une commande sur ``station/<slot_id>/cmd``.
-   4. L'ESP32 reçoit ``START``.
+   4. L'ESP32 reçoit d'abord ``UNLOCK`` après validation d'accès, puis ``START``
+      lorsque l'utilisateur démarre la charge.
    5. L'ESP32 répond sur ``station/<slot_id>/ack`` avec le même ``command_id``.
    6. L'ESP32 publie ensuite sa télémétrie sur
       ``station/<slot_id>/telemetry``.
@@ -328,8 +348,8 @@ Objectif
    Protéger l'utilisateur et l'équipement pendant la charge.
 
 Déroulement
-   1. L'ESP32 surveille ses capteurs locaux : DHT22, INA219, porte, câble et
-      relais.
+   1. L'ESP32 surveille ses capteurs locaux : DHT22, SEN0214, serrure, puis
+      porte, câble et relais de charge lorsque ces éléments seront câblés.
    2. Il publie régulièrement la télémétrie.
    3. Si une condition dangereuse apparaît, par exemple surchauffe, boîtier
       ouvert, câble retiré ou courant anormal, l'ESP32 doit couper localement la
@@ -399,12 +419,19 @@ Cas une réservation compatible
    La PWA affiche la réservation avec la station, la borne, l'emplacement et le
    créneau.
    L'utilisateur confirme. Le backend marque la session de borne comme
-   ``authorized`` et le kiosque peut démarrer le parcours physique.
+   ``authorized``. La PWA garde le contexte de la réservation sélectionnée et
+   affiche l'attente de consommation. Quand le kiosque consomme l'autorisation,
+   le statut passe à ``consumed`` et la PWA affiche que la borne est autorisée.
 
 Cas plusieurs réservations compatibles
    La PWA liste les réservations utilisables. L'utilisateur en choisit une. Le
    backend associe uniquement cette réservation à la session de borne. Le kiosque
    ne doit jamais choisir seul en cas d'ambiguïté.
+
+Cas page mobile rafraîchie après autorisation
+   ``GET /api/mobile-sessions/<token>/`` renvoie aussi la réservation choisie si
+   la session est déjà ``authorized`` ou ``consumed``. L'écran mobile peut donc
+   reconstruire l'état sans perdre le contexte station, borne et emplacement.
 
 Cas session expirée
    La PWA affiche que la session est absente ou expirée. L'utilisateur doit

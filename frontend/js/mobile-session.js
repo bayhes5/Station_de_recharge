@@ -20,6 +20,13 @@ function setStatus(message, isError = false) {
     status.textContent = message || "";
 }
 
+function setMobileSessionStep(status) {
+    const authorizedStep = document.getElementById("mobile-step-authorized");
+    const consumedStep = document.getElementById("mobile-step-consumed");
+    authorizedStep?.classList.toggle("active", ["authorized", "consumed"].includes(status));
+    consumedStep?.classList.toggle("active", status === "consumed");
+}
+
 function setExpiredState() {
     document.getElementById("mobile-session-expired").hidden = false;
     document.getElementById("mobile-session-reservations-panel").hidden = true;
@@ -62,7 +69,7 @@ function renderReservation(reservation, session, onAuthorize) {
     const button = document.createElement("button");
     button.className = "btn btn-primary full-width";
     button.type = "button";
-    button.textContent = "Démarrer sur cette borne";
+    button.textContent = "Autoriser cette borne";
     button.disabled = !compatible || session.status === "authorized" || session.status === "consumed";
     button.addEventListener("click", () => onAuthorize(reservation, button));
 
@@ -99,10 +106,56 @@ function updateSessionHeader(session) {
         : "expirée";
 }
 
+function showAuthorizedPanel(session, reservation = null) {
+    const authorizedTitle = document.getElementById("mobile-session-authorized-title");
+    const authorizedDetail = document.getElementById("mobile-session-authorized-detail");
+    const reservationLabel = reservation
+        ? `${reservation.station_nom || reservation.station} - ${reservation.borne_nom || reservation.borne || "borne"} - emplacement ${reservation.emplacement_numero || reservation.emplacement}.`
+        : "La borne peut maintenant ouvrir le boîtier.";
+
+    document.getElementById("mobile-session-reservations-panel").hidden = true;
+    document.getElementById("mobile-session-authorized").hidden = false;
+    setMobileSessionStep(session.status);
+
+    if (session.status === "consumed") {
+        authorizedTitle.textContent = "Borne autorisée";
+        authorizedDetail.textContent = "La borne a pris en compte l'autorisation. Suivez les instructions sur l'écran tactile.";
+        setStatus("Borne autorisée.");
+    } else {
+        authorizedTitle.textContent = "Autorisation envoyée";
+        authorizedDetail.textContent = reservationLabel;
+        setStatus("Autorisation confirmée. En attente de la borne...");
+    }
+}
+
+function startAuthorizationPolling(token, reservation = null) {
+    let attempts = 0;
+    const maxAttempts = 60;
+    const interval = window.setInterval(async () => {
+        attempts += 1;
+        try {
+            const result = await window.AuthAPI.getMobileSession(token);
+            const mobileSession = result.mobile_session;
+            updateSessionHeader(mobileSession);
+            showAuthorizedPanel(mobileSession, result.reservation || reservation);
+
+            if (mobileSession.status === "consumed" || attempts >= maxAttempts) {
+                window.clearInterval(interval);
+                if (mobileSession.status !== "consumed") {
+                    setStatus("Autorisation envoyée. Vérifiez l'écran de la borne.");
+                }
+            }
+        } catch (error) {
+            window.clearInterval(interval);
+            setStatus(error.message || "Impossible de suivre l'état de la borne.", true);
+        }
+    }, 2000);
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
     const token = getToken();
     if (!token) {
-        setStatus("Lien de session mobile incomplet.", true);
+        setStatus("Lien de session mobile absent ou invalide.", true);
         setExpiredState();
         return;
     }
@@ -121,11 +174,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             const result = await window.AuthAPI.authorizeMobileSession(token, reservation.id_reservation);
             const mobileSession = result.mobile_session;
             updateSessionHeader(mobileSession);
-            document.getElementById("mobile-session-reservations-panel").hidden = true;
-            document.getElementById("mobile-session-authorized").hidden = false;
-            document.getElementById("mobile-session-authorized-detail").textContent =
-                `${reservation.station_nom || reservation.station} - ${reservation.borne_nom || reservation.borne || "borne"} - emplacement ${reservation.emplacement_numero || reservation.emplacement}.`;
-            setStatus("Autorisation confirmée. Regardez l'écran de la borne.");
+            showAuthorizedPanel(mobileSession, result.reservation || reservation);
+            startAuthorizationPolling(token, result.reservation || reservation);
         } catch (error) {
             button.disabled = false;
             setStatus(error.message || "Autorisation impossible.", true);
@@ -138,11 +188,10 @@ document.addEventListener("DOMContentLoaded", async () => {
         updateSessionHeader(mobileSession);
 
         if (mobileSession.status === "authorized" || mobileSession.status === "consumed") {
-            document.getElementById("mobile-session-reservations-panel").hidden = true;
-            document.getElementById("mobile-session-authorized").hidden = false;
-            setStatus(mobileSession.status === "consumed"
-                ? "La borne a démarré la session."
-                : "Autorisation déjà envoyée à la borne.");
+            showAuthorizedPanel(mobileSession, result.reservation || null);
+            if (mobileSession.status === "authorized") {
+                startAuthorizationPolling(token, result.reservation || null);
+            }
             return;
         }
 

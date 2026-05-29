@@ -43,7 +43,7 @@ MQTT_BASE_TOPIC = "station"
 MQTT_TOPIC_PREFIX = "station-demo/borne-1"
 SLOT_ID = "slot1"
 CLIENT_ID = "esp32-station-demo-borne-1-slot1"
-FIRMWARE_VERSION = "1.2.0-lock-relay"
+FIRMWARE_VERSION = "1.3.0-access-before-charge"
 FIRMWARE_VERSION_FILE = "version.txt"
 
 # DHT22, ESP32 identity, SEN0214 current and the lock relay are wired/reported
@@ -52,6 +52,7 @@ PHYSICAL_INPUTS_ENABLED = False
 LOCK_OUTPUT_ENABLED = True
 CHARGE_RELAY_OUTPUT_ENABLED = False
 SIMULATE_MISSING_SENSORS = False
+SIMULATE_CABLE_PRESENT_FOR_AUTO_START = False
 
 # DHT22 prototype wiring from TEMPERATUREHUMIDY.txt.
 DHT_PIN = 15
@@ -538,6 +539,12 @@ def read_door_closed():
 def reported_cable_present():
     """Return the cable telemetry value, or None when the sensor is not wired."""
     if not PHYSICAL_INPUTS_ENABLED or hall is None:
+        if SIMULATE_CABLE_PRESENT_FOR_AUTO_START and state in (
+            "waiting_plug",
+            "charging",
+            "stopping",
+        ):
+            return True
         return None
     return read_cable_present()
 
@@ -648,27 +655,44 @@ def publish_alert(client, alert_type, message=""):
     publish_json(client, TOPIC_ALERT, payload)
 
 
+def accept_unlock(client, payload):
+    """Open the box after reservation authentication, before electrical charge."""
+    global state, session_id
+
+    if state == "charging":
+        publish_ack(client, payload, "denied", "Charge déjà active.")
+        return
+
+    session_id = str(payload.get("session_id") or session_id or "")
+    state = "waiting_plug"
+    publish_ack(client, payload, "unlocked", "Boîtier déverrouillé.")
+    publish_status(client, "unlocked")
+    pulse_unlock_slot()
+    publish_status(client, "waiting_plug", "unlock_pulse_finished")
+    publish_telemetry_now(client)
+
+
 def accept_start(client, payload):
-    """Accept START and move to charging for the current communication test."""
+    """Start electrical charging after the box has been opened and plugged."""
     global state, session_id
 
     if state == "charging" and session_id and payload.get("session_id") != session_id:
         publish_ack(client, payload, "denied", "Une charge est déjà active.")
         return
 
-    session_id = str(payload.get("session_id") or "")
-    publish_ack(client, payload, "accepted", "Commande START acceptee, ouverture serrure.")
-    pulse_unlock_slot()
+    session_id = str(payload.get("session_id") or session_id or "")
     if read_cable_present() and read_door_closed():
         start_charge_output()
         lock_slot()
         state = "charging"
         publish_status(client, "charging_started")
+        publish_ack(client, payload, "charging", "Charge démarrée.")
         publish_telemetry_now(client)
     else:
         stop_charge_output()
         state = "waiting_plug"
         publish_status(client, "waiting_plug")
+        publish_ack(client, payload, "accepted", "En attente du câble et du boîtier fermé.")
         publish_telemetry_now(client)
 
 
@@ -702,17 +726,10 @@ def handle_command(topic_bytes, message):
     elif action == "LOCK":
         lock_slot()
         publish_status(mqtt_client, "locked")
-        publish_ack(mqtt_client, payload, "locked", "Boitier verrouille.")
+        publish_ack(mqtt_client, payload, "locked", "Boîtier verrouillé.")
         publish_telemetry_now(mqtt_client)
     elif action == "UNLOCK":
-        unlock_slot()
-        publish_status(mqtt_client, "unlocked")
-        publish_ack(mqtt_client, payload, "unlocked", "Boitier deverrouille.")
-        if lock is not None and LOCK_UNLOCK_PULSE_SECONDS > 0:
-            time.sleep(LOCK_UNLOCK_PULSE_SECONDS)
-            lock_slot()
-            publish_status(mqtt_client, "locked", "unlock_pulse_finished")
-        publish_telemetry_now(mqtt_client)
+        accept_unlock(mqtt_client, payload)
     else:
         publish_ack(mqtt_client, payload, "error", "Commande inconnue.")
 
