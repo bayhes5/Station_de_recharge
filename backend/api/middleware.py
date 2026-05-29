@@ -25,9 +25,11 @@ class DevelopmentPrivateNetworkHostMiddleware:
     }
 
     def __init__(self, get_response):
+        """Store the next middleware or view callable."""
         self.get_response = get_response
 
     def __call__(self, request):
+        """Reject unexpected hosts when DEBUG temporarily trusts private networks."""
         if (
             settings.DEBUG
             and getattr(settings, "DEV_AUTO_TRUST_PRIVATE_NETWORK", False)
