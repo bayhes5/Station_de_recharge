@@ -23,10 +23,11 @@
                     <h1 id="tech-title">Tableau de bord technicien</h1>
                     <p class="lead">Suivi des maintenances assignées et des interventions à venir.</p>
                 </div>
-                <div class="header-actions">
+                <nav class="header-actions" aria-label="Navigation principale" data-app-nav>
                     <a class="btn btn-secondary" href="/dashboard.html">Tableau de bord</a>
+                    <a class="btn btn-secondary" href="/profile.html">Profil</a>
                     <button id="logout-tech" class="btn btn-secondary" type="button">Se déconnecter</button>
-                </div>
+                </nav>
             </header>
 
             <div id="tech-status" class="status" aria-live="polite"></div>
@@ -43,17 +44,23 @@
                         <p class="table-caption">Vue filtr&eacute;e selon les stations affect&eacute;es par un administrateur.</p>
                     </div>
                     <div class="table-toolbar-actions">
+                        <label class="search-field tech-station-filter" for="tech-station-filter">
+                            <span>Station</span>
+                            <select id="tech-station-filter" autocomplete="off">
+                                <option value="">Toutes mes stations</option>
+                            </select>
+                        </label>
                         <span id="tech-realtime-status" class="realtime-status" aria-live="polite">Temps r&eacute;el en attente</span>
                     </div>
                 </div>
                 <div class="dashboard-kpis admin-kpis">
                     <div class="summary-stat">
                         <span id="tech-stat-online" class="summary-value">-</span>
-                        <span class="summary-label">ESP32 en ligne</span>
+                        <span class="summary-label">Contr&ocirc;leurs en ligne</span>
                     </div>
                     <div class="summary-stat">
                         <span id="tech-stat-offline" class="summary-value">-</span>
-                        <span class="summary-label">ESP32 hors ligne</span>
+                        <span class="summary-label">Contr&ocirc;leurs hors ligne</span>
                     </div>
                     <div class="summary-stat">
                         <span id="tech-stat-alerts" class="summary-value">-</span>
@@ -61,13 +68,13 @@
                     </div>
                     <div class="summary-stat">
                         <span id="tech-stat-telemetry" class="summary-value">-</span>
-                        <span class="summary-label">Mesures sur 24 h</span>
+                        <span class="summary-label">Mesures r&eacute;centes</span>
                     </div>
                 </div>
             </section>
 
             <section class="dashboard-panel table-panel admin-table-panel">
-                <p class="panel-title">ESP32 et emplacements</p>
+                <p class="panel-title">Contr&ocirc;leurs et emplacements</p>
                 <div id="tech-devices-list" class="table-host"></div>
             </section>
 
@@ -77,7 +84,7 @@
             </section>
 
             <section class="dashboard-panel table-panel admin-table-panel">
-                <p class="panel-title">Commandes ESP32 r&eacute;centes</p>
+                <p class="panel-title">Commandes de charge r&eacute;centes</p>
                 <div id="tech-commands-list" class="table-host"></div>
             </section>
         </section>

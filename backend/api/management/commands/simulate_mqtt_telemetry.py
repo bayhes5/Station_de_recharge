@@ -63,11 +63,11 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """Start the MQTT telemetry simulator."""
         if not options["slots"]:
-            raise CommandError("Au moins un slot doit etre fourni.")
+            raise CommandError("Au moins un slot doit être fourni.")
         if options["interval"] <= 0:
-            raise CommandError("L'intervalle doit etre strictement positif.")
+            raise CommandError("L'intervalle doit être strictement positif.")
         if options["count"] < 0:
-            raise CommandError("Le nombre de lots doit etre positif ou nul.")
+            raise CommandError("Le nombre de lots doit être positif ou nul.")
         if options["reservation_code"]:
             options["active_session"] = True
         if options["active_session"]:
@@ -79,7 +79,7 @@ class Command(BaseCommand):
                 options["topic_prefix"] = session.emplacement.borne.mqtt_prefix
             self.stdout.write(
                 self.style.SUCCESS(
-                    "Simulation liee a la session active: "
+                    "Simulation liée à la session active: "
                     f"reservation={session.reservation.reference_code} "
                     f"emplacement={session.emplacement.numero} slot={slot_id}"
                 )
@@ -91,7 +91,7 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                "Simulation MQTT demarree: "
+                "Simulation MQTT démarrée: "
                 f"slots={','.join(options['slots'])} scenario={options['scenario']}"
             )
         )
@@ -104,7 +104,7 @@ class Command(BaseCommand):
                 if options["count"] == 0 or tick < options["count"]:
                     time.sleep(options["interval"])
         except KeyboardInterrupt:
-            self.stdout.write(self.style.WARNING("Simulation MQTT arretee."))
+            self.stdout.write(self.style.WARNING("Simulation MQTT arrêtée."))
         finally:
             if client is not None:
                 client.loop_stop()
@@ -138,7 +138,7 @@ class Command(BaseCommand):
             queryset = queryset.filter(reservation__reference_code__iexact=reservation_code.strip())
         session = queryset.order_by("-start_time").first()
         if session is None:
-            detail = f" pour la reservation {reservation_code}" if reservation_code else ""
+            detail = f" pour la réservation {reservation_code}" if reservation_code else ""
             raise CommandError(f"Aucune session de charge active{detail}.")
         return session
 

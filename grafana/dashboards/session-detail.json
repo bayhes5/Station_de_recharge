@@ -1,0 +1,460 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "dashboard",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Vue globale supervision",
+      "tooltip": "Retour au tableau de bord global",
+      "type": "link",
+      "url": "/grafana/d/station-overview/station-vue-globale-supervision?orgId=1&from=$__from&to=$__to"
+    },
+    {
+      "asDropdown": false,
+      "icon": "dashboard",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Supervision technique",
+      "tooltip": "Courbes capteurs par station, borne et emplacement",
+      "type": "link",
+      "url": "/grafana/d/station-supervision/station-supervision-technique?orgId=1&from=$__from&to=$__to"
+    }
+  ],
+  "panels": [
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "enablePagination": false,
+          "fields": "",
+          "reducer": ["sum"],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "11.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT cs.id_session::text AS session_id, COALESCE(r.reference_code, '-') AS code_reservation, COALESCE(u.pseudo, '-') AS utilisateur, s.nom AS station, b.nom AS borne, e.numero AS emplacement, cs.charge_state AS etat_charge, cs.start_time AS debut, cs.end_time AS fin, CASE WHEN cs.end_time IS NULL THEN ROUND(EXTRACT(EPOCH FROM (now() - cs.start_time)) / 60)::integer ELSE ROUND(EXTRACT(EPOCH FROM (cs.end_time - cs.start_time)) / 60)::integer END AS duree_min\nFROM charging_session cs\nJOIN reservation r ON r.id_reservation = cs.id_reservation\nLEFT JOIN utilisateur u ON u.id_user = r.id_user\nJOIN emplacement e ON e.id_emplacement = cs.id_emplacement\nJOIN borne b ON b.id_borne = e.id_borne\nJOIN station s ON s.id_station = e.id_station\nWHERE cs.id_session::text = '${session:raw}';",
+          "refId": "A"
+        }
+      ],
+      "title": "Contexte de session",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "amp"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 5
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull", "max"],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT st.timestamp AS time, st.courant AS value\nFROM session_telemetry st\nWHERE st.id_session::text = '${session:raw}' AND $__timeFilter(st.timestamp)\nORDER BY st.timestamp;",
+          "refId": "A"
+        }
+      ],
+      "title": "Courant de charge",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "volt"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 5
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull", "min", "max"],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT st.timestamp AS time, st.tension AS value\nFROM session_telemetry st\nWHERE st.id_session::text = '${session:raw}' AND $__timeFilter(st.timestamp)\nORDER BY st.timestamp;",
+          "refId": "A"
+        }
+      ],
+      "title": "Tension",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 5
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull", "max"],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT st.timestamp AS time, (st.courant * st.tension) AS value\nFROM session_telemetry st\nWHERE st.id_session::text = '${session:raw}' AND $__timeFilter(st.timestamp)\nORDER BY st.timestamp;",
+          "refId": "A"
+        }
+      ],
+      "title": "Puissance calculée",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "kwatth"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull", "max"],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT st.timestamp AS time, st.energie_kwh AS value\nFROM session_telemetry st\nWHERE st.id_session::text = '${session:raw}' AND $__timeFilter(st.timestamp)\nORDER BY st.timestamp;",
+          "refId": "A"
+        }
+      ],
+      "title": "Énergie consommée",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "temperature"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "celsius"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "humidity"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull"],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "WITH selected_session AS (\n  SELECT cs.id_emplacement, cs.start_time, COALESCE(cs.end_time, now()) AS end_time\n  FROM charging_session cs\n  WHERE cs.id_session::text = '${session:raw}'\n)\nSELECT cd.timestamp AS time, c.type AS metric, cd.valeur AS value\nFROM capteur_data cd\nJOIN capteur c ON c.id_capteur = cd.id_capteur\nJOIN device d ON d.id_device = c.id_device\nJOIN selected_session ss ON ss.id_emplacement = d.id_emplacement\nWHERE c.type IN ('temperature', 'humidity')\n  AND cd.timestamp BETWEEN ss.start_time AND ss.end_time\n  AND $__timeFilter(cd.timestamp)\nORDER BY cd.timestamp;",
+          "refId": "A"
+        }
+      ],
+      "title": "Température et humidité pendant la session",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 21
+      },
+      "id": 7,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "enablePagination": true,
+          "fields": "",
+          "reducer": ["sum"],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT dcl.timestamp AS time, dcl.action, dcl.status AS statut, dcl.message, dcl.command_id, dcl.source\nFROM device_command_log dcl\nWHERE dcl.id_session::text = '${session:raw}' AND $__timeFilter(dcl.timestamp)\nORDER BY dcl.timestamp DESC\nLIMIT 50;",
+          "refId": "A"
+        }
+      ],
+      "title": "Commandes et confirmations",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "station-timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 21
+      },
+      "id": 8,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "enablePagination": true,
+          "fields": "",
+          "reducer": ["sum"],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "station-timescaledb"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH selected_session AS (\n  SELECT cs.id_session, cs.id_emplacement, cs.start_time, COALESCE(cs.end_time, now()) AS end_time\n  FROM charging_session cs\n  WHERE cs.id_session::text = '${session:raw}'\n)\nSELECT a.date AS time, a.type, a.niveau_severite, a.status, a.message\nFROM alerte a\nLEFT JOIN capteur_data cd ON cd.id_data = a.id_data\nLEFT JOIN capteur c ON c.id_capteur = cd.id_capteur\nLEFT JOIN device d ON d.id_device = c.id_device\nJOIN selected_session ss ON a.id_session = ss.id_session OR (d.id_emplacement = ss.id_emplacement AND a.date BETWEEN ss.start_time AND ss.end_time)\nWHERE $__timeFilter(a.date)\nORDER BY a.date DESC\nLIMIT 50;",
+          "refId": "A"
+        }
+      ],
+      "title": "Alertes liées à la session",
+      "type": "table"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 42,
+  "tags": ["station", "iot", "session", "supervision"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "datasource": {
+          "type": "postgres",
+          "uid": "station-timescaledb"
+        },
+        "definition": "SELECT cs.id_session::text AS __value, COALESCE(r.reference_code, '-') || ' - ' || s.nom || ' / ' || b.nom || ' / emplacement ' || e.numero::text || ' - ' || COALESCE(u.pseudo, 'utilisateur') AS __text\nFROM charging_session cs\nJOIN reservation r ON r.id_reservation = cs.id_reservation\nLEFT JOIN utilisateur u ON u.id_user = r.id_user\nJOIN emplacement e ON e.id_emplacement = cs.id_emplacement\nJOIN borne b ON b.id_borne = e.id_borne\nJOIN station s ON s.id_station = e.id_station\nWHERE cs.end_time IS NULL OR cs.start_time >= now() - interval '24 hours'\nORDER BY cs.end_time IS NULL DESC, cs.start_time DESC\nLIMIT 100;",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Session",
+        "multi": false,
+        "name": "session",
+        "options": [],
+        "query": "SELECT cs.id_session::text AS __value, COALESCE(r.reference_code, '-') || ' - ' || s.nom || ' / ' || b.nom || ' / emplacement ' || e.numero::text || ' - ' || COALESCE(u.pseudo, 'utilisateur') AS __text\nFROM charging_session cs\nJOIN reservation r ON r.id_reservation = cs.id_reservation\nLEFT JOIN utilisateur u ON u.id_user = r.id_user\nJOIN emplacement e ON e.id_emplacement = cs.id_emplacement\nJOIN borne b ON b.id_borne = e.id_borne\nJOIN station s ON s.id_station = e.id_station\nWHERE cs.end_time IS NULL OR cs.start_time >= now() - interval '24 hours'\nORDER BY cs.end_time IS NULL DESC, cs.start_time DESC\nLIMIT 100;",
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Session - Détail charge",
+  "uid": "session-detail",
+  "version": 1,
+  "weekStart": ""
+}

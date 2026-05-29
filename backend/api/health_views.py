@@ -67,11 +67,11 @@ def _schema(summary, tags=None):
     return extend_schema(
         summary=summary,
         responses=OpenApiTypes.OBJECT,
-        tags=tags or ["Sante"],
+        tags=tags or ["Santé"],
     )
 
 
-@_schema("Verifier que l'API repond", tags=["Sante"])
+@_schema("Vérifier que l'API répond", tags=["Santé"])
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def health_live(_request):
@@ -85,7 +85,7 @@ def health_live(_request):
     )
 
 
-@_schema("Verifier que l'API est prete", tags=["Sante"])
+@_schema("Vérifier que l'API est prête", tags=["Santé"])
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def health_ready(_request):

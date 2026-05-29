@@ -8,6 +8,7 @@ import string
 from datetime import datetime, timedelta
 from datetime import timezone as datetime_timezone
 from io import BytesIO
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
@@ -103,7 +104,7 @@ from .services.charge_session_state import (
     mark_stop_requested,
     mark_stopped,
 )
-from .services.email_notifications import send_reservation_qr_email
+from .services.email_notifications import send_reservation_qr_email, send_temporary_password_email
 from .services.firmware import schedule_ota_update, update_firmware_compliance_status
 from .services.sms import SmsDeliveryError, mask_phone_number, send_sms
 from .services.sms_access_policy import (
@@ -139,8 +140,8 @@ KEYPAD_CODE_ALPHABET = configured_sms_access_code_alphabet()
 RESERVATION_CODE_LENGTH = 8
 TEMPORARY_CODE_LENGTH = configured_sms_access_code_length()
 SMS_ACCESS_CODE_MAX_ATTEMPTS = configured_sms_access_code_max_attempts()
-ALERT_WORKFLOW_ERROR_DETAIL = "Transition d'alerte refusee."
-CHARGE_SESSION_STATE_ERROR_DETAIL = "Transition de session de charge refusee."
+ALERT_WORKFLOW_ERROR_DETAIL = "Transition d'alerte refusée."
+CHARGE_SESSION_STATE_ERROR_DETAIL = "Transition de session de charge refusée."
 RFID_LINK_CODE_LENGTH = 4
 RFID_LINK_CODE_TTL_SECONDS = 10 * 60
 MOBILE_SESSION_TTL_SECONDS = getattr(settings, "MOBILE_SESSION_TTL_SECONDS", 10 * 60)
@@ -279,7 +280,7 @@ def _terminal_secret_response(request):
     if hmac.compare_digest(provided_secret, expected_secret):
         return None
 
-    return Response({"detail": "Terminal non autorise."}, status=status.HTTP_401_UNAUTHORIZED)
+    return Response({"detail": "Terminal non autorisé."}, status=status.HTTP_401_UNAUTHORIZED)
 
 
 def _schema(
@@ -317,6 +318,8 @@ def _serialize_user(user):
         "is_staff": user.is_staff,
         "is_superuser": user.is_superuser,
         "is_technician": _user_is_technician(user),
+        "must_change_password": user.must_change_password,
+        "password_reset_at": user.password_reset_at.isoformat() if user.password_reset_at else None,
     }
 
 
@@ -428,7 +431,7 @@ def _generate_temporary_password(user):
 
         return password
 
-    raise RuntimeError("Impossible de generer un mot de passe temporaire conforme.")
+    raise RuntimeError("Impossible de générer un mot de passe temporaire conforme.")
 
 
 def _serialize_reservation(reservation):
@@ -661,6 +664,37 @@ def _station_ids_for_technician(technicien):
     )
 
 
+def _sync_technician_station_scope(technician, station_scope):
+    """Synchronize active station assignments from the technician edit form."""
+    if station_scope is None:
+        return
+
+    requested_ids = {str(station_id) for station_id in station_scope}
+    assignments = {
+        str(assignment.station_id): assignment
+        for assignment in TechnicienStation.objects.filter(technicien=technician)
+    }
+
+    for station_id, assignment in assignments.items():
+        should_be_active = station_id in requested_ids
+        if assignment.is_active != should_be_active:
+            assignment.is_active = should_be_active
+            assignment.save(update_fields=["is_active"])
+
+    missing_ids = requested_ids - set(assignments)
+    TechnicienStation.objects.bulk_create(
+        [
+            TechnicienStation(
+                technicien=technician,
+                station_id=station_id,
+                role="intervenant",
+                is_active=True,
+            )
+            for station_id in missing_ids
+        ]
+    )
+
+
 def _technician_can_manage_alert(user, alert):
     """Return the technician profile allowed to operate on an alert."""
     if user.is_staff:
@@ -669,7 +703,7 @@ def _technician_can_manage_alert(user, alert):
     technicien = _technician_for_user(user)
     if technicien is None:
         return None, Response(
-            {"detail": "Aucun profil technicien associe a ce compte."},
+            {"detail": "Aucun profil technicien associé à ce compte."},
             status=status.HTTP_404_NOT_FOUND,
         )
 
@@ -693,7 +727,7 @@ def _generate_reservation_code():
         code = "".join(secrets.choice(KEYPAD_CODE_ALPHABET) for _ in range(RESERVATION_CODE_LENGTH))
         if not Reservation.objects.filter(reference_code=code).exists():
             return code
-    raise RuntimeError("Impossible de generer un code de reservation unique.")
+    raise RuntimeError("Impossible de générer un code de réservation unique.")
 
 
 def _rfid_link_cache_key(code):
@@ -712,7 +746,7 @@ def _generate_rfid_link_code():
         code = "".join(secrets.choice(KEYPAD_CODE_ALPHABET) for _ in range(RFID_LINK_CODE_LENGTH))
         if cache.get(_rfid_link_cache_key(code)) is None:
             return code
-    raise RuntimeError("Impossible de generer un code RFID temporaire unique.")
+    raise RuntimeError("Impossible de générer un code RFID temporaire unique.")
 
 
 def _generate_mobile_session_token():
@@ -721,12 +755,28 @@ def _generate_mobile_session_token():
         token = secrets.token_urlsafe(MOBILE_SESSION_TOKEN_BYTES)
         if cache.get(_mobile_session_cache_key(token)) is None:
             return token
-    raise RuntimeError("Impossible de generer une session mobile unique.")
+    raise RuntimeError("Impossible de générer une session mobile unique.")
 
 
-def _mobile_session_url(token):
+def _normalize_public_frontend_origin(value):
+    """Return a safe public frontend origin supplied by the kiosk, or an empty string."""
+    origin = str(value or "").strip().rstrip("/")
+    if not origin:
+        return ""
+
+    parsed = urlparse(origin)
+    if parsed.scheme not in {"http", "https"}:
+        return ""
+    if not parsed.netloc or parsed.username or parsed.password:
+        return ""
+    if parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment:
+        return ""
+    return origin
+
+
+def _mobile_session_url(token, frontend_origin=""):
     """Return the PWA URL opened by a phone for one kiosk pairing session."""
-    base_url = settings.FRONTEND_BASE_URL.rstrip("/")
+    base_url = _normalize_public_frontend_origin(frontend_origin) or settings.FRONTEND_BASE_URL.rstrip("/")
     return f"{base_url}/mobile-session.html?token={token}"
 
 
@@ -886,7 +936,7 @@ def _build_sms_access_message(reservation, access_value):
     sender = getattr(settings, "SMS_SENDER_NAME", "Station")
     return (
         f"{sender}: votre code de recharge est {access_value}. "
-        f"Code reservation: {reservation.reference_code}. "
+        f"Code réservation: {reservation.reference_code}. "
         f"Valable jusqu'au {timezone.localtime(reservation.date_fin).strftime('%d/%m/%Y %H:%M')}."
     )
 
@@ -967,7 +1017,7 @@ def _build_qr_svg(payload):
     if svg.startswith("<?xml"):
         svg = svg.split("?>", 1)[1].lstrip()
     pictogram = """
-<svg x="41%" y="41%" width="18%" height="18%" viewBox="0 0 64 64" role="img" aria-label="Acces securise Metropole Verte">
+<svg x="41%" y="41%" width="18%" height="18%" viewBox="0 0 64 64" role="img" aria-label="Accès sécurisé Métropole Verte">
   <rect x="2" y="2" width="60" height="60" rx="12" fill="#ffffff"/>
   <path d="M32 9c-9 9-15 18-15 27 0 10 7 17 15 17s15-7 15-17C47 27 41 18 32 9Z" fill="#1f8f55"/>
   <path d="M22 36c8-1 15-6 21-17-1 16-8 26-21 30" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round"/>
@@ -1326,12 +1376,12 @@ def _reconcile_offline_session_started(request, event, station_id, borne_id=""):
 
     reservation = _terminal_reservation_queryset().filter(id_reservation=reservation_id).first()
     if reservation is None:
-        return None, "Reservation introuvable."
+        return None, "Réservation introuvable."
 
     if station_id and str(reservation.emplacement.station_id) != station_id:
-        return None, "Reservation associee a une autre station."
+        return None, "Réservation associée à une autre station."
     if borne_id and str(reservation.emplacement.borne_id) != str(borne_id):
-        return None, "Reservation associee a une autre borne."
+        return None, "Réservation associée à une autre borne."
 
     start_time = _offline_event_timestamp(event.get("created_at"))
     with transaction.atomic():
@@ -1393,25 +1443,25 @@ def _resolve_direct_rfid_reservation(auth_value, now):
 
     if len(matching_auth_methods) > 1:
         return None, None, Response(
-            {"detail": "Ce badge RFID est associe a plusieurs comptes."},
+            {"detail": "Ce badge RFID est associé à plusieurs comptes."},
             status=status.HTTP_409_CONFLICT,
         )
 
     auth_method = matching_auth_methods[0]
     if auth_method.expiration and auth_method.expiration < now:
-        return None, None, Response({"detail": "Le badge RFID est expire."}, status=status.HTTP_400_BAD_REQUEST)
+        return None, None, Response({"detail": "Le badge RFID est expiré."}, status=status.HTTP_400_BAD_REQUEST)
 
     reservations = _active_rfid_reservations_for_auth(auth_method, now)
     if not reservations:
         return None, None, Response(
-            {"detail": "Aucune reservation active pour ce badge RFID."},
+            {"detail": "Aucune réservation active pour ce badge RFID."},
             status=status.HTTP_404_NOT_FOUND,
         )
 
     if len(reservations) > 1:
         return None, None, Response(
             {
-                "detail": "Plusieurs reservations actives correspondent a ce badge RFID.",
+                "detail": "Plusieurs réservations actives correspondent à ce badge RFID.",
                 "reservations": [_serialize_reservation(reservation) for reservation in reservations],
             },
             status=status.HTTP_409_CONFLICT,
@@ -1440,7 +1490,7 @@ def _session_start_conflict_response(reservation, now):
     )
     if active_session:
         return Response(
-            {"detail": "L'emplacement est deja utilise par une autre session de charge."},
+            {"detail": "L'emplacement est déjà utilisé par une autre session de charge."},
             status=status.HTTP_409_CONFLICT,
         )
 
@@ -1457,7 +1507,7 @@ def _session_start_conflict_response(reservation, now):
         )
         if paid_window_owner:
             return Response(
-                {"detail": "L'emplacement est encore reserve par le creneau precedent."},
+                {"detail": "L'emplacement est encore réservé par le créneau précédent."},
                 status=status.HTTP_409_CONFLICT,
             )
 
@@ -1494,7 +1544,7 @@ def _duration_is_valid(date_debut, date_fin):
 
 
 @_schema(
-    "Verifier la disponibilite d'un pseudo ou d'un email",
+    "Vérifier la disponibilité d'un pseudo ou d'un email",
     parameters=[
         OpenApiParameter("pseudo", OpenApiTypes.STR, OpenApiParameter.QUERY),
         OpenApiParameter("email", OpenApiTypes.STR, OpenApiParameter.QUERY),
@@ -1537,7 +1587,7 @@ def register_availability(request):
     return Response(response)
 
 
-@_schema("Creer un compte utilisateur", request=RegisterSerializer, tags=["Authentification"])
+@_schema("Créer un compte utilisateur", request=RegisterSerializer, tags=["Authentification"])
 @api_view(["POST"])
 @throttle_classes([RegistrationRateThrottle])
 def register(request):
@@ -1550,7 +1600,7 @@ def register(request):
 
         response = Response(
             {
-                "message": "Utilisateur cree",
+                "message": "Utilisateur créé",
                 "user": _serialize_user(user),
                 "access": str(refresh.access_token),
             },
@@ -1592,7 +1642,7 @@ def login(request):
     return Response({"error": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
 
 
-@_schema("Rafraichir le jeton d'acces", request=OpenApiTypes.OBJECT, tags=["Authentification"])
+@_schema("Rafraîchir le jeton d'accès", request=OpenApiTypes.OBJECT, tags=["Authentification"])
 @api_view(["POST"])
 @permission_classes([AllowAny])
 @throttle_classes([TokenRefreshRateThrottle])
@@ -1611,15 +1661,15 @@ def refresh_token(request):
     return response
 
 
-@_schema("Deconnecter l'utilisateur", tags=["Authentification"])
+@_schema("Déconnecter l'utilisateur", tags=["Authentification"])
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def logout(request):
     """Clear the HttpOnly refresh cookie used by the browser session."""
-    return _clear_refresh_cookie(Response({"message": "Deconnexion effectuee."}))
+    return _clear_refresh_cookie(Response({"message": "Déconnexion effectuée."}))
 
 
-@_schema("Lire le profil de l'utilisateur connecte", tags=["Compte"])
+@_schema("Lire le profil de l'utilisateur connecté", tags=["Compte"])
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def me(request):
@@ -1731,11 +1781,12 @@ def change_password(request):
         )
 
     user.set_password(serializer.validated_data["new_password"])
-    user.save(update_fields=["password"])
+    user.must_change_password = False
+    user.save(update_fields=["password", "must_change_password"])
     return Response({"message": "Mot de passe mis a jour"})
 
 
-@_schema("Exporter les donnees du compte", tags=["Compte"])
+@_schema("Exporter les données du compte", tags=["Compte"])
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def export_account(request):
@@ -1880,7 +1931,7 @@ def admin_supervision(request):
     return Response(build_admin_supervision_payload())
 
 
-@_schema("Lire la supervision technique du technicien connecte", tags=["Technicien"])
+@_schema("Lire la supervision technique du technicien connecté", tags=["Technicien"])
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def technician_supervision(request):
@@ -1891,7 +1942,7 @@ def technician_supervision(request):
     technicien = _technician_for_user(request.user)
     if technicien is None:
         return Response(
-            {"detail": "Aucun profil technicien associe a ce compte."},
+            {"detail": "Aucun profil technicien associé à ce compte."},
             status=status.HTTP_404_NOT_FOUND,
         )
 
@@ -2006,7 +2057,7 @@ def admin_sessions(request):
 
 
 @_schema("Lister les utilisateurs administrateur", tags=["Administration"], operation_id="admin_users_list", methods=["GET"])
-@_schema("Creer un utilisateur administrateur", request=AdminUserUpdateSerializer, tags=["Administration"], operation_id="admin_users_create", methods=["POST"])
+@_schema("Créer un utilisateur administrateur", request=AdminUserUpdateSerializer, tags=["Administration"], operation_id="admin_users_create", methods=["POST"])
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_users(request):
@@ -2103,15 +2154,43 @@ def admin_user_detail(request, user_id):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_reset_user_password(request, user_id):
-    """Generate and set a new temporary password for a user."""
+    """Generate, set and email a new temporary password for a user."""
     try:
         user = User.objects.get(id_user=user_id)
     except User.DoesNotExist:
         return Response({"detail": "Utilisateur introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
+    previous_password = user.password
+    previous_must_change_password = user.must_change_password
+    previous_password_reset_at = user.password_reset_at
     temporary_password = _generate_temporary_password(user)
     user.set_password(temporary_password)
-    user.save(update_fields=["password"])
+    user.must_change_password = True
+    user.password_reset_at = timezone.now()
+    user.save(update_fields=["password", "must_change_password", "password_reset_at"])
+
+    try:
+        sent_count = send_temporary_password_email(user, temporary_password)
+    except Exception:  # noqa: BLE001 - keep account usable if email delivery fails.
+        logger.exception("Temporary password email failed for user %s", user.id_user)
+        user.password = previous_password
+        user.must_change_password = previous_must_change_password
+        user.password_reset_at = previous_password_reset_at
+        user.save(update_fields=["password", "must_change_password", "password_reset_at"])
+        return Response(
+            {"detail": "Mot de passe non réinitialisé : envoi e-mail impossible."},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    if sent_count < 1:
+        user.password = previous_password
+        user.must_change_password = previous_must_change_password
+        user.password_reset_at = previous_password_reset_at
+        user.save(update_fields=["password", "must_change_password", "password_reset_at"])
+        return Response(
+            {"detail": "Mot de passe non réinitialisé : aucun e-mail n'a été envoyé."},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
     _log_security_event(
         request,
         user,
@@ -2119,13 +2198,14 @@ def admin_reset_user_password(request, user_id):
     )
     return Response(
         {
-            "message": "Mot de passe temporaire genere.",
-            "temporary_password": temporary_password,
+            "message": "Mot de passe provisoire envoyé par e-mail. L'utilisateur devra le modifier à la prochaine connexion.",
+            "email_sent": True,
+            "must_change_password": True,
         }
     )
 
 
-@_schema("Lister ou creer les badges RFID d'un utilisateur", request=OpenApiTypes.OBJECT, tags=["Administration"])
+@_schema("Lister ou créer les badges RFID d'un utilisateur", request=OpenApiTypes.OBJECT, tags=["Administration"])
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_user_auth_methods(request, user_id):
@@ -2148,7 +2228,7 @@ def admin_user_auth_methods(request, user_id):
     try:
         auth_method = _ensure_rfid_auth(user, auth_value)
     except RfidCredentialConflict:
-        return Response({"auth_value": "Ce badge RFID est deja associe a un autre compte."}, status=status.HTTP_409_CONFLICT)
+        return Response({"auth_value": "Ce badge RFID est déjà associé à un autre compte."}, status=status.HTTP_409_CONFLICT)
     except ValueError:
         return Response({"auth_value": "Badge RFID invalide."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -2180,7 +2260,7 @@ def admin_user_auth_methods(request, user_id):
     )
 
 
-@_schema("Revoquer un badge RFID utilisateur", responses={204: None}, tags=["Administration"])
+@_schema("Révoquer un badge RFID utilisateur", responses={204: None}, tags=["Administration"])
 @api_view(["POST", "DELETE"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_revoke_user_auth_method(request, user_id, auth_id):
@@ -2221,7 +2301,7 @@ def admin_revoke_user_auth_method(request, user_id, auth_id):
 
 
 @_schema("Lister les stations", tags=["Administration"], operation_id="admin_stations_list", methods=["GET"])
-@_schema("Creer une station", request=StationSerializer, tags=["Administration"], operation_id="admin_station_create", methods=["POST"])
+@_schema("Créer une station", request=StationSerializer, tags=["Administration"], operation_id="admin_station_create", methods=["POST"])
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_stations(request):
@@ -2265,13 +2345,16 @@ def admin_station_detail(request, station_id):
 
 
 @_schema("Lister les bornes", tags=["Administration"], operation_id="admin_bornes_list", methods=["GET"])
-@_schema("Creer une borne", request=BorneSerializer, tags=["Administration"], operation_id="admin_borne_create", methods=["POST"])
+@_schema("Créer une borne", request=BorneSerializer, tags=["Administration"], operation_id="admin_borne_create", methods=["POST"])
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_bornes(request):
     """List physical charging cabinets or create one from the administration API."""
     if request.method == "GET":
         bornes = Borne.objects.select_related("station").prefetch_related("emplacements").order_by("station__nom", "numero")
+        station_id = request.query_params.get("station")
+        if station_id:
+            bornes = bornes.filter(station_id=station_id)
         return _list_response(request, bornes, serializer_class=BorneSerializer)
 
     serializer = BorneSerializer(data=request.data)
@@ -2309,13 +2392,19 @@ def admin_borne_detail(request, borne_id):
 
 
 @_schema("Lister les emplacements", tags=["Administration"], operation_id="admin_emplacements_list", methods=["GET"])
-@_schema("Creer un emplacement", request=EmplacementSerializer, tags=["Administration"], operation_id="admin_emplacement_create", methods=["POST"])
+@_schema("Créer un emplacement", request=EmplacementSerializer, tags=["Administration"], operation_id="admin_emplacement_create", methods=["POST"])
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_emplacements(request):
     """List charging bays or create one from the administration API."""
     if request.method == "GET":
         emplacements = Emplacement.objects.select_related("station", "borne").order_by("station__nom", "borne__numero", "numero")
+        station_id = request.query_params.get("station")
+        borne_id = request.query_params.get("borne")
+        if station_id:
+            emplacements = emplacements.filter(station_id=station_id)
+        if borne_id:
+            emplacements = emplacements.filter(borne_id=borne_id)
         return _list_response(request, emplacements, serializer_class=EmplacementSerializer)
 
     serializer = EmplacementSerializer(data=request.data)
@@ -2441,7 +2530,7 @@ def auth_methods(request):
     return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
 
-@_schema("Creer un moyen d'authentification", request=OpenApiTypes.OBJECT, tags=["Compte"])
+@_schema("Créer un moyen d'authentification", request=OpenApiTypes.OBJECT, tags=["Compte"])
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 @throttle_classes([AuthFactorRateThrottle])
@@ -2452,14 +2541,14 @@ def create_auth_method(request):
 
     if auth_mode != "rfid":
         return Response(
-            {"detail": "Seul RFID peut etre cree manuellement depuis le profil."},
+            {"detail": "Seul RFID peut être créé manuellement depuis le profil."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     try:
         auth_method = _ensure_rfid_auth(request.user, auth_value)
     except RfidCredentialConflict:
-        return Response({"auth_value": "Ce badge RFID est deja associe a un autre compte."}, status=status.HTTP_409_CONFLICT)
+        return Response({"auth_value": "Ce badge RFID est déjà associé à un autre compte."}, status=status.HTTP_409_CONFLICT)
     except ValueError:
         return Response({"auth_value": "Badge RFID invalide."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -2572,13 +2661,13 @@ def auth_history(request):
 
 
 @_schema(
-    "Lister les emplacements disponibles pour une reservation",
+    "Lister les emplacements disponibles pour une réservation",
     parameters=[
         OpenApiParameter("station", OpenApiTypes.UUID, OpenApiParameter.QUERY, required=True),
         OpenApiParameter("date_debut", OpenApiTypes.DATETIME, OpenApiParameter.QUERY, required=True),
         OpenApiParameter("date_fin", OpenApiTypes.DATETIME, OpenApiParameter.QUERY, required=True),
     ],
-    tags=["Reservations"],
+    tags=["Réservations"],
 )
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -2589,7 +2678,7 @@ def reservation_availability(request):
     date_fin = request.query_params.get("date_fin")
 
     if not station_id:
-        return Response({"detail": "Le parametre station est obligatoire."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": "Le paramètre station est obligatoire."}, status=status.HTTP_400_BAD_REQUEST)
 
     if not date_debut or not date_fin:
         return Response({"detail": "Les dates sont obligatoires."}, status=status.HTTP_400_BAD_REQUEST)
@@ -2602,13 +2691,13 @@ def reservation_availability(request):
 
     if not _round_to_thirty_minutes(date_debut_dt) or not _round_to_thirty_minutes(date_fin_dt):
         return Response(
-            {"detail": "Les horaires doivent etre alignes sur des tranches de 30 minutes."},
+            {"detail": "Les horaires doivent être alignés sur des tranches de 30 minutes."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     if date_debut_dt < timezone.now():
         return Response(
-            {"detail": "La reservation doit commencer dans le futur."},
+            {"detail": "La réservation doit commencer dans le futur."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -2684,7 +2773,7 @@ def stations_catalog(request):
     return Response(payload)
 
 
-@_schema("Lister ou creer des reservations", request=ReservationCreateSerializer, tags=["Reservations"])
+@_schema("Lister ou créer des réservations", request=ReservationCreateSerializer, tags=["Réservations"])
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def reservations(request):
@@ -2703,13 +2792,13 @@ def reservations(request):
 
     if not _round_to_thirty_minutes(data["date_debut"]) or not _round_to_thirty_minutes(data["date_fin"]):
         return Response(
-            {"detail": "Les horaires doivent etre alignes sur des tranches de 30 minutes."},
+            {"detail": "Les horaires doivent être alignés sur des tranches de 30 minutes."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     if data["date_debut"] < timezone.now():
         return Response(
-            {"detail": "La reservation doit commencer dans le futur."},
+            {"detail": "La réservation doit commencer dans le futur."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -2744,7 +2833,7 @@ def reservations(request):
             available_emplacements = _available_emplacements(station, data["date_debut"], data["date_fin"])
             if not available_emplacements:
                 return Response(
-                    {"detail": "Aucun emplacement disponible dans cette station sur ce creneau."},
+                    {"detail": "Aucun emplacement disponible dans cette station sur ce créneau."},
                     status=status.HTTP_409_CONFLICT,
                 )
             emplacement = available_emplacements[0]
@@ -2794,7 +2883,7 @@ def reservations(request):
         )
 
         response = {
-            "message": "Reservation creee.",
+            "message": "Réservation créée.",
             "reservation": ReservationSerializer(reservation).data,
         }
         if clear_value:
@@ -2811,7 +2900,7 @@ def reservations(request):
         return Response(response, status=status.HTTP_201_CREATED)
 
 
-@_schema("Annuler une reservation", tags=["Reservations"])
+@_schema("Annuler une réservation", tags=["Réservations"])
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def cancel_reservation(request, reservation_id):
@@ -2822,18 +2911,18 @@ def cancel_reservation(request, reservation_id):
             utilisateur=request.user,
         )
     except Reservation.DoesNotExist:
-        return Response({"detail": "Reservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": "Réservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
     if not _cancel_reservation(reservation):
         return Response(
-            {"detail": "Cette reservation ne peut plus etre annulee."},
+            {"detail": "Cette réservation ne peut plus être annulée."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     return Response(ReservationSerializer(reservation).data)
 
 
-@_schema("Afficher l'acces temporaire d'une reservation", tags=["Reservations"])
+@_schema("Afficher l'accès temporaire d'une réservation", tags=["Réservations"])
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def reservation_access_payload(request, reservation_id):
@@ -2851,24 +2940,24 @@ def reservation_access_payload(request, reservation_id):
             utilisateur=request.user,
         )
     except Reservation.DoesNotExist:
-        return Response({"detail": "Reservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": "Réservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
     if reservation.auth_choice not in {"qr", "code"}:
         return Response(
-            {"detail": "Cette reservation utilise un badge RFID."},
+            {"detail": "Cette réservation utilise un badge RFID."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     if reservation.statut in {"annulee", "terminee"} or reservation.date_fin < timezone.now():
         return Response(
-            {"detail": "L'acces temporaire ne peut plus etre regenere pour cette reservation."},
+            {"detail": "L'accès temporaire ne peut plus être régénéré pour cette réservation."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     auth_method, access_value = _get_temporary_access_value(reservation)
     if auth_method is None or access_value is None:
         return Response(
-            {"detail": "L'acces temporaire ne peut pas etre affiche. Regenerez-le depuis l'administration."},
+            {"detail": "L'accès temporaire ne peut pas être affiché. Régénérez-le depuis l'administration."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -2885,7 +2974,7 @@ def reservation_access_payload(request, reservation_id):
     )
 
 
-@_schema("Envoyer le code SMS d'une reservation", tags=["Reservations"])
+@_schema("Envoyer le code SMS d'une réservation", tags=["Réservations"])
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 @throttle_classes([SmsRateThrottle])
@@ -2905,11 +2994,11 @@ def send_reservation_access_code(request, reservation_id):
             utilisateur=request.user,
         )
     except Reservation.DoesNotExist:
-        return Response({"detail": "Reservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": "Réservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
     if reservation.auth_choice != "code":
         return Response(
-            {"detail": "Cette reservation n'utilise pas de code SMS."},
+            {"detail": "Cette réservation n'utilise pas de code SMS."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -2949,7 +3038,7 @@ def send_reservation_access_code(request, reservation_id):
     )
 
 
-@_schema("Annuler une reservation en administration", tags=["Administration"])
+@_schema("Annuler une réservation en administration", tags=["Administration"])
 @api_view(["POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_cancel_reservation(request, reservation_id):
@@ -2959,18 +3048,18 @@ def admin_cancel_reservation(request, reservation_id):
             id_reservation=reservation_id,
         )
     except Reservation.DoesNotExist:
-        return Response({"detail": "Reservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": "Réservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
     if not _cancel_reservation(reservation):
         return Response(
-            {"detail": "Cette reservation ne peut plus etre annulee."},
+            {"detail": "Cette réservation ne peut plus être annulée."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     return Response(ReservationSerializer(reservation).data)
 
 
-@_schema("Regenerer l'acces temporaire d'une reservation en administration", tags=["Administration"])
+@_schema("Régénérer l'accès temporaire d'une réservation en administration", tags=["Administration"])
 @api_view(["POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_reservation_access_payload(request, reservation_id):
@@ -2985,11 +3074,11 @@ def admin_reservation_access_payload(request, reservation_id):
             "authentification__type_auth",
         ).get(id_reservation=reservation_id)
     except Reservation.DoesNotExist:
-        return Response({"detail": "Reservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": "Réservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
     if not _temporary_access_can_be_rotated(reservation):
         return Response(
-            {"detail": "L'acces temporaire ne peut pas etre regenere pour cette reservation."},
+            {"detail": "L'accès temporaire ne peut pas être régénéré pour cette réservation."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -3003,12 +3092,12 @@ def admin_reservation_access_payload(request, reservation_id):
     return Response(
         {
             "reservation": ReservationSerializer(reservation).data,
-            "message": "Acces temporaire regenere.",
+            "message": "Accès temporaire régénéré.",
         }
     )
 
 
-@_schema("Revoquer l'acces temporaire d'une reservation en administration", tags=["Administration"])
+@_schema("Révoquer l'accès temporaire d'une réservation en administration", tags=["Administration"])
 @api_view(["POST", "DELETE"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_revoke_reservation_access(request, reservation_id):
@@ -3023,15 +3112,15 @@ def admin_revoke_reservation_access(request, reservation_id):
             "authentification__type_auth",
         ).get(id_reservation=reservation_id)
     except Reservation.DoesNotExist:
-        return Response({"detail": "Reservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": "Réservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
     if reservation.auth_choice not in {"qr", "code"}:
         return Response(
-            {"detail": "Cette reservation utilise un badge RFID."},
+            {"detail": "Cette réservation utilise un badge RFID."},
             status=status.HTTP_400_BAD_REQUEST,
         )
     if reservation.authentification is None or not reservation.authentification.is_active:
-        return Response({"detail": "Aucun acces temporaire actif."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": "Aucun accès temporaire actif."}, status=status.HTTP_404_NOT_FOUND)
 
     auth_method = reservation.authentification
     auth_method.is_active = False
@@ -3052,7 +3141,7 @@ def admin_revoke_reservation_access(request, reservation_id):
     return Response(ReservationSerializer(reservation).data)
 
 
-@_schema("Lister les maintenances du technicien connecte", tags=["Technicien"])
+@_schema("Lister les maintenances du technicien connecté", tags=["Technicien"])
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def technician_maintenances(request):
@@ -3060,7 +3149,7 @@ def technician_maintenances(request):
     technicien = _technician_for_user(request.user)
     if technicien is None and not request.user.is_staff:
         return Response(
-            {"detail": "Aucun profil technicien associe a ce compte."},
+            {"detail": "Aucun profil technicien associé à ce compte."},
             status=status.HTTP_404_NOT_FOUND,
         )
 
@@ -3072,7 +3161,7 @@ def technician_maintenances(request):
 
 
 @_schema("Lister les techniciens", tags=["Administration"], operation_id="admin_technicians_list", methods=["GET"])
-@_schema("Creer un technicien", request=TechnicianSerializer, tags=["Administration"], operation_id="admin_technician_create", methods=["POST"])
+@_schema("Créer un technicien", request=TechnicianSerializer, tags=["Administration"], operation_id="admin_technician_create", methods=["POST"])
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_technicians(request):
@@ -3087,19 +3176,26 @@ def admin_technicians(request):
 
     serializer = TechnicianSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
+    station_scope = serializer.validated_data.get("station_scope")
 
     utilisateur = None
-    utilisateur_id = request.data.get("utilisateur")
+    utilisateur_id = serializer.validated_data.get("utilisateur")
     if utilisateur_id:
-        utilisateur = User.objects.filter(id_user=utilisateur_id).first()
-        if utilisateur is None:
-            return Response({"utilisateur": "Utilisateur introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        utilisateur = utilisateur_id
 
-    technician = Technicien.objects.create(
-        utilisateur=utilisateur,
-        nom=serializer.validated_data["nom"],
-        email=serializer.validated_data["email"],
-        telephone=serializer.validated_data.get("telephone", ""),
+    with transaction.atomic():
+        technician = Technicien.objects.create(
+            utilisateur=utilisateur,
+            nom=serializer.validated_data["nom"],
+            email=serializer.validated_data["email"],
+            telephone=serializer.validated_data.get("telephone", ""),
+        )
+        _sync_technician_station_scope(technician, station_scope)
+
+    technician = (
+        Technicien.objects.select_related("utilisateur")
+        .prefetch_related(_active_station_assignments_prefetch())
+        .get(id_technicien=technician.id_technicien)
     )
     return Response(TechnicianSerializer(technician).data, status=status.HTTP_201_CREATED)
 
@@ -3129,21 +3225,22 @@ def admin_technician_detail(request, technician_id):
 
     serializer = TechnicianSerializer(instance=technician, data=request.data, partial=True)
     serializer.is_valid(raise_exception=True)
+    station_scope = serializer.validated_data.get("station_scope")
 
-    utilisateur_id = request.data.get("utilisateur")
-    utilisateur = None
-    if utilisateur_id:
-        utilisateur = User.objects.filter(id_user=utilisateur_id).first()
-        if utilisateur is None:
-            return Response({"utilisateur": "Utilisateur introuvable."}, status=status.HTTP_404_NOT_FOUND)
+    with transaction.atomic():
+        technician.nom = serializer.validated_data.get("nom", technician.nom)
+        technician.email = serializer.validated_data.get("email", technician.email)
+        technician.telephone = serializer.validated_data.get("telephone", technician.telephone)
+        if "utilisateur" in serializer.validated_data:
+            technician.utilisateur = serializer.validated_data["utilisateur"]
+        technician.save()
+        _sync_technician_station_scope(technician, station_scope)
 
-    technician.nom = serializer.validated_data.get("nom", technician.nom)
-    technician.email = serializer.validated_data.get("email", technician.email)
-    technician.telephone = serializer.validated_data.get("telephone", technician.telephone)
-    if utilisateur is not None:
-        technician.utilisateur = utilisateur
-    technician.save()
-
+    technician = (
+        Technicien.objects.select_related("utilisateur")
+        .prefetch_related(_active_station_assignments_prefetch())
+        .get(id_technicien=technician.id_technicien)
+    )
     return Response(TechnicianSerializer(technician).data)
 
 
@@ -3235,7 +3332,7 @@ def admin_technician_station_assignment_detail(request, assignment_id):
 
 
 @_schema("Lister les maintenances", tags=["Administration"], operation_id="admin_maintenances_list", methods=["GET"])
-@_schema("Creer une maintenance", request=MaintenanceAdminSerializer, tags=["Administration"], operation_id="admin_maintenance_create", methods=["POST"])
+@_schema("Créer une maintenance", request=MaintenanceAdminSerializer, tags=["Administration"], operation_id="admin_maintenance_create", methods=["POST"])
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_maintenances(request):
@@ -3316,14 +3413,14 @@ def terminal_link_rfid(request):
     )
     if existing is not None and existing.utilisateur_id != user.id_user:
         return Response(
-            {"detail": "Ce badge RFID est deja associe a un autre compte."},
+            {"detail": "Ce badge RFID est déjà associé à un autre compte."},
             status=status.HTTP_409_CONFLICT,
         )
 
     try:
         auth_method = _ensure_rfid_auth(user, uid)
     except RfidCredentialConflict:
-        return Response({"detail": "Ce badge RFID est deja associe a un autre compte."}, status=status.HTTP_409_CONFLICT)
+        return Response({"detail": "Ce badge RFID est déjà associé à un autre compte."}, status=status.HTTP_409_CONFLICT)
     now = timezone.now()
     Authentification.objects.filter(
         utilisateur=user,
@@ -3347,7 +3444,7 @@ def terminal_link_rfid(request):
     )
     return Response(
         {
-            "message": "Badge RFID associe.",
+            "message": "Badge RFID associé.",
             "auth_method": _serialize_auth_method(auth_method),
             "user": {
                 "id": str(user.id_user),
@@ -3358,7 +3455,7 @@ def terminal_link_rfid(request):
     )
 
 
-@_schema("Creer une session mobile de borne", request=OpenApiTypes.OBJECT, tags=["Terminal"])
+@_schema("Créer une session mobile de borne", request=OpenApiTypes.OBJECT, tags=["Terminal"])
 @api_view(["POST"])
 @permission_classes([AllowAny])
 @throttle_classes([TerminalRateThrottle])
@@ -3378,7 +3475,7 @@ def terminal_create_mobile_session(request):
             return Response({"detail": "Borne introuvable."}, status=status.HTTP_404_NOT_FOUND)
         if station_id and str(borne.station_id) != station_id:
             return Response(
-                {"detail": "Cette borne est associee a une autre station."},
+                {"detail": "Cette borne est associée à une autre station."},
                 status=status.HTTP_409_CONFLICT,
             )
         station = borne.station
@@ -3403,7 +3500,7 @@ def terminal_create_mobile_session(request):
     }
     _store_mobile_session(payload)
 
-    session_url = _mobile_session_url(token)
+    session_url = _mobile_session_url(token, request.data.get("frontend_origin"))
     return Response(
         {
             "mobile_session": _serialize_mobile_session(payload),
@@ -3428,6 +3525,7 @@ def mobile_session_detail(request, token):
     station_id = payload.get("station_id")
     borne_id = payload.get("borne_id")
     reservations = []
+    selected_reservation = None
     for reservation in _startable_user_reservations(request.user, timezone.now()):
         serialized = _serialize_reservation(reservation)
         serialized["compatible_station"] = not station_id or str(reservation.emplacement.station_id) == station_id
@@ -3436,16 +3534,19 @@ def mobile_session_detail(request, token):
         serialized["station_id"] = str(reservation.emplacement.station_id)
         serialized["borne_id"] = str(reservation.emplacement.borne_id)
         reservations.append(serialized)
+        if str(reservation.id_reservation) == str(payload.get("reservation_id") or ""):
+            selected_reservation = serialized
 
-    return Response(
-        {
-            "mobile_session": _serialize_mobile_session(payload),
-            "reservations": reservations,
-        }
-    )
+    response = {
+        "mobile_session": _serialize_mobile_session(payload),
+        "reservations": reservations,
+    }
+    if selected_reservation is not None:
+        response["reservation"] = selected_reservation
+    return Response(response)
 
 
-@_schema("Autoriser une reservation depuis le mobile", request=OpenApiTypes.OBJECT, tags=["Mobile"])
+@_schema("Autoriser une réservation depuis le mobile", request=OpenApiTypes.OBJECT, tags=["Mobile"])
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 @throttle_classes([MobileSessionRateThrottle])
@@ -3465,7 +3566,7 @@ def mobile_session_authorize(request, token):
         .first()
     )
     if reservation is None:
-        return Response({"detail": "Reservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": "Réservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
     startable_ids = {
         item.id_reservation
@@ -3473,7 +3574,7 @@ def mobile_session_authorize(request, token):
     }
     if reservation.id_reservation not in startable_ids:
         return Response(
-            {"detail": "Cette reservation ne peut pas encore etre demarree."},
+            {"detail": "Cette réservation ne peut pas encore être démarrée."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -3481,7 +3582,7 @@ def mobile_session_authorize(request, token):
     if station_id and str(reservation.emplacement.station_id) != station_id:
         return Response(
             {
-                "detail": "Cette reservation est associee a une autre station.",
+                "detail": "Cette réservation est associée à une autre station.",
                 "station": reservation.emplacement.station.nom,
                 "station_id": str(reservation.emplacement.station_id),
                 "emplacement": reservation.emplacement.numero,
@@ -3492,7 +3593,7 @@ def mobile_session_authorize(request, token):
     if borne_id and str(reservation.emplacement.borne_id) != borne_id:
         return Response(
             {
-                "detail": "Cette reservation est associee a une autre borne.",
+                "detail": "Cette réservation est associée à une autre borne.",
                 "station": reservation.emplacement.station.nom,
                 "station_id": str(reservation.emplacement.station_id),
                 "borne": reservation.emplacement.borne.nom,
@@ -3620,7 +3721,7 @@ def _terminal_consume_mobile_session_response(request, token):
 
     reservation = _terminal_reservation_queryset().filter(id_reservation=payload.get("reservation_id")).first()
     if reservation is None:
-        return Response({"detail": "Reservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": "Réservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
     now = timezone.now()
     session = _get_reservation_session(reservation)
@@ -3629,17 +3730,17 @@ def _terminal_consume_mobile_session_response(request, token):
     end_grace = _end_grace_delta()
 
     if reservation.statut == "annulee":
-        return Response({"detail": "La reservation est annulee."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": "La réservation est annulée."}, status=status.HTTP_400_BAD_REQUEST)
     if reservation.date_debut - start_grace > now and not session_is_active:
-        return Response({"detail": "La reservation n'a pas encore commence."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": "La réservation n'a pas encore commencé."}, status=status.HTTP_400_BAD_REQUEST)
     if reservation.date_fin + end_grace < now and not session_is_active:
-        return Response({"detail": "La fenetre de reservation est expiree."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": "La fenêtre de réservation est expirée."}, status=status.HTTP_400_BAD_REQUEST)
 
     station_id = payload.get("station_id") or (request.data.get("station_id") or "").strip()
     if station_id and str(reservation.emplacement.station_id) != station_id:
         return Response(
             {
-                "detail": "Cette reservation est associee a une autre station.",
+                "detail": "Cette réservation est associée à une autre station.",
                 "station": reservation.emplacement.station.nom,
                 "station_id": str(reservation.emplacement.station_id),
                 "emplacement": reservation.emplacement.numero,
@@ -3650,7 +3751,7 @@ def _terminal_consume_mobile_session_response(request, token):
     if borne_id and str(reservation.emplacement.borne_id) != borne_id:
         return Response(
             {
-                "detail": "Cette reservation est associee a une autre borne.",
+                "detail": "Cette réservation est associée à une autre borne.",
                 "station": reservation.emplacement.station.nom,
                 "station_id": str(reservation.emplacement.station_id),
                 "borne": reservation.emplacement.borne.nom,
@@ -3761,13 +3862,13 @@ def terminal_offline_events(request):
     station_id = (request.data.get("station_id") or "").strip()
     borne_id = (request.data.get("borne_id") or "").strip()
     if not isinstance(events, list):
-        return Response({"detail": "events doit etre une liste."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": "events doit être une liste."}, status=status.HTTP_400_BAD_REQUEST)
 
     accepted = []
     rejected = []
     for event in events:
         if not isinstance(event, dict):
-            rejected.append({"event_id": None, "detail": "Evenement invalide."})
+            rejected.append({"event_id": None, "detail": "Événement invalide."})
             continue
 
         event_id = event.get("id")
@@ -3795,7 +3896,7 @@ def terminal_offline_events(request):
     )
 
 
-@_schema("Authentifier un acces depuis le terminal", request=OpenApiTypes.OBJECT, tags=["Terminal"])
+@_schema("Authentifier un accès depuis le terminal", request=OpenApiTypes.OBJECT, tags=["Terminal"])
 @api_view(["POST"])
 @permission_classes([AllowAny])
 @throttle_classes([TerminalRateThrottle])
@@ -3833,11 +3934,11 @@ def terminal_authenticate(request):
         else:
             reservation = reservation_qs.filter(id_reservation=reservation_id).first()
         if reservation is None:
-            return Response({"detail": "Reservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"detail": "Réservation introuvable."}, status=status.HTTP_404_NOT_FOUND)
         auth_method = reservation.authentification
 
     if reservation.statut == "annulee":
-        return Response({"detail": "La reservation est annulee."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": "La réservation est annulée."}, status=status.HTTP_400_BAD_REQUEST)
 
     session = _get_reservation_session(reservation)
     session_is_active = session is not None and session.end_time is None
@@ -3845,24 +3946,24 @@ def terminal_authenticate(request):
     end_grace = _end_grace_delta()
 
     if reservation.date_debut - start_grace > now and not session_is_active:
-        return Response({"detail": "La reservation n'a pas encore commence."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": "La réservation n'a pas encore commencé."}, status=status.HTTP_400_BAD_REQUEST)
 
     if reservation.date_fin + end_grace < now and not session_is_active:
-        return Response({"detail": "La fenetre de reservation est expiree."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": "La fenêtre de réservation est expirée."}, status=status.HTTP_400_BAD_REQUEST)
 
     expected_mode = reservation.auth_choice
     if expected_mode != auth_mode:
         return Response({"detail": "Mauvais moyen d'authentification."}, status=status.HTTP_400_BAD_REQUEST)
 
     if auth_method is None:
-        return Response({"detail": "Aucun moyen d'authentification associe a cette reservation."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": "Aucun moyen d'authentification associé à cette réservation."}, status=status.HTTP_400_BAD_REQUEST)
     if auth_mode == "code" and _sms_access_is_locked(auth_method):
         return Response(
-            {"detail": "Code SMS temporaire verrouille apres trop d'essais."},
+            {"detail": "Code SMS temporaire verrouillé après trop d'essais."},
             status=status.HTTP_423_LOCKED,
         )
     if not auth_method.is_active:
-        return Response({"detail": "Le moyen d'authentification est revoque."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": "Le moyen d'authentification est révoqué."}, status=status.HTTP_400_BAD_REQUEST)
 
     if auth_method.expiration and auth_method.expiration + end_grace < now and not session_is_active:
         return Response({"detail": "Le moyen d'authentification est expire."}, status=status.HTTP_400_BAD_REQUEST)
@@ -3870,7 +3971,7 @@ def terminal_authenticate(request):
     if station_id and str(reservation.emplacement.station_id) != station_id:
         return Response(
             {
-                "detail": "Cette reservation est associee a une autre station.",
+                "detail": "Cette réservation est associée à une autre station.",
                 "station": reservation.emplacement.station.nom,
                 "station_id": str(reservation.emplacement.station_id),
                 "emplacement": reservation.emplacement.numero,
@@ -3880,7 +3981,7 @@ def terminal_authenticate(request):
     if borne_id and str(reservation.emplacement.borne_id) != borne_id:
         return Response(
             {
-                "detail": "Cette reservation est associee a une autre borne.",
+                "detail": "Cette réservation est associée à une autre borne.",
                 "station": reservation.emplacement.station.nom,
                 "station_id": str(reservation.emplacement.station_id),
                 "borne": reservation.emplacement.borne.nom,
@@ -3899,10 +4000,10 @@ def terminal_authenticate(request):
         if auth_mode == "code":
             if _record_sms_access_failure(auth_method):
                 return Response(
-                    {"detail": "Code SMS temporaire verrouille apres trop d'essais."},
+                    {"detail": "Code SMS temporaire verrouillé après trop d'essais."},
                     status=status.HTTP_423_LOCKED,
                 )
-        return Response({"detail": "Authentification refusee."}, status=status.HTTP_401_UNAUTHORIZED)
+        return Response({"detail": "Authentification refusée."}, status=status.HTTP_401_UNAUTHORIZED)
 
     if auth_mode == "code":
         _reset_sms_access_failures(auth_method)
@@ -3937,7 +4038,7 @@ def terminal_authenticate(request):
 
     return Response(
         {
-            "message": "Authentification reussie.",
+            "message": "Authentification réussie.",
             "session_created": created,
             "session": _serialize_session(session),
             "auth_expiration": auth_method.expiration.isoformat() if auth_method.expiration else None,
@@ -3982,7 +4083,7 @@ def terminal_stop_session(request):
     if borne_id and str(session.emplacement.borne_id) != borne_id:
         return Response(
             {
-                "detail": "Cette session est associee a une autre borne.",
+                "detail": "Cette session est associée à une autre borne.",
                 "station": session.emplacement.station.nom,
                 "station_id": str(session.emplacement.station_id),
                 "borne": session.emplacement.borne.nom,

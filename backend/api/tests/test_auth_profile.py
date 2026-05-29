@@ -106,6 +106,9 @@ def test_change_password_requires_current_password(authenticated_client, user):
 
 @pytest.mark.django_db
 def test_change_password_updates_password(authenticated_client, user):
+    user.must_change_password = True
+    user.save(update_fields=["must_change_password"])
+
     response = authenticated_client.post(
         reverse("api-change-password"),
         {
@@ -119,6 +122,7 @@ def test_change_password_updates_password(authenticated_client, user):
     assert response.status_code == status.HTTP_200_OK
     user.refresh_from_db()
     assert user.check_password("NewUserPass123!")
+    assert user.must_change_password is False
 
 
 @pytest.mark.django_db

@@ -33,9 +33,9 @@ class Command(BaseCommand):
         """Create the demo data and print a machine-readable JSON payload."""
         reference = options["reference"].strip().upper()
         if not reference:
-            raise CommandError("La reference ne peut pas etre vide.")
+            raise CommandError("La référence ne peut pas être vide.")
         if options["duration_minutes"] <= 0:
-            raise CommandError("--duration-minutes doit etre strictement positif.")
+            raise CommandError("--duration-minutes doit être strictement positif.")
 
         call_command("bootstrap_demo_data", stdout=io.StringIO())
         station_name = os.environ.get("DEMO_STATION_NAME", "Station Demo")
@@ -46,7 +46,7 @@ class Command(BaseCommand):
             .first()
         )
         if borne is None:
-            raise CommandError("Borne de demonstration introuvable.")
+            raise CommandError("Borne de démonstration introuvable.")
 
         emplacement = (
             Emplacement.objects.select_related("station", "borne", "device")

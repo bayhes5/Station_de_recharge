@@ -76,7 +76,7 @@ def run_mqtt_bridge():
         client.tls_set()
 
     def on_connect(client, userdata, flags, reason_code, properties=None):
-        logger.info("MQTT connecte a %s:%s code=%s", settings.MQTT_HOST, settings.MQTT_PORT, reason_code)
+        logger.info("MQTT connecté à %s:%s code=%s", settings.MQTT_HOST, settings.MQTT_PORT, reason_code)
         if _mqtt_connection_succeeded(reason_code):
             connected_event.set()
             _write_bridge_heartbeat()

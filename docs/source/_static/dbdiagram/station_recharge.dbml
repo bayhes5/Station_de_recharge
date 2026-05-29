@@ -176,6 +176,8 @@ Table charging_session {
   id_emplacement uuid [not null, ref: > emplacement.id_emplacement]
   start_time timestamp [not null]
   end_time timestamp
+  charge_state varchar(50) [not null, default: "reserved"]
+  charge_state_updated_at timestamp [not null]
 }
 
 Table session_telemetry {
@@ -200,6 +202,12 @@ Table alerte {
   last_seen timestamp [not null]
   notified_at timestamp
   notification_count int [not null, default: 0]
+  assigned_technician_id uuid [ref: > technicien.id_tech]
+  acknowledged_by_id uuid [ref: > technicien.id_tech]
+  acknowledged_at timestamp
+  resolved_by_id uuid [ref: > technicien.id_tech]
+  resolved_at timestamp
+  resolution_note text
 }
 
 Table technicien {

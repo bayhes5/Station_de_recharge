@@ -93,7 +93,7 @@ function Invoke-DockerSyftForSource {
         @DockerWritableArgs `
         -v "${RepoRoot}:/work" `
         -w /work `
-        anchore/syft:v1.42.4 `
+        anchore/syft:v1.42.0 `
         scan $DockerSource `
         --config /work/.syft.yaml `
         -o "cyclonedx-json=$DockerCycloneDxPath" `
@@ -115,7 +115,7 @@ function Invoke-DockerSyftForImage {
         -v /var/run/docker.sock:/var/run/docker.sock `
         -v "${RepoRoot}:/work" `
         -w /work `
-        anchore/syft:v1.42.4 `
+        anchore/syft:v1.42.0 `
         scan $Source `
         -o "cyclonedx-json=$DockerCycloneDxPath" `
         -o "spdx-json=$DockerSpdxPath"

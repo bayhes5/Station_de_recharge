@@ -48,7 +48,7 @@ def ensure_rfid_auth(user, auth_value, validity_days=3650):
         .first()
     )
     if existing is not None and existing.utilisateur_id != user.id_user:
-        raise RfidCredentialConflict("Ce badge RFID est deja associe a un autre compte.")
+        raise RfidCredentialConflict("Ce badge RFID est déjà associé à un autre compte.")
 
     auth_method = (
         Authentification.objects.filter(

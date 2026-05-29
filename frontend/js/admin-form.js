@@ -61,6 +61,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const params = new URLSearchParams(window.location.search);
     const resource = params.get("resource") || "user";
     const itemId = params.get("id");
+    const requestedReturnUrl = params.get("return") || "";
     const isEdit = Boolean(itemId);
 
     const title = document.getElementById("admin-form-title");
@@ -78,7 +79,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     let bornes = [];
     let technicians = [];
     let currentItem = null;
-    let passwordResetDialog = null;
     let authMethods = [];
 
     const configs = {
@@ -130,7 +130,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { name: "station", label: "Station", type: "select", required: true, options: "stations" },
                 { name: "numero", label: "Num\u00e9ro", type: "number", required: true },
                 { name: "nom", label: "Nom", type: "text", required: true },
-                { name: "mqtt_prefix", label: "Pr\u00e9fixe MQTT", type: "text" },
+                { name: "mqtt_prefix", label: "Identifiant de communication", type: "text" },
                 { name: "statut", label: "Statut", type: "select", defaultValue: "active", required: true, options: STATION_STATUS_OPTIONS },
             ],
         },
@@ -162,6 +162,14 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { name: "nom", label: "Nom", type: "text", required: true },
                 { name: "email", label: "E-mail", type: "email", required: true },
                 { name: "telephone", label: "T\u00e9l\u00e9phone", type: "tel" },
+                {
+                    name: "station_scope",
+                    label: "P\u00e9rim\u00e8tre d'intervention",
+                    type: "station-scope",
+                    options: "stations",
+                    fullWidth: true,
+                    helper: "S\u00e9lectionnez uniquement les stations que ce technicien peut superviser ou traiter.",
+                },
             ],
         },
         "technician-station": {
@@ -213,6 +221,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     const config = configs[resource];
 
     function returnUrl() {
+        if (
+            requestedReturnUrl.startsWith("/")
+            && !requestedReturnUrl.startsWith("//")
+            && !requestedReturnUrl.includes("\\")
+        ) {
+            return requestedReturnUrl;
+        }
         return `/admin-dashboard.html#${config?.tab || "overview"}`;
     }
 
@@ -220,129 +235,6 @@ document.addEventListener("DOMContentLoaded", async () => {
         status.classList.toggle("error", isError);
         status.classList.toggle("success", Boolean(message) && !isError);
         status.textContent = message;
-    }
-
-    function getPasswordResetDialog() {
-        if (!passwordResetDialog) {
-            passwordResetDialog = createPasswordResetDialog();
-        }
-        return passwordResetDialog;
-    }
-
-    function createPasswordResetDialog() {
-        const backdrop = document.createElement("div");
-        backdrop.className = "modal-backdrop";
-        backdrop.hidden = true;
-
-        const dialog = document.createElement("section");
-        dialog.className = "modal-dialog";
-        dialog.setAttribute("role", "dialog");
-        dialog.setAttribute("aria-modal", "true");
-        dialog.setAttribute("aria-labelledby", "reset-password-title");
-
-        const heading = document.createElement("div");
-        heading.className = "modal-heading";
-        const headingText = document.createElement("div");
-        headingText.appendChild(createTextElement("p", "Administration", "eyebrow"));
-        const dialogTitle = createTextElement("h2", "Mot de passe temporaire");
-        dialogTitle.id = "reset-password-title";
-        headingText.appendChild(dialogTitle);
-        const closeButton = document.createElement("button");
-        closeButton.className = "modal-close";
-        closeButton.type = "button";
-        closeButton.setAttribute("aria-label", "Fermer");
-        closeButton.textContent = "\u00d7";
-        heading.appendChild(headingText);
-        heading.appendChild(closeButton);
-
-        const accountForm = document.createElement("div");
-        accountForm.className = "account-form";
-        const userLine = createTextElement("p", "", "helper");
-        userLine.id = "reset-password-user";
-        accountForm.appendChild(userLine);
-        accountForm.appendChild(
-            createTextElement(
-                "p",
-                "Copiez ce mot de passe maintenant. Il ne sera plus affiché après fermeture.",
-                "helper",
-            )
-        );
-        const passwordBox = document.createElement("div");
-        passwordBox.className = "generated-password-box";
-        const passwordCode = document.createElement("code");
-        passwordCode.id = "generated-password-value";
-        passwordBox.appendChild(passwordCode);
-        accountForm.appendChild(passwordBox);
-        const dialogStatus = createTextElement("p", "", "field-feedback");
-        dialogStatus.id = "reset-password-status";
-        dialogStatus.setAttribute("aria-live", "polite");
-        accountForm.appendChild(dialogStatus);
-
-        const actions = document.createElement("div");
-        actions.className = "cta-row";
-        const copyButton = createTextElement("button", "Copier", "btn btn-primary");
-        copyButton.type = "button";
-        copyButton.dataset.copyPassword = "";
-        const cancelButton = createTextElement("button", "Fermer", "btn btn-secondary");
-        cancelButton.type = "button";
-        cancelButton.dataset.resetCancel = "";
-        actions.appendChild(copyButton);
-        actions.appendChild(cancelButton);
-        accountForm.appendChild(actions);
-
-        dialog.appendChild(heading);
-        dialog.appendChild(accountForm);
-        backdrop.appendChild(dialog);
-
-        document.body.appendChild(backdrop);
-
-        const statusElement = backdrop.querySelector("#reset-password-status");
-        const userElement = backdrop.querySelector("#reset-password-user");
-        const passwordElement = backdrop.querySelector("#generated-password-value");
-        let generatedPassword = "";
-
-        function close() {
-            generatedPassword = "";
-            passwordElement.textContent = "";
-            statusElement.textContent = "";
-            statusElement.className = "field-feedback";
-            backdrop.hidden = true;
-        }
-
-        function setDialogStatus(message, isError = false) {
-            statusElement.textContent = message;
-            statusElement.className = `field-feedback${isError ? " invalid" : " valid"}`;
-        }
-
-        backdrop.querySelector(".modal-close").addEventListener("click", close);
-        backdrop.querySelector("[data-reset-cancel]").addEventListener("click", close);
-        backdrop.querySelector("[data-copy-password]").addEventListener("click", async () => {
-            if (!generatedPassword) return;
-
-            try {
-                await navigator.clipboard.writeText(generatedPassword);
-                setDialogStatus("Mot de passe copi\u00e9.");
-            } catch (_error) {
-                setDialogStatus("Copie automatique impossible. S\u00e9lectionnez le mot de passe manuellement.", true);
-            }
-        });
-        backdrop.addEventListener("click", (event) => {
-            if (event.target === backdrop) {
-                close();
-            }
-        });
-
-        return {
-            show(user, password) {
-                generatedPassword = password;
-                userElement.textContent = `Utilisateur : ${user.pseudo} (${user.email})`;
-                passwordElement.textContent = password;
-                statusElement.textContent = "";
-                statusElement.className = "field-feedback";
-                backdrop.hidden = false;
-                backdrop.querySelector("[data-copy-password]").focus();
-            },
-        };
     }
 
     function renderPasswordResetPanel() {
@@ -359,7 +251,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         titleElement.id = "admin-password-title";
         headingText.appendChild(titleElement);
         headingText.appendChild(
-            createTextElement("p", "Générez un mot de passe temporaire pour ce compte utilisateur.", "helper")
+            createTextElement("p", "Envoyez un mot de passe provisoire par e-mail. L'utilisateur devra le modifier à la prochaine connexion.", "helper")
         );
         const resetButton = createTextElement("button", "Réinitialiser le mot de passe", "btn btn-secondary");
         resetButton.id = "admin-reset-password";
@@ -414,7 +306,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         field.appendChild(label);
         field.appendChild(input);
         rfidForm.appendChild(field);
-        const submit = createTextElement("button", "Associer / remplacer", "btn btn-secondary");
+        const submit = createTextElement("button", "Enregistrer le badge", "btn btn-secondary");
         submit.type = "submit";
         rfidForm.appendChild(submit);
         panel.appendChild(rfidForm);
@@ -454,14 +346,14 @@ document.addEventListener("DOMContentLoaded", async () => {
 
             const badge = document.createElement("span");
             badge.className = "badge";
-            badge.textContent = method.is_active ? "Actif" : "Revoque";
+            badge.textContent = method.is_active ? "Actif" : "Révoqué";
 
             head.appendChild(title);
             head.appendChild(badge);
 
             const meta = document.createElement("p");
             const expiresAt = method.expiration ? formatDateTime(method.expiration) : "sans expiration";
-            meta.textContent = `${method.display_value || "Valeur masquee"} | expire le ${expiresAt}`;
+            meta.textContent = `${method.display_value || "Valeur masquée"} | expiration : ${expiresAt}`;
 
             const actions = document.createElement("div");
             actions.className = "cta-row compact-row";
@@ -503,7 +395,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             rfidForm.reset();
             await loadAuthMethods();
             renderAuthMethodsList();
-            setStatus(`Badge RFID associe a ${currentItem.pseudo}.`);
+            setStatus(`Badge RFID associé à ${currentItem.pseudo}.`);
         } catch (error) {
             setStatus(error.message || "Impossible d'associer le badge RFID.", true);
         } finally {
@@ -527,9 +419,9 @@ document.addEventListener("DOMContentLoaded", async () => {
             await window.AuthAPI.revokeAdminUserAuthMethod(itemId, method.id_auth);
             await loadAuthMethods();
             renderAuthMethodsList();
-            setStatus(`Badge RFID revoque pour ${currentItem.pseudo}.`);
+            setStatus(`Badge RFID révoqué pour ${currentItem.pseudo}.`);
         } catch (error) {
-            setStatus(error.message || "Impossible de revoquer le badge RFID.", true);
+            setStatus(error.message || "Impossible de révoquer le badge RFID.", true);
             triggerButton.disabled = false;
         }
     }
@@ -538,10 +430,10 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (!currentItem) return;
 
         const confirmed = await window.AuthAPI.confirmAction(
-            `G\u00e9n\u00e9rer un nouveau mot de passe temporaire pour ${currentItem.pseudo} ?`,
+            `Générer un nouveau mot de passe provisoire pour ${currentItem.pseudo} ?`,
             {
-                title: "Reinitialiser le mot de passe",
-                confirmLabel: "Generer",
+                title: "Réinitialiser le mot de passe",
+                confirmLabel: "Générer",
             }
         );
         if (!confirmed) return;
@@ -549,8 +441,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         triggerButton.disabled = true;
         try {
             const result = await window.AuthAPI.resetAdminUserPassword(currentItem.id_user);
-            getPasswordResetDialog().show(currentItem, result.temporary_password);
-            setStatus(`Mot de passe temporaire g\u00e9n\u00e9r\u00e9 pour ${currentItem.pseudo}.`);
+            setStatus(result.message || `Mot de passe provisoire envoy\u00e9 par e-mail pour ${currentItem.pseudo}.`);
         } catch (error) {
             setStatus(error.message || "R\u00e9initialisation impossible.", true);
         } finally {
@@ -561,6 +452,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     function createField(field) {
         if (field.createOnly && isEdit) {
             return null;
+        }
+
+        if (field.type === "station-scope") {
+            return createStationScopeField(field);
         }
 
         const wrapper = document.createElement("div");
@@ -605,6 +500,51 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         wrapper.appendChild(label);
         wrapper.appendChild(input);
+        return wrapper;
+    }
+
+    function createStationScopeField(field) {
+        const wrapper = document.createElement("fieldset");
+        wrapper.className = "field admin-field-wide station-scope-field";
+
+        const legend = document.createElement("legend");
+        legend.textContent = field.label;
+        wrapper.appendChild(legend);
+
+        if (field.helper) {
+            wrapper.appendChild(createTextElement("p", field.helper, "helper"));
+        }
+
+        const list = document.createElement("div");
+        list.className = "station-scope-list";
+
+        if (!stations.length) {
+            const empty = createTextElement("p", "Aucune station disponible.", "empty-state");
+            wrapper.appendChild(empty);
+            return wrapper;
+        }
+
+        stations.forEach((station) => {
+            const option = document.createElement("label");
+            option.className = "station-scope-option";
+
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.name = field.name;
+            checkbox.value = station.id_station;
+
+            const text = document.createElement("span");
+            const title = createTextElement("strong", station.nom || "Station");
+            const location = createTextElement("small", optionLabel(station.localisation_text));
+            text.appendChild(title);
+            text.appendChild(location);
+
+            option.appendChild(checkbox);
+            option.appendChild(text);
+            list.appendChild(option);
+        });
+
+        wrapper.appendChild(list);
         return wrapper;
     }
 
@@ -654,6 +594,16 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     function setFormValues(item) {
         config.fields.forEach((field) => {
+            if (field.type === "station-scope") {
+                const selectedStations = new Set(
+                    (item.assigned_stations || []).map((assignment) => String(assignment.station))
+                );
+                form.querySelectorAll(`input[name="${field.name}"]`).forEach((control) => {
+                    control.checked = selectedStations.has(String(control.value));
+                });
+                return;
+            }
+
             const control = form.elements[field.name];
             if (!control) return;
 
@@ -670,9 +620,28 @@ document.addEventListener("DOMContentLoaded", async () => {
         });
     }
 
+    function applyQueryDefaults() {
+        if (isEdit) return;
+
+        ["station", "borne", "technicien", "utilisateur"].forEach((fieldName) => {
+            const control = form.elements[fieldName];
+            const value = params.get(fieldName);
+            if (control && value) {
+                control.value = value;
+            }
+        });
+    }
+
     function collectPayload() {
         const payload = {};
         config.fields.forEach((field) => {
+            if (field.type === "station-scope") {
+                payload[field.name] = Array.from(
+                    form.querySelectorAll(`input[name="${field.name}"]:checked`)
+                ).map((control) => control.value);
+                return;
+            }
+
             const control = form.elements[field.name];
             if (!control || (field.createOnly && isEdit)) return;
 
@@ -706,7 +675,13 @@ document.addEventListener("DOMContentLoaded", async () => {
         const tasks = [];
         if (needsUsers) tasks.push(window.AuthAPI.getAdminUsers().then((result) => { users = result.results || []; }));
         if (needsStations) tasks.push(window.AuthAPI.getAdminStations().then((result) => { stations = result.results || []; }));
-        if (needsBornes) tasks.push(window.AuthAPI.getAdminBornes().then((result) => { bornes = result.results || []; }));
+        if (needsBornes) {
+            const stationFilter = params.get("station");
+            tasks.push(
+                window.AuthAPI.getAdminBornes(stationFilter ? { station: stationFilter } : undefined)
+                    .then((result) => { bornes = result.results || []; })
+            );
+        }
         if (needsTechnicians) tasks.push(window.AuthAPI.getAdminTechnicians().then((result) => { technicians = result.results || []; }));
         await Promise.all(tasks);
     }
@@ -755,8 +730,15 @@ document.addEventListener("DOMContentLoaded", async () => {
             return;
         }
 
+        window.AppNavigation.render(dashboard, {
+            active: config.tab === "infrastructure" ? "infrastructure" : "admin",
+            preferredRole: "admin",
+            extraLinks: [{ id: "back", label: "Retour", href: returnUrl() }],
+        });
+
         await loadOptionData();
         renderForm();
+        applyQueryDefaults();
         await loadCurrentItem();
         await loadAuthMethods();
         if (currentItem) setFormValues(currentItem);

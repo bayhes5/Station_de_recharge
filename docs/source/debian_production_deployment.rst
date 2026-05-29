@@ -706,8 +706,8 @@ Avant une démonstration complète :
 * Grafana s'ouvre via ``/grafana/`` ;
 * ``mqtt-bridge`` répond au healthcheck ;
 * une télémétrie ESP32 ou simulée arrive en base ;
-* le scénario réservation QR, session mobile, validation kiosk, START, télémétrie,
-  STOP et clôture de session fonctionne ;
+* le scénario réservation QR, session mobile, validation kiosk, UNLOCK, START,
+  télémétrie, STOP et clôture de session fonctionne ;
 * le Raspberry et les ESP32 pointent vers l'adresse IP ou le DNS du serveur ;
 * le firewall n'expose pas PostgreSQL, Redis, Django direct, Grafana direct ou
   Mailpit direct à Internet.

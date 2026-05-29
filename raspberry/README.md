@@ -91,6 +91,181 @@ http://localhost:9000
 Depuis l'écran tactile du Raspberry, ouvrir cette URL en plein écran dans le
 navigateur.
 
+## Procédure complète testée sur Raspberry physique
+
+Cette procédure correspond au montage testé avec :
+
+- Raspberry Pi sur le même Wi-Fi que le PC backend ;
+- écran tactile Waveshare ;
+- lecteur RFID ACR122U ;
+- backend et Mosquitto lancés sur le PC avec Docker.
+
+### 1. Côté PC backend
+
+Relever l'adresse IPv4 Wi-Fi du PC :
+
+```powershell
+ipconfig
+```
+
+Mettre à jour `.env` manuellement ou lancer :
+
+```powershell
+.\scripts\update-local-ip.ps1
+docker compose up -d --force-recreate backend frontend
+```
+
+Vérifier que `.env` contient au minimum :
+
+```text
+ALLOWED_HOSTS=localhost,127.0.0.1,<ip-pc>,backend,django_app
+FRONTEND_BASE_URL=http://<ip-pc>:5173
+CORS_ALLOWED_ORIGINS=http://<ip-pc>:5173,http://<ip-pc>:9000,...
+TERMINAL_API_SECRET=dev-terminal-secret
+```
+
+Depuis le Raspberry, le backend doit répondre :
+
+```bash
+curl -i http://<ip-pc>:8000/api/health/ready/
+```
+
+Une erreur `DisallowedHost` signifie que l'IP Wi-Fi du PC manque dans
+`ALLOWED_HOSTS`.
+
+### 2. Côté Raspberry
+
+Installer les paquets système :
+
+```bash
+sudo apt update
+sudo apt install -y python3-venv python3-dev swig pcscd pcsc-tools chromium
+sudo systemctl enable --now pcscd
+```
+
+Vérifier que l'ACR122U est détecté :
+
+```bash
+lsusb | grep -i '072f\|acr122'
+```
+
+Si `pcsc_scan` affiche `SCardEstablishContext: Access denied`, ajouter la règle
+Polkit suivante en remplaçant `btsciel` par l'utilisateur qui lance le kiosque :
+
+```bash
+sudo tee /etc/polkit-1/rules.d/49-pcscd-btsciel.rules >/dev/null <<'EOF'
+polkit.addRule(function(action, subject) {
+    if ((action.id == "org.debian.pcsc-lite.access_pcsc" ||
+         action.id == "org.debian.pcsc-lite.access_card") &&
+        subject.user == "btsciel") {
+        return polkit.Result.YES;
+    }
+});
+EOF
+
+sudo chmod 0644 /etc/polkit-1/rules.d/49-pcscd-btsciel.rules
+sudo systemctl restart polkit pcscd
+```
+
+Vérifier ensuite :
+
+```bash
+timeout 10 pcsc_scan
+```
+
+La sortie doit contenir `ACS ACR122U PICC Interface`.
+
+Installer les dépendances Python :
+
+```bash
+cd /home/btsciel/raspberry/app
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pip install pyscard==2.3.1
+```
+
+Lancer le serveur kiosque :
+
+```bash
+cd /home/btsciel/raspberry/app
+source .venv/bin/activate
+
+export BACKEND_API_BASE_URL=http://<ip-pc>:8000/api
+export TERMINAL_API_SECRET=dev-terminal-secret
+export TERMINAL_STATION_ID=
+export TERMINAL_BORNE_ID=
+
+export MQTT_HOST=<ip-pc>
+export MQTT_PORT=1883
+export MQTT_BASE_TOPIC=station
+export MQTT_ACK_REQUIRED=false
+
+export RFID_READER_BACKEND=acr122u
+export RFID_DEBOUNCE_SECONDS=2
+
+python main.py
+```
+
+Contrôler dans un deuxième terminal SSH :
+
+```bash
+curl http://localhost:9000/offline/status
+curl http://localhost:9000/rfid/status
+```
+
+Résultat RFID attendu :
+
+```json
+{
+  "backend": "acr122u",
+  "status": "running",
+  "detail": "Lecteur PC/SC prêt: ACS ACR122U PICC Interface 00 00."
+}
+```
+
+Lancer l'interface tactile :
+
+```bash
+DISPLAY=:0 chromium --kiosk http://localhost:9000
+```
+
+Si l'écran est en veille :
+
+```bash
+DISPLAY=:0 xset s reset
+DISPLAY=:0 xset dpms force on
+DISPLAY=:0 xset s off -dpms
+```
+
+### 3. Tests fonctionnels
+
+Association RFID :
+
+1. générer un code d'association depuis le profil web ;
+2. saisir ce code dans le menu d'association du kiosque ;
+3. présenter le badge sur l'ACR122U ;
+4. vérifier côté backend un `POST /api/terminal/link-rfid/` en `201`.
+
+Accès RFID :
+
+1. créer une réservation sur le compte lié au badge ;
+2. attendre le début du créneau autorisé ;
+3. présenter le badge directement sur l'accueil du kiosque ;
+4. vérifier un `POST /api/terminal/authenticate/` en `200` ;
+5. démarrer puis arrêter la charge depuis le kiosque.
+
+Commandes de diagnostic :
+
+```bash
+curl http://localhost:9000/rfid/status
+curl http://localhost:9000/rfid/scan
+curl http://localhost:9000/offline/status
+curl http://localhost:9000/charge/state
+tail -f /home/btsciel/raspberry/app/kiosk.log
+journalctl -u pcscd -f
+```
+
 ## Lecteur RFID ACR122U
 
 Installer les dépendances système :
@@ -143,10 +318,11 @@ RFID :
 2. Le Raspberry lit l'UID.
 3. Le Raspberry appelle le backend terminal.
 4. Le backend valide la réservation et renvoie la session de charge.
-5. La borne affiche "Recharger à l'emplacement X".
-6. L'utilisateur démarre.
-7. Le Raspberry publie `START` vers l'ESP32.
-8. L'écran passe à "Chargement en cours".
+5. Le Raspberry publie `UNLOCK` vers l'ESP32 pour ouvrir le boîtier.
+6. La borne affiche "Recharger à l'emplacement X".
+7. L'utilisateur branche le câble puis démarre la charge.
+8. Le Raspberry publie `START` vers l'ESP32.
+9. L'écran passe à "Chargement en cours".
 
 QR de réservation :
 
@@ -180,6 +356,7 @@ Pour repartir proprement, transmettre au minimum :
 - `raspberry/app/style.css`
 - `raspberry/app/rfid_reader.py`
 - `raspberry/app/mqtt_client.py`
+- `raspberry/app/mqtt_contract.py`
 - `raspberry/app/offline_store.py`
 - `raspberry/app/charge_state.py`
 - `raspberry/app/requirements.txt`

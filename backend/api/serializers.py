@@ -216,6 +216,8 @@ class AdminUserUpdateSerializer(ProfileSerializer):
             "is_active",
             "is_staff",
             "is_superuser",
+            "must_change_password",
+            "password_reset_at",
         )
         extra_kwargs = {
             "telephone": {"required": False, "allow_blank": True},
@@ -223,6 +225,8 @@ class AdminUserUpdateSerializer(ProfileSerializer):
             "is_active": {"required": False},
             "is_staff": {"required": False},
             "is_superuser": {"required": False},
+            "must_change_password": {"read_only": True},
+            "password_reset_at": {"read_only": True},
         }
 
     def update(self, instance, validated_data):
@@ -295,6 +299,8 @@ class AdminUserSerializer(serializers.ModelSerializer):
             "is_active",
             "is_staff",
             "is_superuser",
+            "must_change_password",
+            "password_reset_at",
             "last_login",
             "date_joined",
             "nom",
@@ -673,7 +679,7 @@ class TechnicianStationAssignmentSerializer(serializers.ModelSerializer):
                 duplicate = duplicate.exclude(pk=self.instance.pk)
             if duplicate.exists():
                 raise serializers.ValidationError(
-                    {"station": "Cette station est deja affectee a ce technicien."}
+                    {"station": "Cette station est déjà affectée à ce technicien."}
                 )
         return attrs
 
@@ -683,6 +689,12 @@ class TechnicianSerializer(serializers.ModelSerializer):
 
     utilisateur_pseudo = serializers.CharField(source="utilisateur.pseudo", read_only=True)
     assigned_stations = serializers.SerializerMethodField()
+    station_scope = serializers.ListField(
+        child=serializers.UUIDField(),
+        write_only=True,
+        required=False,
+        allow_empty=True,
+    )
 
     class Meta:
         model = Technicien
@@ -694,10 +706,19 @@ class TechnicianSerializer(serializers.ModelSerializer):
             "email",
             "telephone",
             "assigned_stations",
+            "station_scope",
         )
         extra_kwargs = {
             "utilisateur": {"required": False, "allow_null": True},
         }
+
+    def validate_station_scope(self, value):
+        """Ensure every requested station exists before synchronizing scope."""
+        station_ids = list(dict.fromkeys(value))
+        existing_count = Station.objects.filter(id_station__in=station_ids).count()
+        if existing_count != len(station_ids):
+            raise serializers.ValidationError("Une ou plusieurs stations sont introuvables.")
+        return station_ids
 
     @extend_schema_field(TechnicianStationAssignmentSerializer(many=True))
     def get_assigned_stations(self, obj):

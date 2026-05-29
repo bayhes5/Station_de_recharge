@@ -191,7 +191,7 @@ Ils publient aussi les accusés de réception de commandes sur :
 
 Ces événements servent de heartbeat opérationnel. Un ESP32 qui vient d'accepter
 une commande ``START`` peut donc être vu comme connecté dès le message
-``reserved`` ou ``charging_started``, même si la mesure DHT22/INA219 suivante
+``reserved`` ou ``charging_started``, même si la mesure DHT22/SEN0214 suivante
 n'est pas encore arrivée.
 
 Exemple de message :
@@ -210,6 +210,21 @@ Exemple de message :
      "cable": true,
      "timestamp": "2026-05-05T10:30:00Z"
    }
+
+Le backend historise ``current``, ``voltage``, ``power`` et ``energy_kwh`` dans
+``capteur_data`` afin que Grafana puisse afficher les courbes de courant, de
+tension, de puissance et d'énergie consommée avec les mêmes filtres
+station/borne/emplacement. Lorsqu'une session de charge active est identifiée,
+les mesures électriques sont aussi rattachées à ``session_telemetry`` pour le
+suivi métier de la session.
+
+Pour éviter qu'un prototype courant seul produise une session sans courbe,
+``SESSION_TELEMETRY_DEFAULT_VOLTAGE`` peut définir une tension de secours côté
+backend. La valeur par défaut est ``0`` : aucun fallback n'est appliqué et le
+firmware doit publier ``voltage``. Pour les essais avec alimentation fixe 12 V,
+mettre ``SESSION_TELEMETRY_DEFAULT_VOLTAGE=12`` permet de créer
+``SessionTelemetry`` même si l'ESP32 ne remonte que ``current`` et
+``energy_kwh``.
 
 Les commandes vers un ESP32 utilisent :
 
@@ -258,7 +273,7 @@ L'accusé de réception attendu reprend le ``command_id`` :
      "command_id": "<uuid-commande>",
      "action": "START",
      "status": "accepted",
-     "message": "Emplacement reserve.",
+     "message": "Emplacement réservé.",
      "state": "reserved",
      "slot_id": "slot1",
      "session_id": "<uuid-session>"
@@ -285,8 +300,10 @@ l'historique récent des commandes acquittées. Cela permet de distinguer une
 commande publiée, une commande confirmée et une charge réellement active
 remontée ensuite par le statut ou la télémétrie.
 
-Le backend met aussi à jour ``charging_session.charge_state``. Un ACK ``START``
-confirmé fait passer la session à ``waiting_plug`` ou ``charging`` selon le
+Le backend met aussi à jour ``charging_session.charge_state``. Un ACK
+``UNLOCK`` confirmé fait passer la session à ``waiting_plug`` : l'accès est
+validé, le boîtier est ouvert et l'utilisateur peut brancher le câble. Un ACK
+``START`` confirmé maintient ``waiting_plug`` ou passe à ``charging`` selon le
 statut reçu, une télémétrie ``charging`` confirme la charge active, un ACK
 ``STOP`` place la session en ``stopping`` jusqu'à la clôture backend, et
 ``terminal/sessions/stop`` termine le cycle en ``stopped``. Ce verrou métier
@@ -523,6 +540,8 @@ L'ingestion des télémétries alimente actuellement :
   existe sur l'emplacement ;
 * ``Alerte`` : anomalies telles qu'intrusion, câble retiré, serrure déverrouillée
   en charge, surchauffe ou surconsommation.
+* ``DeviceCommandLog`` : historique des ACK ``UNLOCK``, ``START``, ``STOP`` et
+  diagnostic du dernier ordre accepté ou refusé par l'ESP32.
 
 L'identité du device est séparée en deux niveaux : ``slot_id`` pour le routage
 MQTT de l'emplacement, et ``hardware_mac`` pour la carte ESP32 physique.
@@ -533,6 +552,14 @@ Les capteurs booléens ``door``, ``cable``, ``lock`` et ``intrusion`` sont stock
 numériquement dans ``CapteurData`` : ``1`` signifie vrai et ``0`` signifie faux.
 L'API de supervision expose en plus un libellé lisible pour l'interface :
 ``Boîtier fermé`` / ``Boîtier ouvert`` et ``Câble présent`` / ``Câble retiré``.
+
+Après une validation par badge RFID, les signes attendus dans la supervision
+admin sont :
+
+* une session en ``access_validated`` puis ``waiting_plug`` ;
+* un dernier ordre device ``UNLOCK`` / ``unlocked`` ;
+* une ligne ``DeviceCommandLog`` rattachée à la session ;
+* un heartbeat ou une télémétrie ESP32 si le firmware publie après l'ouverture.
 
 Dans l'interface administrateur, la colonne ``Connexion`` indique si l'ESP32 a
 émis récemment une télémétrie ou un statut MQTT. Elle est calculée à partir de
@@ -595,8 +622,19 @@ Les conditions de résolution automatique sont :
 * ``state_error`` : l'état n'est plus ``error``, ``emergency`` ou ``fault``.
 * ``charge_without_session`` : l'ESP32 ne remonte plus un état de charge ou la
   télémétrie porte de nouveau un ``session_id`` ouvert côté backend.
+* ``energy_without_session`` : l'ESP32 ne remonte plus d'état de charge sans
+  session active, ou l'énergie repasse sous ``ENERGY_ACTIVITY_MIN_KWH``.
+* ``energy_over_limit`` : la session n'est plus active, la charge est arrêtée,
+  l'énergie de session repasse sous ``SESSION_ENERGY_ALERT_KWH`` ou la règle est
+  désactivée avec une valeur inférieure ou égale à ``0``.
 * ``session_without_telemetry`` : une nouvelle mesure ``SessionTelemetry`` est
   reçue pour la session active ou la session est clôturée.
+* ``session_stopping_too_long`` : la session sort de l'état ``stopping`` parce
+  que l'endpoint de clôture backend a terminé la session, ou parce qu'un
+  opérateur clôture/résout l'incident après diagnostic.
+* ``session_waiting_plug_too_long`` : la session quitte l'état ``waiting_plug``
+  parce que le câble a été détecté et que la charge démarre, parce que la
+  session est annulée, ou parce qu'un opérateur traite l'incident.
 
 Le firmware est traité séparément. Chaque ``Device`` conserve maintenant la
 version remontée par l'ESP32, la version attendue, le statut de conformité et
@@ -627,13 +665,52 @@ par cron, Celery Beat ou un job de supervision :
 
 Elle scanne les sessions ouvertes plus anciennes que
 ``SESSION_TELEMETRY_STALE_MINUTES`` minutes, ``2`` par défaut. Si aucune mesure
-``SessionTelemetry`` récente n'existe, le backend crée ou maintient une alerte
-``session_without_telemetry``. L'alerte est résolue automatiquement dès que la
+``SessionTelemetry`` récente n'existe pour une session réellement attendue en
+charge, le backend crée ou maintient une alerte ``session_without_telemetry``.
+L'état ``waiting_plug`` est volontairement exclu de cette règle : après
+validation d'accès, l'utilisateur peut encore être en train d'ouvrir le boîtier
+et de brancher le câble. L'alerte est résolue automatiquement dès que la
 télémétrie revient ou lorsque la session se termine.
+
+Le même scan vérifie les sessions restées trop longtemps en ``waiting_plug``.
+Ce cas signifie que l'accès a été validé, que le boîtier a été ouvert, mais que
+l'ESP32 n'a pas encore remonté ``cable=true``. Le délai est contrôlé par
+``SESSION_WAITING_PLUG_STALE_MINUTES``, ``5`` par défaut. L'alerte produite est
+``session_waiting_plug_too_long`` ; elle permet de distinguer un utilisateur qui
+n'a pas branché son câble d'une vraie perte de télémétrie pendant la charge.
+
+Le même scan vérifie aussi les sessions restées trop longtemps en état
+``stopping``. Ce cas indique que le ``STOP`` a été demandé ou confirmé par
+l'ESP32, mais que la clôture backend n'a pas abouti. Le délai est contrôlé par
+``SESSION_STOPPING_STALE_MINUTES``, ``2`` par défaut. L'alerte produite est
+``session_stopping_too_long``.
 Dans Docker Compose, ``celery-beat`` exécute ce contrôle toutes les
 ``CELERY_BEAT_SESSION_TELEMETRY_HEALTH_SECONDS`` secondes, ``60`` par défaut, et
 déclenche aussi ``api.notify_pending_alerts`` toutes les
 ``CELERY_BEAT_ALERT_NOTIFICATIONS_SECONDS`` secondes.
+
+Politique énergie
+-----------------
+
+L'énergie n'est pas traitée comme un seuil physique brut. Une valeur élevée en
+``kWh`` n'est pas dangereuse par elle-même ; elle devient intéressante lorsqu'elle
+contredit le contexte de session.
+
+Deux règles de cohérence sont appliquées par le backend :
+
+* ``energy_without_session`` : une télémétrie indique une charge et une énergie
+  cumulée supérieure ou égale à ``ENERGY_ACTIVITY_MIN_KWH`` alors qu'aucune
+  session backend active n'est rattachée à l'emplacement ;
+* ``energy_over_limit`` : une session active dépasse le plafond configurable
+  ``SESSION_ENERGY_ALERT_KWH``. La valeur par défaut est ``1.5`` kWh,
+  volontairement haute pour un vélo électrique de prototype. Elle peut être
+  ajustée selon la puissance réelle, la durée payée ou la politique
+  d'exploitation. Une valeur ``0`` désactive cette règle.
+
+Cette approche évite une alerte peu exploitable du type "énergie supérieure à X"
+hors contexte. Elle détecte plutôt les incohérences : consommation sans session,
+session qui dépasse un plafond métier ou compteur d'énergie qui continue alors
+que le backend ne voit plus de charge active.
 
 Accès technicien
 ----------------
@@ -658,7 +735,7 @@ Grafana
 -------
 
 Grafana est provisionné automatiquement avec une datasource PostgreSQL nommée
-``Station TimescaleDB`` et deux dashboards complémentaires.
+``Station TimescaleDB`` et trois dashboards complémentaires.
 
 Le point d'entrée recommandé est ``Station - Vue globale supervision`` :
 
@@ -692,6 +769,25 @@ Il affiche :
 Il reprend les mêmes variables ``station``, ``borne`` et ``emplacement`` que le
 dashboard d'accueil afin de conserver le même périmètre d'analyse.
 
+Le dashboard ``Session - Détail charge`` sert à analyser une session précise :
+
+.. code-block:: text
+
+   https://localhost/grafana/d/session-detail/session-detail-charge?orgId=1&from=now-6h&to=now&refresh=5s
+
+Il expose une variable ``session`` alimentée par les sessions ouvertes et les
+sessions récentes. Cette vue lit principalement ``session_telemetry`` afin
+d'éviter de mélanger plusieurs charges passées sur le même emplacement. Elle
+affiche :
+
+* le contexte de session : utilisateur, réservation, station, borne,
+  emplacement, état et durée ;
+* le courant, la tension, la puissance calculée et l'énergie consommée ;
+* la température et l'humidité mesurées sur l'emplacement pendant la fenêtre de
+  session ;
+* les commandes et confirmations liées à la session ;
+* les alertes rattachées à la session ou à l'emplacement pendant cette session.
+
 Cette supervision technique complète l'interface web métier. L'application web
 reste destinée aux utilisateurs, administrateurs et techniciens ; Grafana sert à
 visualiser rapidement les séries temporelles et les incidents techniques.
@@ -703,9 +799,9 @@ Le fichier ``grafana/provisioning/alerting/station-alerts.yml`` provisionne les
 alertes Grafana de production. Elles sont évaluées toutes les minutes sur la
 datasource ``station-timescaledb`` :
 
-* ``ESP32 offline`` : un ESP32 ne publie plus de status ou de télémétrie récente ;
-* ``Température ESP32 élevée`` : une mesure DHT22 dépasse le seuil critique ;
-* ``Courant anormal`` : une mesure INA219 dépasse le seuil de courant attendu ;
+* ``Contrôleur sans signal`` : un contrôleur ne publie plus d'état ou de télémétrie récente ;
+* ``Température contrôleur élevée`` : une mesure DHT22 dépasse le seuil critique ;
+* ``Courant anormal`` : une mesure de courant SEN0214 ou INA219 dépasse le seuil attendu ;
 * ``Charge sans session active`` : un device remonte ``charging`` sans session
   backend ouverte ;
 * ``Session active sans télémétrie`` : une session ouverte ne reçoit plus de

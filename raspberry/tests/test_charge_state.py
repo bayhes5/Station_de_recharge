@@ -112,10 +112,10 @@ def test_legacy_waiting_cable_state_is_reported_as_waiting_plug(store):
 def test_duplicate_start_is_rejected_while_slot_is_active(store):
     store.start_requested(slot_id="slot1", session_id="session-1")
 
-    with pytest.raises(ChargeStateError, match="deja active"):
+    with pytest.raises(ChargeStateError, match="déjà active"):
         store.start_requested(slot_id="slot1", session_id="session-1")
 
-    with pytest.raises(ChargeStateError, match="deja active"):
+    with pytest.raises(ChargeStateError, match="déjà active"):
         store.start_requested(slot_id="slot1", session_id="session-2")
 
 

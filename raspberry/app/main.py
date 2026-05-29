@@ -10,17 +10,19 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from charge_state import ChargeStateError, ChargeStateStore
-from mqtt_client import publish_slot_command
+from mqtt_client import build_slot_monitor, publish_slot_command
 from offline_store import OfflineStore
 from rfid_reader import build_rfid_runtime
 
 RFID_SCAN_STORE, RFID_RUNTIME = build_rfid_runtime()
 OFFLINE_STORE = OfflineStore()
 CHARGE_STATE_STORE = ChargeStateStore()
+MQTT_SLOT_MONITOR = build_slot_monitor()
 BACKEND_API_BASE_URL = os.environ.get("BACKEND_API_BASE_URL", "http://backend:8000/api").rstrip("/")
 TERMINAL_API_SECRET = os.environ.get("TERMINAL_API_SECRET", "").strip()
 TERMINAL_STATION_ID = os.environ.get("TERMINAL_STATION_ID", "").strip()
 TERMINAL_BORNE_ID = os.environ.get("TERMINAL_BORNE_ID", "").strip()
+KIOSK_PORT = int(os.environ.get("KIOSK_PORT", "9000"))
 OFFLINE_SYNC_INTERVAL_SECONDS = int(os.environ.get("OFFLINE_SYNC_INTERVAL_SECONDS", "60"))
 OFFLINE_EVENT_BATCH_SIZE = int(os.environ.get("OFFLINE_EVENT_BATCH_SIZE", "50"))
 TERMINAL_PROXY_ROUTES = {
@@ -59,7 +61,7 @@ def proxy_backend_json(method, route_key, payload=None):
     backend_path = TERMINAL_BACKEND_PATHS.get(route_key)
     if backend_path is None:
         return {
-            "body": json.dumps({"detail": "Chemin API locale refuse."}).encode("utf-8"),
+            "body": json.dumps({"detail": "Chemin API locale refusé."}).encode("utf-8"),
             "status": 404,
             "content_type": "application/json",
         }
@@ -252,7 +254,7 @@ class KioskHandler(SimpleHTTPRequestHandler):
                 cache_result = sync_offline_cache()
                 self._send_json(
                     {
-                        "message": "Mode degrade synchronise.",
+                        "message": "Mode dégradé synchronisé.",
                         "events": events_result,
                         "cache": cache_result,
                     }
@@ -263,7 +265,7 @@ class KioskHandler(SimpleHTTPRequestHandler):
 
         if parsed_path.path == "/offline/events/sync":
             try:
-                self._send_json({"message": "Evenements offline synchronises.", **sync_offline_events()})
+                self._send_json({"message": "Événements offline synchronisés.", **sync_offline_events()})
             except Exception as error:  # noqa: BLE001
                 self._send_json({"detail": f"Synchronisation evenements offline impossible: {error}"}, status=503)
             return
@@ -287,7 +289,7 @@ class KioskHandler(SimpleHTTPRequestHandler):
         if parsed_path.path == "/charge/state/reset":
             technician_secret = self.headers.get("X-Terminal-Secret", "").strip()
             if TERMINAL_API_SECRET and technician_secret != TERMINAL_API_SECRET:
-                self._send_json({"detail": "Operation technicien refusee."}, status=403)
+                self._send_json({"detail": "Opération technicien refusée."}, status=403)
                 return
             try:
                 payload = self._read_json()
@@ -416,7 +418,7 @@ class KioskHandler(SimpleHTTPRequestHandler):
             ).to_dict()
 
         message = (
-            "Commande MQTT confirmee par ESP32."
+            "Commande MQTT confirmée par ESP32."
             if command_result.get("command_confirmed")
             else "Commande MQTT envoyee."
         )
@@ -468,6 +470,15 @@ class KioskHandler(SimpleHTTPRequestHandler):
             )
             return
 
+        if parsed_path.path == "/mqtt/slot-status":
+            query = parse_qs(parsed_path.query)
+            slot_id = str((query.get("slot_id") or [""])[0] or "").strip()
+            if not slot_id:
+                self._send_json({"detail": "slot_id obligatoire."}, status=400)
+                return
+            self._send_json({"result": MQTT_SLOT_MONITOR.snapshot(slot_id)})
+            return
+
         if parsed_path.path == "/rfid/scan":
             query = parse_qs(parsed_path.query)
             try:
@@ -488,8 +499,9 @@ class KioskHandler(SimpleHTTPRequestHandler):
 def main():
     os.chdir(Path(__file__).resolve().parent)
     threading.Thread(target=background_offline_sync, daemon=True).start()
-    server = ThreadingHTTPServer(("0.0.0.0", 9000), KioskHandler)
-    print("Kiosk server running on http://localhost:9000")
+    MQTT_SLOT_MONITOR.start()
+    server = ThreadingHTTPServer(("0.0.0.0", KIOSK_PORT), KioskHandler)
+    print(f"Kiosk server running on http://localhost:{KIOSK_PORT}")
     print(f"RFID backend: {RFID_RUNTIME.status} ({RFID_RUNTIME.detail})")
     try:
         server.serve_forever()

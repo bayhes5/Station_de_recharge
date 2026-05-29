@@ -23,7 +23,7 @@ def signup(request):
         {
             "title": "Inscription",
             "description": (
-                "Le formulaire d'inscription est maintenant gere par le frontend "
+                "Le formulaire d'inscription est maintenant géré par le frontend "
                 "JavaScript, pour garder une seule logique de saisie et d'appel API."
             ),
             "primary_cta_label": "Ouvrir l'inscription",
@@ -43,7 +43,7 @@ def login_view(request):
             "title": "Connexion",
             "description": (
                 "La connexion est prise en charge par le frontend JavaScript, avec "
-                "un flux d'authentification centralise cote API."
+                "un flux d'authentification centralisé côté API."
             ),
             "primary_cta_label": "Ouvrir la connexion",
             "primary_cta_url": f"{settings.FRONTEND_BASE_URL}/login.html",
@@ -62,7 +62,7 @@ def contact(request):
             "title": "Contact",
             "description": (
                 "Besoin d'aide, d'une information technique ou d'un renseignement sur la "
-                "station de recharge ? Cette page est le point d'entree pour nous joindre."
+                "station de recharge ? Cette page est le point d'entrée pour nous joindre."
             ),
         },
     )
@@ -79,10 +79,10 @@ def privacy(request):
         request,
         "api/privacy.html",
         {
-            "title": "Politique de confidentialite",
+            "title": "Politique de confidentialité",
             "description": (
                 "Consultez les informations essentielles sur la collecte, l'utilisation "
-                "et la protection des donnees liees a l'application."
+                "et la protection des données liées à l'application."
             ),
         },
     )

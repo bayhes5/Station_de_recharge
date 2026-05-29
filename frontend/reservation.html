@@ -10,9 +10,7 @@
     <link rel="apple-touch-icon" href="/icons/pwa-icon-192.png">
     <meta http-equiv="Cache-Control" content="no-store">
     <title>R&eacute;server | M&eacute;tropole Verte</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <link rel="stylesheet" href="/css/auth.css">
-    <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script type="module" src="/src/pages/reservation.js"></script>
 </head>
 <body>
@@ -25,10 +23,12 @@
                     <h1 id="reservation-title">Nouvelle r&eacute;servation</h1>
                     <p class="lead">Recherchez une station, choisissez un d&eacute;but et une dur&eacute;e de recharge, puis l&rsquo;application attribue automatiquement un emplacement disponible.</p>
                 </div>
-                <div class="header-actions">
+                <nav class="header-actions" aria-label="Navigation principale" data-app-nav>
+                    <a id="reservation-admin-link" class="btn btn-secondary" href="/admin-dashboard.html" hidden>Administration</a>
                     <a class="btn btn-secondary" href="/dashboard.html">Tableau de bord</a>
                     <a class="btn btn-secondary" href="/profile.html">Profil</a>
-                </div>
+                    <button id="reservation-logout" class="btn btn-secondary" type="button">Se d&eacute;connecter</button>
+                </nav>
             </header>
 
             <div id="reservation-status" class="status" aria-live="polite"></div>
@@ -76,11 +76,11 @@
                                 <output id="reservation-end-display">-</output>
                             </div>
                             <div class="field">
-                                <label for="reservation-auth-mode">Authentification</label>
+                                <label for="reservation-auth-mode">Moyen d&rsquo;acc&egrave;s</label>
                                 <select id="reservation-auth-mode" name="auth_mode" required></select>
                             </div>
                             <div class="field" id="reservation-auth-value-field" hidden>
-                                <label for="reservation-auth-value">Valeur RFID</label>
+                                <label for="reservation-auth-value">Badge RFID</label>
                                 <input id="reservation-auth-value" name="auth_value" type="text" readonly>
                             </div>
                         </div>

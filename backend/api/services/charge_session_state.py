@@ -7,6 +7,7 @@ from api.models import ChargeSessionState, Session
 
 START_WAITING_STATUSES = {"accepted", "reserved", "ready", "access_validated", "waiting_plug"}
 START_CHARGING_STATUSES = {"charging", "charging_started"}
+UNLOCK_WAITING_STATUSES = {"accepted", "unlocked", "waiting_plug"}
 STOP_ACK_STATUSES = {"accepted", "stopped", "idle"}
 ERROR_STATES = {"error", "fault", "emergency", "rejected", "failed"}
 ACTIVE_SESSION_STATES = {
@@ -29,7 +30,7 @@ def session_is_open(session: Session) -> bool:
 
 
 def ensure_session_can_be_started(session: Session) -> None:
-    """Reject a repeated START once the backend knows the ESP32 is already busy."""
+    """Reject a new access/start attempt once the session is already engaged."""
     if session.end_time is not None or session.charge_state == ChargeSessionState.STOPPED:
         raise ChargeSessionStateError("Cette session de charge est déjà clôturée.")
     if session.charge_state in {
@@ -37,7 +38,7 @@ def ensure_session_can_be_started(session: Session) -> None:
         ChargeSessionState.CHARGING,
         ChargeSessionState.STOPPING,
     }:
-        raise ChargeSessionStateError("Une charge est déjà en cours sur cette session.")
+        raise ChargeSessionStateError("Une session de charge est déjà engagée.")
     if session.charge_state == ChargeSessionState.ERROR:
         raise ChargeSessionStateError("Cette session est en erreur et nécessite une intervention.")
 
@@ -62,7 +63,7 @@ def set_session_state(
 
 
 def mark_access_validated(session: Session, *, now=None) -> Session:
-    """Record that authentication succeeded and a START may be sent."""
+    """Record that authentication succeeded and the box may be unlocked."""
     ensure_session_can_be_started(session)
     return set_session_state(session, ChargeSessionState.ACCESS_VALIDATED, now=now)
 
@@ -132,6 +133,11 @@ def mark_state_from_ack(
     normalized_status = str(ack_status or "").strip().lower()
     if normalized_action == "START":
         return mark_start_ack(session, normalized_status, now=now)
+    if normalized_action == "UNLOCK":
+        if normalized_status in ERROR_STATES:
+            return mark_error(session, now=now)
+        if normalized_status in UNLOCK_WAITING_STATUSES:
+            return set_session_state(session, ChargeSessionState.WAITING_PLUG, now=now)
     if normalized_action == "STOP" and normalized_status in STOP_ACK_STATUSES | ERROR_STATES:
         if normalized_status in ERROR_STATES:
             return mark_error(session, now=now)

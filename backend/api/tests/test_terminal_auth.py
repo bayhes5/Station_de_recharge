@@ -226,6 +226,12 @@ def test_mobile_session_authorizes_and_consumes_reservation(authenticated_client
     assert authorize_response.status_code == status.HTTP_200_OK
     assert authorize_response.data["mobile_session"]["status"] == "authorized"
 
+    authorized_detail_response = authenticated_client.get(reverse("api-mobile-session-detail", kwargs={"token": token}))
+
+    assert authorized_detail_response.status_code == status.HTTP_200_OK
+    assert authorized_detail_response.data["mobile_session"]["status"] == "authorized"
+    assert authorized_detail_response.data["reservation"]["reference_code"] == "MOBOK1"
+
     status_response = api_client.get(reverse("api-terminal-mobile-session-status", kwargs={"token": token}))
 
     assert status_response.status_code == status.HTTP_200_OK
@@ -865,7 +871,7 @@ def test_terminal_authenticate_rejects_too_early_arrival(api_client, user, stati
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.data["detail"] == "La reservation n'a pas encore commence."
+    assert response.data["detail"] == "La réservation n'a pas encore commencé."
     assert not Session.objects.filter(reservation=reservation).exists()
 
 
@@ -922,7 +928,7 @@ def test_terminal_authenticate_rejects_early_arrival_when_previous_slot_owns_bay
     )
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.data["detail"] == "L'emplacement est encore reserve par le creneau precedent."
+    assert response.data["detail"] == "L'emplacement est encore réservé par le créneau précédent."
     assert not Session.objects.filter(reservation=reservation).exists()
 
 
@@ -977,7 +983,7 @@ def test_terminal_authenticate_rejects_when_bay_has_active_session(api_client, u
     )
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.data["detail"] == "L'emplacement est deja utilise par une autre session de charge."
+    assert response.data["detail"] == "L'emplacement est déjà utilisé par une autre session de charge."
     assert not Session.objects.filter(reservation=reservation).exists()
 
 
@@ -1048,7 +1054,7 @@ def test_terminal_authenticate_rejects_after_end_grace(api_client, user, station
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.data["detail"] == "La fenetre de reservation est expiree."
+    assert response.data["detail"] == "La fenêtre de réservation est expirée."
     assert not Session.objects.filter(reservation=reservation).exists()
 
 
@@ -1257,7 +1263,7 @@ def test_terminal_authenticate_rejects_duplicate_start_when_session_is_charging(
     )
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.data["detail"] == "Transition de session de charge refusee."
+    assert response.data["detail"] == "Transition de session de charge refusée."
 
 
 @pytest.mark.django_db

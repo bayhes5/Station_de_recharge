@@ -269,10 +269,11 @@ stocke ``start_time`` et ``end_time``. L’utilisateur se retrouve via
 
 ``charge_state`` formalise le cycle technique de la charge côté backend :
 ``reserved`` lorsque la session existe sans commande validée, ``access_validated``
-après authentification, ``waiting_plug`` après ACK ``START``, ``charging`` dès
-que l'ESP32 confirme la charge ou publie de la télémétrie active, ``stopping``
-après ACK ``STOP`` ou retour ``idle`` avant clôture backend, ``stopped`` lorsque
-``end_time`` est renseigné, et ``error`` si l'ESP32 remonte un état de défaut.
+après authentification, ``waiting_plug`` après ACK ``UNLOCK`` ou attente de
+branchement, ``charging`` dès que l'ESP32 confirme la charge ou publie de la
+télémétrie active, ``stopping`` après ACK ``STOP`` ou retour ``idle`` avant
+clôture backend, ``stopped`` lorsque ``end_time`` est renseigné, et ``error`` si
+l'ESP32 remonte un état de défaut.
 Ce champ complète ``end_time`` : il évite les doubles ``START`` et rend visibles
 les sessions arrêtées physiquement mais pas encore clôturées côté backend.
 
@@ -331,7 +332,9 @@ stations. La supervision technicien ne lit ensuite que les devices, alertes,
 mesures et commandes des stations actives dans ce périmètre. Grafana reste un
 outil de supervision technique global ou administrateur ; l'accès terrain
 quotidien des techniciens passe par l'application, où le filtrage est porté par
-l'API Django.
+l'API Django. Dans l'interface d'administration, ce périmètre est intégré à la
+fiche du technicien afin que l'identité, le compte lié et les stations
+autorisées soient contrôlés dans un seul écran.
 
 Performance et TimescaleDB
 --------------------------

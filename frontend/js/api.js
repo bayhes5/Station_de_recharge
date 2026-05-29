@@ -1,4 +1,5 @@
 import "./pwa.js";
+import "./navigation.js";
 
 const API_BASE_URL = window.__API_BASE_URL__ || import.meta.env?.VITE_API_BASE_URL || "/api";
 const LEGACY_ACCESS_TOKEN_KEY = "station_access_token";
@@ -238,7 +239,7 @@ function getSessionSnapshot() {
         accessRemaining,
         refreshRemaining: null,
         accessReadable: formatDuration(accessRemaining),
-        refreshReadable: refreshCookieAvailable ? "cookie HttpOnly" : "inconnue",
+        refreshReadable: refreshCookieAvailable ? "session active" : "inconnue",
         accessExpired: accessRemaining !== null && accessRemaining <= 0,
         refreshExpired: false,
     };
@@ -264,7 +265,7 @@ async function doRequest(path, options = {}) {
     const payload = await parseResponse(response);
 
     if (!response.ok) {
-        const error = new Error(payload.detail || payload.error || "Request failed");
+        const error = new Error(payload.detail || payload.error || "La requête a échoué.");
         error.payload = payload;
         error.status = response.status;
 
@@ -626,6 +627,12 @@ async function getAdminStations(params) {
     });
 }
 
+async function getAdminStation(id) {
+    return doRequest(`/admin/stations/${id}/`, {
+        method: "GET",
+    });
+}
+
 async function createAdminStation(data) {
     return doRequest("/admin/stations/", {
         method: "POST",
@@ -819,7 +826,16 @@ async function ensureSession() {
     }
 
     try {
-        return await getMe();
+        const session = await getMe();
+        const currentPath = window.location.pathname;
+        if (
+            session?.user?.must_change_password
+            && currentPath !== "/profile.html"
+            && currentPath !== "/login.html"
+        ) {
+            window.location.href = "/profile.html?force_password_change=1";
+        }
+        return session;
     } catch (_error) {
         clearTokens();
         return null;
@@ -922,6 +938,7 @@ window.AuthAPI = {
     regenerateAdminReservationAccess,
     revokeAdminReservationAccess,
     getAdminStations,
+    getAdminStation,
     createAdminStation,
     updateAdminStation,
     deleteAdminStation,

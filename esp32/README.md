@@ -9,7 +9,7 @@ physiques peuvent réutiliser la même base firmware en changeant simplement :
 - `CLIENT_ID`
 - `MQTT_HOST`
 - les identifiants Wi-Fi
-- les pins DHT22 / INA219 / relais selon le câblage
+- les pins DHT22 / courant / relais selon le câblage
 
 Le dossier `wokwi/` contient une simulation ESP32 interactive pour tester le
 flux MQTT vers le backend et Grafana.
@@ -51,27 +51,35 @@ Le firmware `emplacement1/main.py` publie un payload compatible Grafana avec :
 - inventaire : `slot_id`, `client_id`, `firmware_version`, `hardware_mac`,
   `ip_address`
 - DHT22: `temperature`, `humidity`
-- INA219: `current`, `voltage`, `power`
+- SEN0214: `current`
+- tension fixe de prototype ou capteur de tension futur : `voltage`, `power`,
+  `energy_kwh`
 - contacts: `door`, `cable`
+- serrure: `lock`
 - état : `state`
 
 Pins par défaut :
 
 ```python
-DHT_PIN = 4
-INA219_SDA_PIN = 21
-INA219_SCL_PIN = 25
-LOCK_PIN = 23
-CHARGE_PIN = 22
+DHT_PIN = 15
+ADC_CURRENT_PIN = 34
+LOCK_PIN = 26
+CHARGE_RELAY_PIN = 22
 ```
 
-Si le DHT22 ou l'INA219 n'est pas détecté, le firmware publie des valeurs
-simulées. C'est volontaire pour tester rapidement le flux MQTT -> backend ->
-Grafana avant le câblage final.
+La serrure actuellement testée utilise un relais actif-bas sur `GPIO26`.
+L'impulsion d'ouverture dure `5` secondes, puis le relais revient au repos afin
+de ne pas alimenter la serrure en continu. La tension réelle n'est pas encore
+mesurée : le prototype publie une tension fixe configurée à `12 V` pour estimer
+la puissance et l'énergie.
 
-L'ESP32 démarre serrure fermée, puis le `START` envoyé par le Raspberry
-déverrouille l'emplacement. La charge ne démarre qu'après détection du câble et
-fermeture du boîtier.
+L'ESP32 démarre serrure fermée. Après authentification à la borne, le Raspberry
+envoie `UNLOCK` pour ouvrir le boîtier. Le `START` est envoyé seulement ensuite,
+quand l'utilisateur a branché le câble et que la télémétrie remonte
+`cable=true`. Le kiosk ne propose plus de bouton `Démarrer la charge` avant le
+branchement : il déclenche automatiquement `START` lorsque l'emplacement autorisé
+signale le câble. La charge ne démarre qu'après détection du câble et fermeture
+du boîtier lorsque ces capteurs seront câblés.
 
 Pour le test Thonny :
 
@@ -112,10 +120,10 @@ Le payload peut être un JSON :
 
 Actions supportées :
 
-- `START` : ouvre le boîtier et attend câble + fermeture avant charge
+- `UNLOCK` : ouvre le boîtier après authentification
+- `START` : démarre la charge après branchement et fermeture du boîtier
 - `STOP` : arrête la charge et déverrouille
 - `LOCK` : verrouille le boîtier
-- `UNLOCK` : déverrouille le boîtier
 
 Chaque commande doit produire un ACK sur `station/<slot_id>/ack` :
 

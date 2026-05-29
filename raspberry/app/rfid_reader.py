@@ -146,7 +146,7 @@ class RfidReaderRuntime:
             try:
                 with nfc.ContactlessFrontend("usb") as clf:
                     self.status = "running"
-                    self.detail = "Lecteur NFC USB pret."
+                    self.detail = "Lecteur NFC USB prêt."
                     clf.connect(rdwr={"on-connect": on_connect})
             except OSError as error:
                 self.status = "error"
@@ -175,7 +175,7 @@ class RfidReaderRuntime:
 
                 reader = available_readers[0]
                 self.status = "running"
-                self.detail = f"Lecteur PC/SC pret: {reader}."
+                self.detail = f"Lecteur PC/SC prêt: {reader}."
                 card_request = CardRequest(timeout=1, readers=[reader])
                 card_service = card_request.waitforcard()
                 card_service.connection.connect()

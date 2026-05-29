@@ -11,8 +11,8 @@ Principes
 
 * Le Raspberry reste l'orchestrateur local de la borne : il valide l'accès avec
   le backend ou le cache dégradé, puis publie les commandes physiques.
-* Chaque ESP32 contrôle un seul emplacement : serrure, relais, DHT22, INA219,
-  état câble et état boîtier.
+* Chaque ESP32 contrôle un seul emplacement : serrure, relais, DHT22, capteur de
+  courant SEN0214 ou INA219 futur, état câble et état boîtier.
 * Le backend ingère la télémétrie et les ACK via le bridge MQTT, mais ne doit
   pas être nécessaire pour couper localement une charge dangereuse.
 * En production, ``MQTT_ACK_REQUIRED`` doit être activé sur le Raspberry.
@@ -44,11 +44,45 @@ Exemple avec ``mqtt_prefix=station-demo/borne-1`` et ``slot_id=slot1`` :
 Le format historique ``station/<slot_id>/...`` reste accepté pour les tests
 locaux, mais le format structuré doit être privilégié pour la production.
 
+Commande UNLOCK
+---------------
+
+Le Raspberry publie ``UNLOCK`` immédiatement après validation de l'accès et
+création de la session backend ou locale. Cette commande ouvre le boîtier pour
+permettre à l'utilisateur de brancher le câble. Elle ne démarre pas la charge
+électrique.
+
+.. code-block:: json
+
+   {
+     "command_id": "cmd-unlock-001",
+     "action": "UNLOCK",
+     "issued_at": "2026-05-17T13:59:30+00:00",
+     "session_id": "d4b8b4d1-8b67-45e7-aef6-0123456789ab",
+     "station": "Station Demo",
+     "borne": "Borne 1",
+     "emplacement": "1",
+     "source": "raspberry"
+   }
+
+Comportement attendu côté ESP32 :
+
+* refuser la commande si une charge est déjà active sur l'emplacement ;
+* répondre rapidement par ACK avec ``status=unlocked`` ;
+* envoyer une impulsion d'ouverture de serrure ;
+* publier ensuite un statut ``waiting_plug``.
+
+Sur le prototype physique actuel, la serrure est pilotée par un relais actif-bas
+sur ``GPIO26``. L'impulsion d'ouverture dure ``5`` secondes, puis le relais
+revient au repos pour éviter d'alimenter la serrure en continu.
+
 Commande START
 --------------
 
-Le Raspberry publie ``START`` après validation de l'accès et création de la
-session backend ou locale.
+Le Raspberry publie ``START`` automatiquement après ouverture du boîtier et
+détection du câble. Le kiosque affiche donc ``Branchez le câble pour démarrer la
+charge`` : dès que la télémétrie ou le statut de l'ESP32 indique
+``cable=true`` pour l'emplacement autorisé, le Raspberry publie ``START``.
 
 .. code-block:: json
 
@@ -70,9 +104,9 @@ Champs obligatoires : ``command_id``, ``action``, ``issued_at`` et
 Comportement attendu côté ESP32 :
 
 * refuser la commande si une charge est déjà active sur l'emplacement ;
-* vérifier que la serrure et le relais peuvent être commandés ;
-* répondre par ACK avec le même ``command_id`` ;
-* passer en ``reserved`` ou ``waiting_plug`` si l'accès est accepté ;
+* répondre rapidement par ACK avec le même ``command_id`` ;
+* vérifier la présence du câble et la fermeture du boîtier lorsque les capteurs
+  sont câblés ;
 * passer en ``charging`` uniquement quand le câble est présent et le boîtier
   fermé.
 
@@ -136,11 +170,14 @@ Statuts acceptés :
      - Statuts confirmants
      - Statuts de refus
    * - ``START``
-     - ``accepted``, ``reserved``, ``ready``, ``charging``, ``charging_started``
-     - ``denied``, ``error``, ``failed``, ``fault``, ``rejected``
+      - ``accepted``, ``reserved``, ``ready``, ``charging``, ``charging_started``
+      - ``denied``, ``error``, ``failed``, ``fault``, ``rejected``
+   * - ``UNLOCK``
+      - ``accepted``, ``unlocked``, ``waiting_plug``
+      - ``denied``, ``error``, ``failed``, ``fault``, ``rejected``
    * - ``STOP``
-     - ``accepted``, ``stopped``, ``idle``
-     - ``denied``, ``error``, ``failed``, ``fault``, ``rejected``
+      - ``accepted``, ``stopped``, ``idle``
+      - ``denied``, ``error``, ``failed``, ``fault``, ``rejected``
 
 Le Raspberry ignore un ACK dont le ``command_id`` ou l'action ne correspond pas
 à la commande en cours.
@@ -199,18 +236,18 @@ La télémétrie est publiée régulièrement sur ``.../<slot_id>/telemetry``.
      "energy_kwh": 0.12,
      "temperature": 31.5,
      "humidity": 44.0,
-     "door": true,
-     "cable": true,
-     "lock": true,
+    "door": true,
+    "cable": true,
+    "lock": true,
      "intrusion": false,
      "timestamp": "2026-05-17T14:02:00Z"
    }
 
 Champs minimaux : ``slot_id`` et ``state``. Pendant une charge active,
 ``session_id`` doit être présent afin de rattacher les mesures à la bonne
-session. Les champs électriques, serrure, câble et porte peuvent être absents
-tant que le matériel n'est pas câblé, mais ils deviennent obligatoires dans la
-version de production complète.
+session. Les champs électriques, câble et porte peuvent être absents tant que le
+matériel n'est pas câblé. Le champ ``lock`` est publié dès que le relais de
+serrure est activé dans le firmware.
 
 Le backend crée une télémétrie de session uniquement si ``session_id`` correspond
 à une session active de l'emplacement. Les données capteurs restent stockées
@@ -266,12 +303,13 @@ Tests de contrat
 
 Les tests automatisés verrouillent déjà les points principaux :
 
-* ``raspberry/tests/test_mqtt_client.py`` vérifie les topics, payloads START/STOP
-  et ACK ;
+* ``raspberry/tests/test_mqtt_client.py`` vérifie les topics, payloads
+  UNLOCK/START/STOP et ACK ;
 * ``raspberry/tests/test_mqtt_contract.py`` vérifie les champs obligatoires, les
   statuts confirmants et les alertes attendues ;
 * ``raspberry/tests/test_charge_state.py`` vérifie la machine d'état locale ;
 * ``backend/api/tests/test_mqtt_ingestion.py`` vérifie l'ingestion des status,
   ACK, télémétries et alertes ;
 * ``backend/api/tests/test_end_to_end_charge_flow.py`` vérifie le scénario QR
-  mobile -> kiosque -> START -> télémétrie de l'emplacement réservé -> STOP.
+  mobile -> kiosque -> UNLOCK -> START -> télémétrie de l'emplacement réservé
+  -> STOP.

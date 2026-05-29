@@ -102,11 +102,13 @@ bout en bout sans ESP32 physique :
 3. connexion de l'utilisateur de démonstration ;
 4. sélection et autorisation de la réservation ;
 5. consommation par le kiosque ;
-6. publication ``START`` vers le slot MQTT ;
-7. simulation de télémétrie uniquement pour l'emplacement validé ;
-8. publication ``STOP`` ;
-9. clôture de session backend ;
-10. résumé final reservation/session/device.
+6. publication ``UNLOCK`` vers le slot MQTT ;
+7. simulation de ``cable=true`` pour l'emplacement validé ;
+8. publication automatique ``START`` vers le slot MQTT ;
+9. simulation de télémétrie uniquement pour l'emplacement validé ;
+10. publication ``STOP`` ;
+11. clôture de session backend ;
+12. résumé final reservation/session/device.
 
 Lorsque la borne possède un ``mqtt_prefix``, le script et le simulateur utilisent
 le topic structuré ``station/<mqtt_prefix>/<slot_id>/telemetry``. Cela valide le
@@ -464,8 +466,18 @@ Contrôler les sessions actives sans télémétrie manuellement :
 
 Ce contrôle crée une alerte ``session_without_telemetry`` si une session ouverte
 ne reçoit plus de mesure depuis ``SESSION_TELEMETRY_STALE_MINUTES`` minutes,
-``2`` par défaut. L'alerte se résout automatiquement quand la télémétrie revient
-ou quand la session est clôturée.
+``2`` par défaut. Cette règle ne s'applique pas à l'état ``waiting_plug`` :
+tant que l'utilisateur n'a pas branché le câble, le backend ne doit pas confondre
+attente de branchement et perte de télémétrie en charge.
+
+Si une session reste en ``waiting_plug`` plus longtemps que
+``SESSION_WAITING_PLUG_STALE_MINUTES`` minutes, ``5`` par défaut, le backend
+crée ``session_waiting_plug_too_long``. Cette alerte signale un accès validé
+sans démarrage automatique, généralement parce que le câble n'a pas été branché
+ou parce que le capteur ne remonte pas ``cable=true``.
+
+L'alerte se résout automatiquement quand la télémétrie revient, quand le câble
+est détecté et que la session passe en charge, ou quand la session est clôturée.
 En fonctionnement normal, ces deux commandes sont exécutées automatiquement par
 ``celery-beat`` toutes les ``60`` secondes par défaut, via
 ``CELERY_BEAT_ALERT_NOTIFICATIONS_SECONDS`` et

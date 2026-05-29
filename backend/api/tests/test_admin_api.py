@@ -99,7 +99,7 @@ def test_admin_supervision_returns_devices_alerts_and_measurements(admin_client,
         data=data,
         session=session,
         type="overheat",
-        message="Temperature elevee",
+        message="Température élevée",
         niveau_severite="critical",
         status="active",
     )
@@ -112,12 +112,15 @@ def test_admin_supervision_returns_devices_alerts_and_measurements(admin_client,
     assert response.data["stats"]["active_alerts"] == 1
     assert response.data["devices"][0]["slot_id"] == "slot1"
     assert response.data["devices"][0]["slot_label"] == "Station Centre - Borne 1 - emplacement 1"
+    assert response.data["devices"][0]["station_id"] == str(emplacements[0].station_id)
     assert response.data["devices"][0]["borne_nom"] == "Borne 1"
     assert response.data["devices"][0]["status_display"] == "Charge en cours"
     assert response.data["alerts"][0]["type"] == "overheat"
+    assert response.data["alerts"][0]["station_id"] == str(emplacements[0].station_id)
     assert response.data["alerts"][0]["station_nom"] == "Station Centre"
     assert response.data["alerts"][0]["emplacement_numero"] == 1
     assert response.data["measurements"][0]["type"] == "temperature"
+    assert response.data["measurements"][0]["station_id"] == str(emplacements[0].station_id)
     assert response.data["measurements"][0]["slot_label"] == "Station Centre - Borne 1 - emplacement 1"
 
 
@@ -338,6 +341,92 @@ def test_admin_rejects_duplicate_technician_station_assignment(admin_client, adm
 
 
 @pytest.mark.django_db
+def test_admin_can_create_technician_with_station_scope(admin_client, admin_user, station):
+    response = admin_client.post(
+        reverse("api-admin-technicians"),
+        {
+            "utilisateur": str(admin_user.id_user),
+            "nom": "Tech Scoped",
+            "email": "tech-scoped@example.com",
+            "telephone": "0600000000",
+            "station_scope": [str(station.id_station)],
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    technician = Technicien.objects.get(email="tech-scoped@example.com")
+    assert TechnicienStation.objects.filter(
+        technicien=technician,
+        station=station,
+        is_active=True,
+    ).exists()
+    assert response.data["assigned_stations"][0]["station_nom"] == "Station Centre"
+
+
+@pytest.mark.django_db
+def test_admin_can_update_technician_station_scope(admin_client, admin_user, station):
+    technician = Technicien.objects.create(
+        utilisateur=admin_user,
+        nom="Tech Update Scope",
+        email="tech-update-scope@example.com",
+        telephone="",
+    )
+    existing_assignment = TechnicienStation.objects.create(
+        technicien=technician,
+        station=station,
+        role="referent",
+    )
+    other_station = Station.objects.create(
+        nom="Station Est",
+        localisation_text="Quartier Est",
+        statut="active",
+    )
+
+    response = admin_client.patch(
+        reverse("api-admin-technician-detail", kwargs={"technician_id": technician.id_technicien}),
+        {"station_scope": [str(other_station.id_station)]},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    existing_assignment.refresh_from_db()
+    assert existing_assignment.is_active is False
+    assert TechnicienStation.objects.get(
+        technicien=technician,
+        station=other_station,
+    ).is_active is True
+    assert [assignment["station_nom"] for assignment in response.data["assigned_stations"]] == [
+        "Station Est"
+    ]
+
+
+@pytest.mark.django_db
+def test_admin_technician_update_without_station_scope_keeps_assignments(
+    admin_client,
+    admin_user,
+    station,
+):
+    technician = Technicien.objects.create(
+        utilisateur=admin_user,
+        nom="Tech Keep Scope",
+        email="tech-keep-scope@example.com",
+        telephone="",
+    )
+    assignment = TechnicienStation.objects.create(technicien=technician, station=station)
+
+    response = admin_client.patch(
+        reverse("api-admin-technician-detail", kwargs={"technician_id": technician.id_technicien}),
+        {"telephone": "0611111111"},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assignment.refresh_from_db()
+    assert assignment.is_active is True
+
+
+@pytest.mark.django_db
 def test_technician_supervision_is_limited_to_assigned_stations(api_client, user, station, borne, emplacements):
     technicien = Technicien.objects.create(
         utilisateur=user,
@@ -387,7 +476,7 @@ def test_technician_supervision_is_limited_to_assigned_stations(api_client, user
     Alerte.objects.create(
         data=assigned_data,
         type="overheat",
-        message="Temperature elevee",
+        message="Température élevée",
         niveau_severite="haute",
         status="active",
     )
@@ -446,7 +535,7 @@ def test_technician_can_acknowledge_and_resolve_scoped_alert(api_client, user, s
     alert = Alerte.objects.create(
         data=data,
         type="overheat",
-        message="Temperature elevee",
+        message="Température élevée",
         niveau_severite="critique",
         status=AlertStatus.ACTIVE,
     )
@@ -518,7 +607,7 @@ def test_technician_cannot_manage_alert_outside_assigned_station(api_client, use
     alert = Alerte.objects.create(
         data=data,
         type="overheat",
-        message="Temperature elevee",
+        message="Température élevée",
         niveau_severite="critique",
         status=AlertStatus.ACTIVE,
     )
@@ -754,7 +843,7 @@ def test_admin_can_regenerate_and_revoke_temporary_access(admin_client, admin_us
     )
 
     assert regenerate_response.status_code == status.HTTP_200_OK
-    assert regenerate_response.data["message"] == "Acces temporaire regenere."
+    assert regenerate_response.data["message"] == "Accès temporaire régénéré."
     assert "access_payload" not in regenerate_response.data
     reservation.refresh_from_db()
     reservation.authentification.refresh_from_db()
@@ -836,6 +925,50 @@ def test_admin_can_crud_borne(admin_client, station):
 
     assert delete_response.status_code == status.HTTP_204_NO_CONTENT
     assert not Borne.objects.filter(id_borne=borne_id).exists()
+
+
+@pytest.mark.django_db
+def test_admin_can_filter_bornes_and_emplacements_by_station(admin_client, station, borne, emplacements):
+    other_station = Station.objects.create(
+        nom="Station Est",
+        localisation_text="Quartier Est",
+        latitude=49.0,
+        longitude=2.5,
+        statut="active",
+    )
+    other_borne = Borne.objects.create(
+        station=other_station,
+        numero=1,
+        nom="Borne Est",
+        mqtt_prefix="station-est/borne-1",
+        statut="active",
+    )
+    other_emplacement = Emplacement.objects.create(
+        station=other_station,
+        borne=other_borne,
+        numero=1,
+        statut="disponible",
+        lock_state="verrouille",
+    )
+
+    bornes_response = admin_client.get(reverse("api-admin-bornes"), {"station": str(station.id_station)})
+    emplacements_response = admin_client.get(reverse("api-admin-emplacements"), {"station": str(station.id_station)})
+    borne_emplacements_response = admin_client.get(reverse("api-admin-emplacements"), {"borne": str(borne.id_borne)})
+
+    assert bornes_response.status_code == status.HTTP_200_OK
+    assert [item["id_borne"] for item in bornes_response.data["results"]] == [str(borne.id_borne)]
+    assert str(other_borne.id_borne) not in [item["id_borne"] for item in bornes_response.data["results"]]
+
+    assert emplacements_response.status_code == status.HTTP_200_OK
+    assert {item["id_emplacement"] for item in emplacements_response.data["results"]} == {
+        str(emplacement.id_emplacement) for emplacement in emplacements
+    }
+    assert str(other_emplacement.id_emplacement) not in {
+        item["id_emplacement"] for item in emplacements_response.data["results"]
+    }
+
+    assert borne_emplacements_response.status_code == status.HTTP_200_OK
+    assert {str(item["borne"]) for item in borne_emplacements_response.data["results"]} == {str(borne.id_borne)}
 
 
 @pytest.mark.django_db

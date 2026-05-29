@@ -3,9 +3,13 @@ function registerServiceWorker() {
         return;
     }
 
+    const isPrivateIp = /^(10|127|192\.168)\./.test(window.location.hostname)
+        || /^172\.(1[6-9]|2\d|3[0-1])\./.test(window.location.hostname);
     const isLocalDev =
         import.meta.env?.DEV
-        || ["localhost", "127.0.0.1"].includes(window.location.hostname);
+        || window.location.port === "5173"
+        || ["localhost", "127.0.0.1"].includes(window.location.hostname)
+        || isPrivateIp;
 
     if (isLocalDev) {
         navigator.serviceWorker.getRegistrations()

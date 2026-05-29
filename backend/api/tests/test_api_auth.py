@@ -3,6 +3,7 @@ from datetime import timedelta
 import pytest
 from django.contrib.auth import get_user_model
 from django.conf import settings
+from django.core import mail
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -162,7 +163,14 @@ def test_admin_can_reset_user_password():
     response = client.post(reverse("api-admin-user-reset-password", kwargs={"user_id": user.id_user}))
 
     assert response.status_code == status.HTTP_200_OK
-    temporary_password = response.data["temporary_password"]
+    assert response.data["email_sent"] is True
+    assert "temporary_password" not in response.data
+    assert len(mail.outbox) == 1
+    temporary_password = next(
+        line.removeprefix("Mot de passe provisoire: ")
+        for line in mail.outbox[0].body.splitlines()
+        if line.startswith("Mot de passe provisoire: ")
+    )
     assert len(temporary_password) >= 12
     assert any(character.islower() for character in temporary_password)
     assert any(character.isupper() for character in temporary_password)
@@ -170,6 +178,15 @@ def test_admin_can_reset_user_password():
     assert any(not character.isalnum() for character in temporary_password)
     user.refresh_from_db()
     assert user.check_password(temporary_password)
+    assert user.must_change_password is True
+
+    login_response = client.post(
+        reverse("api-login"),
+        {"identifiant": "jane", "password": temporary_password},
+        format="json",
+    )
+    assert login_response.status_code == status.HTTP_200_OK
+    assert login_response.data["user"]["must_change_password"] is True
 
 
 @pytest.mark.django_db

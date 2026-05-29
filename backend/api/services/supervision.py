@@ -103,6 +103,7 @@ def serialize_device_supervision(device, now=None):
         "last_command_message": device.last_command_message,
         "last_command_at": device.last_command_at.isoformat() if device.last_command_at else None,
         "last_command_display": device_last_command_display(device),
+        "station_id": str(station.id_station),
         "station_nom": station.nom,
         "borne_nom": borne.nom,
         "borne_numero": borne.numero,
@@ -139,6 +140,7 @@ def serialize_alert_supervision(alert):
         "resolved_by_nom": alert.resolved_by.nom if alert.resolved_by else "",
         "resolved_at": alert.resolved_at.isoformat() if alert.resolved_at else None,
         "resolution_note": alert.resolution_note,
+        "station_id": str(station.id_station) if station else None,
         "station_nom": station.nom if station else "-",
         "borne_nom": borne.nom if borne else "-",
         "borne_numero": borne.numero if borne else "-",
@@ -159,6 +161,10 @@ def serialize_sensor_data_supervision(sensor_data):
         display_value = "Boîtier fermé" if sensor_data.valeur == 1 else "Boîtier ouvert"
     elif capteur.type == "cable":
         display_value = "Câble présent" if sensor_data.valeur == 1 else "Câble retiré"
+    elif capteur.type == "lock":
+        display_value = "Serrure verrouillée" if sensor_data.valeur == 1 else "Serrure déverrouillée"
+    elif capteur.type == "intrusion":
+        display_value = "Intrusion détectée" if sensor_data.valeur == 1 else "Aucune intrusion"
     return {
         "id_data": str(sensor_data.id_data),
         "type": capteur.type,
@@ -172,6 +178,7 @@ def serialize_sensor_data_supervision(sensor_data):
             if emplacement and station and borne
             else "-"
         ),
+        "station_id": str(station.id_station) if station else None,
         "station_nom": station.nom if station else "-",
         "borne_nom": borne.nom if borne else "-",
         "borne_numero": borne.numero if borne else "-",
@@ -200,6 +207,7 @@ def serialize_command_log_supervision(command):
             if emplacement and station and borne
             else "-"
         ),
+        "station_id": str(station.id_station) if station else None,
         "station_nom": station.nom if station else "-",
         "borne_nom": borne.nom if borne else "-",
         "borne_numero": borne.numero if borne else "-",

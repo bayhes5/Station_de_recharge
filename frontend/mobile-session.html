@@ -9,7 +9,7 @@
     <link rel="icon" href="/icons/pwa-icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icons/pwa-icon-192.png">
     <meta http-equiv="Cache-Control" content="no-store">
-    <title>Session borne | M&eacute;tropole Verte</title>
+    <title>Autorisation borne | M&eacute;tropole Verte</title>
     <link rel="stylesheet" href="/css/auth.css">
     <script type="module" src="/src/pages/mobile-session.js"></script>
 </head>
@@ -19,15 +19,15 @@
         <section id="contenu" class="mobile-session-shell" aria-labelledby="mobile-session-title">
             <header class="mobile-session-header">
                 <p class="eyebrow">M&eacute;tropole Verte</p>
-                <h1 id="mobile-session-title">D&eacute;marrer sur la borne</h1>
+                <h1 id="mobile-session-title">Autoriser la borne</h1>
                 <p id="mobile-session-context" class="lead">Connexion &agrave; la borne en cours.</p>
             </header>
 
             <div id="mobile-session-status" class="status" aria-live="polite"></div>
 
             <section id="mobile-session-expired" class="mobile-session-panel danger-panel" hidden>
-                <p class="panel-title">Session expir&eacute;e</p>
-                <p>Scannez le QR code affich&eacute; sur la borne pour ouvrir une nouvelle session.</p>
+                <p class="panel-title">Lien indisponible</p>
+                <p>Le lien QR de cette borne est absent, invalide ou expir&eacute;. Scannez le QR code affich&eacute; sur la borne pour ouvrir une nouvelle session.</p>
             </section>
 
             <section id="mobile-session-reservations-panel" class="mobile-session-panel">
@@ -42,8 +42,12 @@
             </section>
 
             <section id="mobile-session-authorized" class="mobile-session-panel success-panel" hidden>
-                <p class="panel-title">Autorisation envoy&eacute;e</p>
-                <p id="mobile-session-authorized-detail">La borne peut maintenant d&eacute;marrer la session.</p>
+                <p id="mobile-session-authorized-title" class="panel-title">Autorisation envoy&eacute;e</p>
+                <p id="mobile-session-authorized-detail">La borne peut maintenant ouvrir le bo&icirc;tier.</p>
+                <ol class="mobile-session-steps" aria-label="Progression de la session mobile">
+                    <li id="mobile-step-authorized" class="active">Autorisation confirm&eacute;e</li>
+                    <li id="mobile-step-consumed">Borne autoris&eacute;e</li>
+                </ol>
                 <a class="btn btn-secondary full-width" href="/dashboard.html#sessions">Voir mes sessions</a>
             </section>
         </section>

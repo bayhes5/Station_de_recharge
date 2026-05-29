@@ -141,6 +141,34 @@ frontend. Il n'optimise pas directement les requêtes backend : les gains de
 performance API viendront plutôt des index, de la pagination, du cache ciblé et
 de l'optimisation des serializers.
 
+Pourquoi ne pas ajouter htmx ou Alpine.js maintenant ?
+-----------------------------------------------------
+
+htmx et Alpine.js restent de bons outils, mais ils ne sont pas prioritaires dans
+la structure actuelle du projet.
+
+``htmx`` est très pertinent quand le serveur renvoie directement des fragments
+HTML et que l'on veut réduire le JavaScript côté navigateur. Ici, le backend est
+principalement une API REST utilisée par plusieurs clients : PWA, kiosque
+Raspberry, scripts de supervision et tests E2E. Introduire htmx demanderait de
+maintenir en plus des vues HTML partielles côté Django, ce qui dupliquerait une
+partie du contrat API déjà stabilisé.
+
+``Alpine.js`` serait utile pour des interactions locales simples : panneaux
+repliables, onglets, menus, petits états de formulaire. Dans ce projet, ces
+interactions existent déjà en JavaScript natif, sont centralisées par page et
+sont couvertes par les vérifications ``check:js`` et Playwright. Ajouter Alpine
+à ce stade créerait une seconde manière d'écrire l'interface sans retirer assez
+de complexité.
+
+La recommandation retenue est donc de rester sur Vite multi-pages et JavaScript
+natif tant que les parcours restent de cette taille. Si l'interface admin devient
+beaucoup plus interactive, il faudra choisir franchement une direction :
+
+* soit htmx avec fragments Django pour une application très serveur ;
+* soit un framework frontend complet pour une interface riche ;
+* soit Alpine.js uniquement si le besoin reste limité à de petits états locaux.
+
 PWA plutôt qu'application mobile native
 ---------------------------------------
 
@@ -369,10 +397,12 @@ Le parcours est découpé en écrans courts plutôt qu'en formulaire unique :
 * un écran de résultat plein écran, vert ou rouge, qui confirme l'emplacement ou
   explique le refus.
 
-Le bouton ``Démarrer la charge`` n'est jamais affiché avant validation de
-l'authentification. Le kiosque ne propose le démarrage qu'après une réponse
-positive du backend, ou du cache local en mode dégradé, puis relaie seulement à
-ce moment-là la commande ``START`` à l'ESP32.
+Le kiosque ne démarre jamais la charge avant validation de l'authentification.
+Après réponse positive du backend, ou du cache local en mode dégradé, il publie
+``UNLOCK`` pour ouvrir le boîtier. La commande ``START`` est ensuite envoyée
+automatiquement lorsque l'ESP32 remonte ``cable=true`` pour l'emplacement
+autorisé. L'utilisateur voit donc ``Branchez le câble pour démarrer la charge``,
+puis ``Chargement en cours``.
 
 Le clavier tactile remplace le clavier matriciel si celui-ci n'est pas installé.
 Il sert uniquement aux codes courts : code de réservation, code SMS ou code

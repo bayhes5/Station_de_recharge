@@ -145,7 +145,7 @@ class ChargeStateStore:
             current = self._get_snapshot(connection, normalized_slot)
             if current.active:
                 raise ChargeStateError(
-                    "Une charge est deja active sur cet emplacement."
+                    "Une charge est déjà active sur cet emplacement."
                 )
             if current.state == ERROR:
                 raise ChargeStateError(
@@ -274,14 +274,14 @@ class ChargeStateStore:
         if action == "START":
             status = str(mqtt_result.get("ack_status") or "").strip().lower()
             if status in {"charging", "charging_started"}:
-                return CHARGING, "START confirme, charge active."
+                return CHARGING, "START confirmé, charge active."
             if mqtt_result.get("command_confirmed"):
-                return WAITING_PLUG, "START confirme, attente cable et boitier ferme."
+                return WAITING_PLUG, "START confirmé, attente câble et boîtier fermé."
             return current.state, "START publie, confirmation ESP32 non exigee."
 
         if action == "STOP":
             if mqtt_result.get("command_confirmed") or not mqtt_result.get("ack_required"):
-                return STOPPED, "STOP confirme ou accepte sans ACK obligatoire."
+                return STOPPED, "STOP confirmé ou accepté sans ACK obligatoire."
             return STOPPING, "STOP publie, attente confirmation ESP32."
 
         return current.state, f"Commande {action} publiee."

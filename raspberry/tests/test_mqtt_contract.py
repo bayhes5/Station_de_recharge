@@ -15,7 +15,7 @@ def mqtt_contract(monkeypatch):
     return importlib.import_module("mqtt_contract")
 
 
-def test_start_and_stop_commands_require_session_id(mqtt_contract):
+def test_session_commands_require_session_id(mqtt_contract):
     payload = {
         "command_id": "cmd-start-1",
         "action": "START",
@@ -23,11 +23,17 @@ def test_start_and_stop_commands_require_session_id(mqtt_contract):
     }
 
     assert mqtt_contract.validate_command_payload(payload) == [
-        "session_id is required for START and STOP commands."
+        "session_id is required for START, STOP and UNLOCK commands."
     ]
 
     payload["session_id"] = "session-1"
     assert mqtt_contract.validate_command_payload(payload) == []
+
+    payload["action"] = "UNLOCK"
+    payload.pop("session_id")
+    assert mqtt_contract.validate_command_payload(payload) == [
+        "session_id is required for START, STOP and UNLOCK commands."
+    ]
 
 
 def test_lock_command_does_not_require_session_id(mqtt_contract):

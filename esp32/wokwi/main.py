@@ -213,10 +213,10 @@ def on_message(topic_bytes, message):
     action = str(payload.get("action", "")).upper()
     if action == "START":
         handle_start(mqtt_client, payload)
-        publish_ack(mqtt_client, payload, "accepted", "Emplacement reserve.")
+        publish_ack(mqtt_client, payload, "accepted", "Emplacement réservé.")
     elif action == "STOP":
         stop_session(mqtt_client, "remote_stop")
-        publish_ack(mqtt_client, payload, "stopped", "Charge arretee.")
+        publish_ack(mqtt_client, payload, "stopped", "Charge arrêtée.")
     elif action == "LOCK":
         lock_led.value(1)
         publish_status(mqtt_client, "locked")
