@@ -177,12 +177,6 @@ jobs:
         working-directory: frontend
         run: npm audit --audit-level=high
 
-      - name: Install Playwright browsers
-        if: steps.frontend_changes.outputs.run == 'true'
-        working-directory: frontend
-        timeout-minutes: 10
-        run: npx playwright install chromium
-
       - name: Verify frontend
         if: steps.frontend_changes.outputs.run == 'true'
         working-directory: frontend
