@@ -42,6 +42,7 @@ class DevelopmentPrivateNetworkHostMiddleware:
 
     @classmethod
     def _extract_host(cls, raw_host):
+        """Return the hostname without brackets or port information."""
         host = str(raw_host or "").strip().lower()
         if host.startswith("["):
             end = host.find("]")
@@ -50,6 +51,7 @@ class DevelopmentPrivateNetworkHostMiddleware:
 
     @classmethod
     def _is_allowed_development_host(cls, host):
+        """Return whether a host is acceptable for local DEBUG development."""
         if not host:
             return False
         if host in cls.INTERNAL_HOSTS or host.endswith(".localhost") or host.endswith(".local"):
