@@ -836,7 +836,7 @@ async function pollCableAndAutoStart() {
         if (cablePresent === true && doorClosed !== false) {
             autoStartPending = true;
             readyMessage.textContent = "Câble détecté. Démarrage automatique de la charge.";
-            await startCurrentCharge({ automatic: true });
+            await startCurrentCharge();
         }
     } catch (error) {
         if (readyDetails) {

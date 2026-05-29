@@ -179,6 +179,7 @@ def load_firmware_version():
             print("Firmware version loaded from {}: {}".format(FIRMWARE_VERSION_FILE, version))
             return version
     except OSError:
+        # Missing version file is expected on freshly flashed boards.
         pass
     except Exception as exc:
         print("Firmware version file read failed:", exc)

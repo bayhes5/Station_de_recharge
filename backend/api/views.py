@@ -2171,14 +2171,14 @@ def admin_reset_user_password(request, user_id):
 
     try:
         sent_count = send_temporary_password_email(user, temporary_password)
-    except Exception as exc:  # noqa: BLE001 - keep account usable if email delivery fails.
+    except Exception:  # noqa: BLE001 - keep account usable if email delivery fails.
         logger.exception("Temporary password email failed for user %s", user.id_user)
         user.password = previous_password
         user.must_change_password = previous_must_change_password
         user.password_reset_at = previous_password_reset_at
         user.save(update_fields=["password", "must_change_password", "password_reset_at"])
         return Response(
-            {"detail": f"Mot de passe non réinitialisé : envoi e-mail impossible ({exc})."},
+            {"detail": "Mot de passe non réinitialisé : envoi e-mail impossible."},
             status=status.HTTP_502_BAD_GATEWAY,
         )
 
