@@ -577,6 +577,27 @@ Le développement local accepte MQTT sans authentification pour faciliter la
 simulation. En production, le broker devra être protégé par identifiants, TLS et
 segmentation réseau.
 
+CA locale smallstep pour TLS interne
+------------------------------------
+
+Pour un réseau de station local, il n'est pas toujours possible d'utiliser un
+certificat public Let's Encrypt : absence de nom de domaine public, Raspberry et
+ESP32 sur un LAN privé, broker MQTT non exposé à Internet. Le projet retient
+donc smallstep comme option de PKI locale pour la mise en production académique
+ou industrielle fermée.
+
+Smallstep apporte une autorité de certification maîtrisée, des certificats
+renouvelables et une racine de confiance distribuable aux postes, Raspberry,
+conteneurs backend et ESP32. Cela évite de figer un certificat autosigné unique
+dans le dépôt, tout en gardant un vrai modèle TLS : vérification du serveur,
+chiffrement du trafic et possibilité de passer Mosquitto sur ``8883``.
+
+La limite est opérationnelle : la racine doit être protégée, les clients doivent
+l'installer explicitement, et les certificats doivent contenir les noms ou IP
+réellement utilisés. Pour un service public exposé sur Internet, un certificat
+public reste préférable ; smallstep est surtout pertinent pour un réseau privé
+contrôlé.
+
 Celery pour l'ingestion asynchrone
 ----------------------------------
 

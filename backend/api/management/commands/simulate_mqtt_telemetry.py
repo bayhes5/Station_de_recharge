@@ -8,6 +8,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from api.models import Session
+from api.services.mqtt_tls import configure_mqtt_tls
 from api.services.mqtt_simulator import SCENARIOS, build_telemetry_payload, telemetry_topic
 
 
@@ -120,8 +121,7 @@ class Command(BaseCommand):
         client = mqtt.Client(client_id=f"{settings.MQTT_BACKEND_CLIENT_ID}-simulator")
         if settings.MQTT_USERNAME:
             client.username_pw_set(settings.MQTT_USERNAME, settings.MQTT_PASSWORD)
-        if settings.MQTT_TLS_ENABLED:
-            client.tls_set()
+        configure_mqtt_tls(client)
         client.connect(settings.MQTT_HOST, settings.MQTT_PORT, settings.MQTT_KEEPALIVE)
         client.loop_start()
         return client

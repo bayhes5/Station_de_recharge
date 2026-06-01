@@ -210,6 +210,52 @@ broker ou le backend redevient disponible.
 Ce stockage local ne remplace pas la base centrale. Il sert à éviter une perte
 de traces et à faciliter la réconciliation après incident.
 
+## Déploiement persistant et reproductible
+
+Sur MicroPython, le fichier `main.py` stocké dans LittleFS démarre
+automatiquement à chaque mise sous tension de l'ESP32. Lancer le fichier depuis
+Thonny ne suffit donc pas : il faut le sauvegarder **sur l'ESP32** sous le nom
+exact `main.py`.
+
+Déploiement automatisé avec `mpremote` :
+
+```powershell
+python -m pip install esptool mpremote
+mpremote connect list
+
+.\scripts\deploy-esp32-micropython.ps1 `
+  -Port COM5 `
+  -SourceDir esp32\emplacement1 `
+  -FirmwareVersion "1.3.0-access-before-charge" `
+  -OpenRepl
+```
+
+Pour préparer MQTT TLS avec la CA locale `Metropole Verte`, convertir la racine
+Smallstep en DER puis la copier dans LittleFS :
+
+```powershell
+openssl x509 -in mosquitto\certs\root_ca.crt -outform DER -out certs\metropole-verte-root-ca.der
+
+.\scripts\deploy-esp32-micropython.ps1 `
+  -Port COM5 `
+  -SourceDir esp32\emplacement1 `
+  -FirmwareVersion "1.3.0-access-before-charge" `
+  -RootCaPath certs\metropole-verte-root-ca.der `
+  -OpenRepl
+```
+
+Configuration TLS côté firmware :
+
+```python
+MQTT_HOST = "mqtt.station.local"
+MQTT_PORT = 8883
+MQTT_TLS_ENABLED = True
+MQTT_TLS_CA_CERT_FILE = "certs/metropole-verte-root-ca.der"
+MQTT_TLS_SERVER_HOSTNAME = "mqtt.station.local"
+```
+
+La procédure complète est documentée dans `docs/source/esp32_firmware.rst`.
+
 ## Simulation Wokwi
 
 Ouvrir `esp32/wokwi/` avec l'extension Wokwi.

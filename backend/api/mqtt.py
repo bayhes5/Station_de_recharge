@@ -7,6 +7,7 @@ from pathlib import Path
 
 from django.conf import settings
 
+from api.services.mqtt_tls import configure_mqtt_tls
 from api.tasks import process_mqtt_message, process_mqtt_message_task
 
 logger = logging.getLogger(__name__)
@@ -72,8 +73,7 @@ def run_mqtt_bridge():
 
     if settings.MQTT_USERNAME:
         client.username_pw_set(settings.MQTT_USERNAME, settings.MQTT_PASSWORD)
-    if settings.MQTT_TLS_ENABLED:
-        client.tls_set()
+    configure_mqtt_tls(client)
 
     def on_connect(client, userdata, flags, reason_code, properties=None):
         logger.info("MQTT connecté à %s:%s code=%s", settings.MQTT_HOST, settings.MQTT_PORT, reason_code)

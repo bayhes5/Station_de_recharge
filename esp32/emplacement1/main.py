@@ -36,6 +36,9 @@ MQTT_USER = None
 MQTT_PASSWORD = None
 MQTT_KEEPALIVE_SECONDS = 60
 MQTT_BASE_TOPIC = "station"
+MQTT_TLS_ENABLED = False
+MQTT_TLS_CA_CERT_FILE = "certs/metropole-verte-root-ca.der"
+MQTT_TLS_SERVER_HOSTNAME = ""  # Use MQTT_HOST when empty.
 
 # Must match the borne mqtt_prefix in the backend demo data.
 # For the current demo this gives:
@@ -95,16 +98,28 @@ INA219_SHUNT_OHMS = 0.1
 
 # Optional future physical wiring.
 HALL_PIN = 19
-DOOR_PIN = 18
+DOOR_PIN = 25
 LOCK_PIN = 26
 LOCK_RELAY_ACTIVE_LOW = True
 LOCK_UNLOCK_PULSE_SECONDS = 5
 CHARGE_RELAY_PIN = 22
 
+# Optional local visual/acoustic indicators from the prototype alert circuit.
+# GPIO18 follows the physical wiring chosen on the prototype board.
+# The future MC-38 door contact is therefore moved to GPIO25.
+LOCAL_ALERT_OUTPUTS_ENABLED = True
+GREEN_LED_PIN = 2
+YELLOW_LED_PIN = 4
+RED_LED_PIN = 5
+BUZZER_PIN = 18
+LOCAL_ALARM_PIN = 27
+
 TELEMETRY_ACTIVE_INTERVAL_SECONDS = 5
 TELEMETRY_IDLE_INTERVAL_SECONDS = 30
 STATUS_INTERVAL_SECONDS = 15
+WARNING_CURRENT_A = 2.5
 MAX_CURRENT_A = 3.0
+WARNING_TEMPERATURE_C = 45.0
 MAX_TEMPERATURE_C = 50.0
 
 
@@ -124,10 +139,16 @@ hall = None
 door = None
 lock = None
 charge_relay = None
+green_led = None
+yellow_led = None
+red_led = None
+buzzer = None
+local_alarm = None
 lock_state_locked = None
 mqtt_client = None
 wlan = None
 reported_firmware_version = FIRMWARE_VERSION
+last_local_alert_level = ""
 
 
 def normalized_topic_root():
@@ -242,6 +263,30 @@ def init_outputs():
         print("Charge relay ready on GPIO{}.".format(CHARGE_RELAY_PIN))
     else:
         print("Charge relay disabled.")
+
+
+def init_local_alert_outputs():
+    """Initialize optional LED and buzzer outputs used by the prototype."""
+    global green_led, yellow_led, red_led, buzzer, local_alarm
+    if not LOCAL_ALERT_OUTPUTS_ENABLED:
+        print("Local alert outputs disabled.")
+        return
+
+    green_led = Pin(GREEN_LED_PIN, Pin.OUT)
+    yellow_led = Pin(YELLOW_LED_PIN, Pin.OUT)
+    red_led = Pin(RED_LED_PIN, Pin.OUT)
+    buzzer = Pin(BUZZER_PIN, Pin.OUT)
+    local_alarm = Pin(LOCAL_ALARM_PIN, Pin.OUT)
+    set_local_alert_outputs("idle")
+    print(
+        "Local alert outputs ready: green GPIO{}, yellow GPIO{}, red GPIO{}, buzzer GPIO{}, alarm GPIO{}.".format(
+            GREEN_LED_PIN,
+            YELLOW_LED_PIN,
+            RED_LED_PIN,
+            BUZZER_PIN,
+            LOCAL_ALARM_PIN,
+        )
+    )
 
 
 def init_physical_inputs():
@@ -607,6 +652,50 @@ def stop_charge_output():
         charge_relay.value(0)
 
 
+def set_output(pin, enabled):
+    """Set one optional output pin when it is available."""
+    if pin is not None:
+        pin.value(1 if enabled else 0)
+
+
+def compute_local_alert_level(power_sample, environment):
+    """Return idle, normal, warning or danger for local LEDs and buzzer."""
+    current = power_sample.get("current")
+    temperature = environment.get("temperature")
+
+    if current is not None and current > MAX_CURRENT_A:
+        return "danger"
+    if temperature is not None and temperature > MAX_TEMPERATURE_C:
+        return "danger"
+    if current is not None and current >= WARNING_CURRENT_A:
+        return "warning"
+    if temperature is not None and temperature >= WARNING_TEMPERATURE_C:
+        return "warning"
+    if state in ("charging", "waiting_plug"):
+        return "normal"
+    return "idle"
+
+
+def set_local_alert_outputs(level):
+    """Apply the current local alert level to LEDs, buzzer and alarm pin."""
+    set_output(green_led, level == "normal")
+    set_output(yellow_led, level == "warning")
+    set_output(red_led, level == "danger")
+    set_output(buzzer, level == "danger")
+    set_output(local_alarm, level == "danger")
+
+
+def update_local_alert_outputs(power_sample, environment):
+    """Refresh local indicators and publish one message when the level changes."""
+    global last_local_alert_level
+    level = compute_local_alert_level(power_sample, environment)
+    set_local_alert_outputs(level)
+
+    if level != last_local_alert_level:
+        print("Local alert level:", level)
+        last_local_alert_level = level
+
+
 def publish_json(client, mqtt_topic, payload):
     """Publish one JSON message on MQTT."""
     client.publish(mqtt_topic, ujson.dumps(payload))
@@ -666,6 +755,7 @@ def accept_unlock(client, payload):
 
     session_id = str(payload.get("session_id") or session_id or "")
     state = "waiting_plug"
+    set_local_alert_outputs("normal")
     publish_ack(client, payload, "unlocked", "Boîtier déverrouillé.")
     publish_status(client, "unlocked")
     pulse_unlock_slot()
@@ -686,12 +776,14 @@ def accept_start(client, payload):
         start_charge_output()
         lock_slot()
         state = "charging"
+        set_local_alert_outputs("normal")
         publish_status(client, "charging_started")
         publish_ack(client, payload, "charging", "Charge démarrée.")
         publish_telemetry_now(client)
     else:
         stop_charge_output()
         state = "waiting_plug"
+        set_local_alert_outputs("normal")
         publish_status(client, "waiting_plug")
         publish_ack(client, payload, "accepted", "En attente du câble et du boîtier fermé.")
         publish_telemetry_now(client)
@@ -703,6 +795,7 @@ def accept_stop(client, payload, reason="remote_stop"):
 
     stop_charge_output()
     state = "idle"
+    set_local_alert_outputs("idle")
     publish_ack(client, payload, "stopped", "Charge arrêtée.")
     pulse_unlock_slot()
     publish_status(client, "stopped", reason)
@@ -737,14 +830,25 @@ def handle_command(topic_bytes, message):
 
 def connect_mqtt():
     """Connect MQTT and subscribe to the command topic."""
-    client = MQTTClient(
-        CLIENT_ID,
-        MQTT_HOST,
-        port=MQTT_PORT,
-        user=MQTT_USER,
-        password=MQTT_PASSWORD,
-        keepalive=MQTT_KEEPALIVE_SECONDS,
-    )
+    kwargs = {}
+    if MQTT_TLS_ENABLED:
+        kwargs["ssl"] = True
+        kwargs["ssl_params"] = build_mqtt_tls_params()
+
+    try:
+        client = MQTTClient(
+            CLIENT_ID,
+            MQTT_HOST,
+            port=MQTT_PORT,
+            user=MQTT_USER,
+            password=MQTT_PASSWORD,
+            keepalive=MQTT_KEEPALIVE_SECONDS,
+            **kwargs
+        )
+    except TypeError:
+        if MQTT_TLS_ENABLED:
+            raise RuntimeError("MQTT TLS requires an umqtt.simple build with ssl_params support.")
+        raise
     client.set_callback(handle_command)
     client.connect()
     client.subscribe(TOPIC_CMD)
@@ -752,6 +856,27 @@ def connect_mqtt():
     print("Listening:", TOPIC_CMD)
     print("Telemetry:", TOPIC_TELEMETRY)
     return client
+
+
+def build_mqtt_tls_params():
+    """Build TLS parameters for MQTT using the CA certificate stored on LittleFS."""
+    try:
+        import ssl
+    except ImportError:
+        raise RuntimeError("MQTT TLS requires the MicroPython ssl module.")
+
+    try:
+        with open(MQTT_TLS_CA_CERT_FILE, "rb") as ca_file:
+            ca_data = ca_file.read()
+    except OSError:
+        raise RuntimeError("MQTT TLS CA certificate not found: {}".format(MQTT_TLS_CA_CERT_FILE))
+
+    server_hostname = MQTT_TLS_SERVER_HOSTNAME or MQTT_HOST
+    return {
+        "cert_reqs": getattr(ssl, "CERT_REQUIRED", 2),
+        "cadata": ca_data,
+        "server_hostname": server_hostname,
+    }
 
 
 def update_energy(power_watts):
@@ -794,6 +919,7 @@ def publish_telemetry(client):
     power_sample = read_power_sample()
     update_energy(power_sample.get("power"))
     safety_check(client, power_sample, environment)
+    update_local_alert_outputs(power_sample, environment)
 
     payload = {
         "session_id": session_id,
@@ -805,6 +931,7 @@ def publish_telemetry(client):
         "temperature": round_value(environment.get("temperature"), 2),
         "humidity": round_value(environment.get("humidity"), 2),
         "heat_index": round_value(environment.get("heat_index"), 2),
+        "local_alert_level": last_local_alert_level,
         "door": reported_door_closed(),
         "cable": reported_cable_present(),
         "lock": reported_lock_locked(),
@@ -833,6 +960,7 @@ def setup_hardware():
     """Initialize the sensors and optional physical I/O."""
     global dht_sensor, current_adc, voltage_adc, ina219_i2c
     init_outputs()
+    init_local_alert_outputs()
     init_physical_inputs()
     dht_sensor = init_dht22()
     current_adc, ina219_i2c = init_current_sensor()

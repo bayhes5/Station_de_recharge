@@ -40,7 +40,7 @@ Le serveur Debian héberge les services suivants :
      - Interne uniquement
    * - ``mqtt``
      - Broker Mosquitto pour ESP32, Raspberry et bridge backend
-     - LAN uniquement, port ``1883`` si MQTT non TLS
+     - LAN uniquement, port ``1883`` en test ou ``8883`` avec TLS
    * - ``mqtt-bridge``
      - Ingestion des télémétries MQTT vers la base
      - Interne uniquement
@@ -61,7 +61,8 @@ Prévoir :
 * une adresse IP fixe ou une réservation DHCP ;
 * un nom DNS si le serveur doit être joint par un domaine ;
 * les ports ``80`` et ``443`` ouverts vers le serveur ;
-* le port ``1883`` ouvert uniquement depuis le réseau local des ESP32/Raspberry ;
+* le port ``1883`` ou ``8883`` ouvert uniquement depuis le réseau local des
+  ESP32/Raspberry selon la configuration MQTT ;
 * au moins 4 Go de RAM pour un confort correct avec Grafana, Django, Celery et
   TimescaleDB.
 
@@ -186,6 +187,7 @@ Adapter les variables suivantes avant le premier démarrage :
    MQTT_RASPBERRY_PASSWORD=<mot de passe raspberry_kiosk>
    MQTT_ACK_REQUIRED=True
    MQTT_TLS_ENABLED=False
+   MQTT_TLS_CA_CERT=
    MQTT_PUBLISHED_HOST=127.0.0.1
 
    SECURE_SSL_REDIRECT=True
@@ -240,6 +242,255 @@ Pour une démonstration locale ou LAN, générer un certificat autosigné :
      -out nginx/certs/localhost.crt \
      -subj "/CN=station.local"
 
+Cette option suffit pour un test ponctuel, mais elle n'est pas idéale dès que
+plusieurs machines doivent faire confiance au service : PC, smartphone,
+Raspberry, ESP32, backend conteneurisé et outils de supervision.
+
+Option recommandée en LAN : smallstep
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Pour une production locale ou académique sans domaine public, la solution la
+plus propre est d'utiliser une autorité de certification interne avec
+``step-ca`` et le client ``step`` de Smallstep. Le principe est le suivant :
+
+* ``step-ca`` joue le rôle d'autorité de certification privée ;
+* ``step`` génère les certificats Nginx et Mosquitto ;
+* la racine de confiance est installée sur les postes, téléphones, Raspberry et
+  conteneurs qui doivent vérifier TLS ;
+* les certificats peuvent être renouvelés automatiquement au lieu de conserver
+  un certificat autosigné statique.
+
+Installer ``step`` et ``step-ca`` sur Debian :
+
+.. code-block:: bash
+
+   sudo apt update
+   sudo apt install -y --no-install-recommends curl gpg ca-certificates
+   sudo install -m 0755 -d /etc/apt/keyrings
+   curl -fsSL https://packages.smallstep.com/keys/apt/repo-signing-key.gpg \
+     | sudo tee /etc/apt/keyrings/smallstep.asc > /dev/null
+   sudo tee /etc/apt/sources.list.d/smallstep.sources > /dev/null <<'EOF'
+   Types: deb
+   URIs: https://packages.smallstep.com/stable/debian
+   Suites: debs
+   Components: main
+   Signed-By: /etc/apt/keyrings/smallstep.asc
+   EOF
+   sudo apt update
+   sudo apt install -y step-cli step-ca
+
+Initialiser la CA locale sur une machine d'administration protégée :
+
+.. code-block:: bash
+
+   step ca init \
+     --name "Metropole Verte" \
+     --dns station-ca.local \
+     --address ":9001" \
+     --provisioner admin
+
+Lancer ensuite ``step-ca`` via un service ``systemd`` ou un conteneur dédié, et
+ne pas exposer le port de la CA à Internet. La racine doit rester protégée ; en
+production réelle, l'approche recommandée est de garder la racine hors ligne et
+de laisser l'intermédiaire signer les certificats courants.
+
+Sur chaque machine qui doit émettre ou renouveler des certificats, établir la
+confiance vers la CA :
+
+.. code-block:: bash
+
+   step certificate fingerprint $(step path)/certs/root_ca.crt
+   step ca bootstrap --ca-url https://station-ca.local:9001 --fingerprint <fingerprint>
+
+Générer le certificat Nginx. Les noms et IP utilisés par les navigateurs doivent
+être présents dans les SAN du certificat :
+
+.. code-block:: bash
+
+   step ca certificate station.local \
+     nginx/certs/localhost.crt \
+     nginx/certs/localhost.key \
+     --san station.local \
+     --san 192.168.1.50
+   chmod 600 nginx/certs/localhost.key
+
+Générer les certificats Mosquitto dans le dossier prévu pour la production :
+
+.. code-block:: bash
+
+   mkdir -p mosquitto/certs
+   step ca certificate mqtt.station.local \
+     mosquitto/certs/mqtt.crt \
+     mosquitto/certs/mqtt.key \
+     --san mqtt.station.local \
+     --san 192.168.1.50
+   step ca root mosquitto/certs/root_ca.crt
+   chmod 600 mosquitto/certs/mqtt.key
+
+Pour activer MQTT TLS dans la stack, il faut ensuite adapter
+``mosquitto/config/mosquitto.secure.conf`` avec un listener ``8883`` :
+
+.. code-block:: text
+
+   listener 8883 0.0.0.0
+   protocol mqtt
+   allow_anonymous false
+   password_file /mosquitto/config/passwords
+   acl_file /mosquitto/config/acl
+   cafile /etc/station/mqtt-certs/root_ca.crt
+   certfile /etc/station/mqtt-certs/mqtt.crt
+   keyfile /etc/station/mqtt-certs/mqtt.key
+
+Les services backend, ``mqtt-bridge`` et Raspberry montent
+``./mosquitto/certs`` dans ``/etc/station/mqtt-certs`` dans le profil
+``docker-compose.prod.yml``. Configurer alors :
+
+.. code-block:: text
+
+   MQTT_PORT=8883
+   MQTT_TLS_ENABLED=True
+   MQTT_TLS_CA_CERT=/etc/station/mqtt-certs/root_ca.crt
+   MQTT_PUBLISHED_HOST=192.168.1.50
+
+Les ESP32 doivent aussi vérifier le certificat du broker : embarquer la racine
+``root_ca.crt`` dans le firmware ou la stocker dans le système de fichiers de
+l'ESP32 si l'implémentation TLS utilisée le permet.
+
+Distribuer la racine de confiance
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+La racine Smallstep doit être installée sur chaque client :
+
+* Windows : importer ``root_ca.crt`` dans les autorités de certification racines
+  de confiance ;
+* Android : installer le certificat CA pour les tests de navigation locale ;
+* Raspberry/Debian : copier le certificat dans
+  ``/usr/local/share/ca-certificates/station-root-ca.crt`` puis lancer
+  ``sudo update-ca-certificates`` ;
+* conteneurs backend/Raspberry : monter ``mosquitto/certs/root_ca.crt`` et
+  renseigner ``MQTT_TLS_CA_CERT`` ;
+* ESP32 : embarquer explicitement la racine dans le code ou dans LittleFS.
+
+Renouvellement
+~~~~~~~~~~~~~~
+
+Les certificats Smallstep sont généralement courts. C'est volontaire : en cas de
+fuite d'un certificat ou d'une clé, la durée d'exposition est limitée. En
+contrepartie, il faut automatiser le renouvellement.
+
+Le client ``step`` fournit ``step ca renew --daemon``. En mode démon, il garde un
+processus actif, renouvelle le certificat avant expiration et peut exécuter une
+commande après renouvellement avec ``--exec``. D'après le comportement documenté
+de Smallstep, le renouvellement est tenté par défaut avant que les deux tiers de
+la période de validité soient écoulés ; on peut aussi imposer un seuil avec
+``--expires-in`` ou une période fixe avec ``--renew-period``.
+
+Avant d'automatiser, tester un renouvellement manuel :
+
+.. code-block:: bash
+
+   cd /opt/station
+   step ca renew --force nginx/certs/localhost.crt nginx/certs/localhost.key
+   step ca renew --force mosquitto/certs/mqtt.crt mosquitto/certs/mqtt.key
+   docker compose -f docker-compose.prod.yml exec -T reverse-proxy nginx -s reload
+   docker compose -f docker-compose.prod.yml restart mqtt
+
+Vérifier ensuite :
+
+.. code-block:: bash
+
+   step certificate inspect nginx/certs/localhost.crt --short
+   step certificate inspect mosquitto/certs/mqtt.crt --short
+
+Créer ensuite un service systemd pour le certificat Nginx. Remplacer
+``station`` par l'utilisateur Linux qui possède ``/opt/station`` et qui peut
+exécuter ``docker compose`` :
+
+.. code-block:: bash
+
+   sudo tee /etc/systemd/system/metropole-verte-nginx-cert-renew.service > /dev/null <<'EOF'
+   [Unit]
+   Description=Renouvellement du certificat HTTPS Nginx Metropole Verte
+   After=network-online.target docker.service
+   Wants=network-online.target
+
+   [Service]
+   Type=simple
+   User=station
+   Group=station
+   WorkingDirectory=/opt/station
+   Environment=STEPPATH=/home/station/.step
+   ExecStart=/bin/sh -lc 'exec step ca renew --daemon --expires-in 168h --exec "docker compose -f docker-compose.prod.yml exec -T reverse-proxy nginx -s reload" nginx/certs/localhost.crt nginx/certs/localhost.key'
+   Restart=always
+   RestartSec=30
+
+   [Install]
+   WantedBy=multi-user.target
+   EOF
+
+Créer un second service pour Mosquitto :
+
+.. code-block:: bash
+
+   sudo tee /etc/systemd/system/metropole-verte-mqtt-cert-renew.service > /dev/null <<'EOF'
+   [Unit]
+   Description=Renouvellement du certificat MQTT Mosquitto Metropole Verte
+   After=network-online.target docker.service
+   Wants=network-online.target
+
+   [Service]
+   Type=simple
+   User=station
+   Group=station
+   WorkingDirectory=/opt/station
+   Environment=STEPPATH=/home/station/.step
+   ExecStart=/bin/sh -lc 'exec step ca renew --daemon --expires-in 168h --exec "docker compose -f docker-compose.prod.yml restart mqtt" mosquitto/certs/mqtt.crt mosquitto/certs/mqtt.key'
+   Restart=always
+   RestartSec=30
+
+   [Install]
+   WantedBy=multi-user.target
+   EOF
+
+Activer les deux services :
+
+.. code-block:: bash
+
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now metropole-verte-nginx-cert-renew.service
+   sudo systemctl enable --now metropole-verte-mqtt-cert-renew.service
+
+Contrôler leur état :
+
+.. code-block:: bash
+
+   systemctl status metropole-verte-nginx-cert-renew.service
+   systemctl status metropole-verte-mqtt-cert-renew.service
+   journalctl -u metropole-verte-nginx-cert-renew.service -n 100 --no-pager
+   journalctl -u metropole-verte-mqtt-cert-renew.service -n 100 --no-pager
+
+Avec ``--expires-in 168h``, le renouvellement est demandé lorsqu'il reste moins
+de sept jours de validité. Ce seuil est lisible pour l'exploitation et laisse le
+temps de corriger un problème avant expiration. Après renouvellement :
+
+* Nginx est rechargé sans redémarrer toute la stack ;
+* Mosquitto est redémarré pour relire le certificat et la clé ;
+* ``mqtt-bridge`` et le Raspberry doivent se reconnecter automatiquement au
+  broker. Si ce n'est pas le cas, redémarrer ``mqtt-bridge`` et ``raspberry``.
+
+Points de vigilance :
+
+* l'utilisateur systemd doit pouvoir écrire les certificats et lire les clés ;
+* ``STEPPATH`` doit pointer vers le profil Smallstep bootstrapé avec
+  ``step ca bootstrap`` ;
+* la date du serveur doit être correcte, sinon la validation TLS échoue ;
+* les journaux systemd doivent être surveillés comme les autres services
+  critiques.
+
+Pour un domaine public exposé à Internet, Let's Encrypt reste plus adapté : la
+CA locale Smallstep est surtout pertinente pour un réseau de station privé, un
+laboratoire ou un déploiement industriel fermé.
+
 Pour un vrai domaine, utiliser un certificat Let's Encrypt ou un certificat
 fourni par l'infrastructure, puis placer la clé et le certificat aux chemins
 ci-dessus ou adapter ``nginx/conf.d/station.conf``.
@@ -266,11 +517,13 @@ Configurer UFW pour n'exposer que les ports nécessaires :
    sudo ufw allow 80/tcp
    sudo ufw allow 443/tcp
    sudo ufw allow from 192.168.1.0/24 to any port 1883 proto tcp
+   sudo ufw allow from 192.168.1.0/24 to any port 8883 proto tcp
    sudo ufw enable
    sudo ufw status numbered
 
 Adapter ``192.168.1.0/24`` au réseau réel des ESP32 et du Raspberry. Le port
-MQTT ne doit pas être ouvert à tout Internet.
+MQTT ne doit pas être ouvert à tout Internet. En production avec MQTT TLS,
+préférer ``8883`` et fermer ``1883`` dès que tous les clients utilisent TLS.
 
 Durcissement Linux
 ------------------
@@ -479,6 +732,8 @@ Pour le Raspberry :
    MQTT_PORT=1883
    MQTT_USERNAME=raspberry_kiosk
    MQTT_PASSWORD=<mot de passe raspberry_kiosk>
+   MQTT_TLS_ENABLED=False
+   MQTT_TLS_CA_CERT=
    MQTT_ACK_REQUIRED=True
    TERMINAL_API_SECRET=<même valeur que côté backend>
 
@@ -495,6 +750,11 @@ Pour l'ESP32 :
 
 L'ESP32 publie sa télémétrie vers Mosquitto. Le backend ne reçoit pas les mesures
 en HTTP direct : ``mqtt-bridge`` consomme les topics MQTT et écrit en base.
+
+Si Mosquitto est passé en TLS avec smallstep, remplacer le port par ``8883``,
+mettre ``MQTT_TLS_ENABLED=True`` côté Raspberry/backend et distribuer
+``root_ca.crt`` aux clients. Côté ESP32, le firmware doit charger la racine CA
+utilisée pour vérifier le certificat du broker.
 
 Test MQTT
 ---------
@@ -513,10 +773,19 @@ Si des identifiants MQTT sont activés :
      -u "$MQTT_USERNAME" -P "$MQTT_PASSWORD" \
      -t "station/#" -v -C 10 -W 20'
 
+Si MQTT TLS est activé :
+
+.. code-block:: bash
+
+   docker compose -f docker-compose.prod.yml exec mqtt sh -c 'mosquitto_sub -h localhost -p 8883 \
+     --cafile /etc/station/mqtt-certs/root_ca.crt \
+     -u "$MQTT_USERNAME" -P "$MQTT_PASSWORD" \
+     -t "station/#" -v -C 10 -W 20'
+
 Pour un réseau Wi-Fi ESP32, vérifier que :
 
 * l'ESP32 est sur le même réseau que le serveur ou qu'une route existe ;
-* le port ``1883`` est autorisé depuis ce réseau ;
+* le port ``1883`` ou ``8883`` est autorisé depuis ce réseau selon le mode MQTT ;
 * le topic publié correspond au préfixe de la borne/emplacement ;
 * ``mqtt-bridge`` est ``healthy`` dans ``docker compose -f docker-compose.prod.yml ps``.
 
@@ -722,7 +991,10 @@ Avant d'ouvrir le service à des utilisateurs réels :
   ``REDIS_IMAGE`` au lieu de conserver un tag générique ;
 * restreindre les ports directs au niveau Docker ou via un firewall strict ;
 * activer des identifiants Mosquitto et des ACL par station/borne/emplacement ;
-* activer TLS pour MQTT si le réseau n'est pas totalement maîtrisé ;
+* activer TLS pour MQTT avec une CA locale smallstep ou un certificat public si
+  le réseau n'est pas totalement maîtrisé ;
+* installer la racine de confiance sur les postes, Raspberry et ESP32 avant
+  d'activer HSTS ou MQTT TLS strict ;
 * remplacer Mailpit par un SMTP réel ;
 * configurer un fournisseur SMS réel si le code SMS doit être envoyé hors mode
   démonstration ;

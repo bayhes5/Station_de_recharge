@@ -66,10 +66,13 @@ services:
       - ./mosquitto/config/mosquitto.secure.conf:/mosquitto/config/mosquitto.conf:ro
       - ./mosquitto/config/acl:/mosquitto/config/acl:ro
       - ./mosquitto/config/passwords:/mosquitto/config/passwords:ro
+      - ./mosquitto/certs:/etc/station/mqtt-certs:ro
       - mqtt_data:/mosquitto/data
       - mqtt_log:/mosquitto/log
     ports:
       - "${MQTT_PUBLISHED_HOST:-127.0.0.1}:1883:1883"
+      # Enable after configuring listener 8883 in mosquitto.secure.conf.
+      # - "${MQTT_PUBLISHED_HOST:-127.0.0.1}:8883:8883"
     healthcheck:
       test:
         [
@@ -100,6 +103,7 @@ services:
       TERMINAL_API_SECRET: ${TERMINAL_API_SECRET}
     volumes:
       - static_data:/app/staticfiles
+      - ./mosquitto/certs:/etc/station/mqtt-certs:ro
     expose:
       - "8000"
     depends_on:
@@ -200,6 +204,8 @@ services:
       EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}
       DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Station <no-reply@station.local>}
       ALERT_EMAIL_NOTIFICATIONS_ENABLED: ${ALERT_EMAIL_NOTIFICATIONS_ENABLED:-true}
+    volumes:
+      - ./mosquitto/certs:/etc/station/mqtt-certs:ro
     depends_on:
       db:
         condition: service_healthy
@@ -238,6 +244,7 @@ services:
     working_dir: /app
     volumes:
       - ./raspberry/app:/app:ro
+      - ./mosquitto/certs:/etc/station/mqtt-certs:ro
       - raspberry_state:/var/lib/station
     expose:
       - "9000"
@@ -249,6 +256,7 @@ services:
       MQTT_USERNAME: ${MQTT_RASPBERRY_USERNAME:?Set MQTT_RASPBERRY_USERNAME}
       MQTT_PASSWORD: ${MQTT_RASPBERRY_PASSWORD:?Set MQTT_RASPBERRY_PASSWORD}
       MQTT_TLS_ENABLED: ${MQTT_TLS_ENABLED:-false}
+      MQTT_TLS_CA_CERT: ${MQTT_TLS_CA_CERT:-}
       MQTT_QOS: ${MQTT_QOS:-1}
       MQTT_ACK_TIMEOUT_SECONDS: ${MQTT_ACK_TIMEOUT_SECONDS:-2.5}
       MQTT_ACK_REQUIRED: ${MQTT_ACK_REQUIRED:-true}

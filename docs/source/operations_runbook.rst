@@ -317,6 +317,69 @@ Contrôle recommandé avec Mosquitto sécurisé :
 La première commande de chaque paire doit réussir, la seconde doit être refusée
 par l'ACL.
 
+Contrôles smallstep et MQTT TLS
+-------------------------------
+
+Lorsque la CA locale smallstep est utilisée, vérifier d'abord les certificats
+générés :
+
+.. code-block:: bash
+
+   step certificate inspect nginx/certs/localhost.crt --short
+   step certificate inspect mosquitto/certs/mqtt.crt --short
+
+Les noms et adresses réellement utilisés doivent apparaître dans les SAN. Si le
+smartphone ouvre ``https://192.168.1.50/``, l'adresse ``192.168.1.50`` doit être
+présente dans le certificat Nginx.
+
+Tester la chaîne HTTPS depuis le serveur :
+
+.. code-block:: bash
+
+   step ca root /tmp/station-root-ca.crt
+   curl --cacert /tmp/station-root-ca.crt https://station.local/api/health/live/
+
+Tester MQTT TLS depuis le conteneur Mosquitto :
+
+.. code-block:: bash
+
+   docker compose -f docker-compose.prod.yml exec mqtt sh -c 'mosquitto_sub -h localhost -p 8883 \
+     --cafile /etc/station/mqtt-certs/root_ca.crt \
+     -u "$MQTT_USERNAME" -P "$MQTT_PASSWORD" \
+     -t "station/#" -C 1 -W 10'
+
+Vérifier le renouvellement automatique :
+
+.. code-block:: bash
+
+   systemctl status metropole-verte-nginx-cert-renew.service
+   systemctl status metropole-verte-mqtt-cert-renew.service
+   journalctl -u metropole-verte-nginx-cert-renew.service --since "24 hours ago"
+   journalctl -u metropole-verte-mqtt-cert-renew.service --since "24 hours ago"
+
+Forcer un renouvellement de validation hors heure de service :
+
+.. code-block:: bash
+
+   cd /opt/station
+   step ca renew --force nginx/certs/localhost.crt nginx/certs/localhost.key
+   docker compose -f docker-compose.prod.yml exec -T reverse-proxy nginx -s reload
+   step ca renew --force mosquitto/certs/mqtt.crt mosquitto/certs/mqtt.key
+   docker compose -f docker-compose.prod.yml restart mqtt
+
+Points de diagnostic fréquents :
+
+* certificat refusé sur téléphone : racine smallstep non installée ou SAN
+  incomplet ;
+* backend ou ``mqtt-bridge`` incapable de se connecter à MQTT TLS :
+  ``MQTT_TLS_CA_CERT`` absent ou fichier non monté dans le conteneur ;
+* ESP32 connecté en TCP mais refus TLS : racine CA absente dans le firmware ou
+  horloge trop éloignée de la date réelle ;
+* Nginx valide sur PC mais pas sur mobile : le mobile utilise l'IP alors que le
+  certificat contient seulement un nom DNS ;
+* erreurs après renouvellement : recharger Nginx ou redémarrer Mosquitto pour
+  relire les fichiers certificat/clé.
+
 Test RFID Raspberry
 -------------------
 

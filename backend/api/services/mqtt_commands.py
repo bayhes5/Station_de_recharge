@@ -4,6 +4,8 @@ import json
 
 from django.conf import settings
 
+from api.services.mqtt_tls import configure_mqtt_tls
+
 
 def build_slot_command_topic(slot_id: str, topic_prefix: str | None = None) -> str:
     """Return the command topic used by one ESP32 slot."""
@@ -27,8 +29,7 @@ def publish_slot_command(slot_id: str, action: str, topic_prefix: str | None = N
 
     if settings.MQTT_USERNAME:
         client.username_pw_set(settings.MQTT_USERNAME, settings.MQTT_PASSWORD)
-    if settings.MQTT_TLS_ENABLED:
-        client.tls_set()
+    configure_mqtt_tls(client)
 
     client.connect(settings.MQTT_HOST, settings.MQTT_PORT, settings.MQTT_KEEPALIVE)
     client.publish(

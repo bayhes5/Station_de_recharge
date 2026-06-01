@@ -41,6 +41,9 @@ Extrait de configuration :
    MQTT_USER = "esp32_slot1"
    MQTT_PASSWORD = "mot-de-passe-mqtt"
    MQTT_BASE_TOPIC = "station"
+   MQTT_TLS_ENABLED = False
+   MQTT_TLS_CA_CERT_FILE = "certs/metropole-verte-root-ca.der"
+   MQTT_TLS_SERVER_HOSTNAME = ""
    SLOT_ID = "slot1"
    CLIENT_ID = "esp32-slot1"
 
@@ -71,6 +74,9 @@ réel de l'emplacement est ensuite publié sur ``status`` et ``telemetry``.
 Déploiement avec Thonny
 -----------------------
 
+Cette méthode est adaptée au banc de test et au travail de ton collègue. Elle
+reste manuelle mais permet de valider rapidement le câblage.
+
 Procédure de test sur carte physique :
 
 1. installer MicroPython sur l'ESP32 ;
@@ -84,6 +90,218 @@ Procédure de test sur carte physique :
    version à publier, par exemple ``1.2.0-lock-relay`` ;
 8. redémarrer la carte ;
 9. vérifier les topics MQTT depuis le PC ou le Raspberry.
+
+Le point important est l'étape 6 : le fichier doit être enregistré **sur
+l'ESP32** sous le nom exact ``main.py``. Si le fichier est seulement exécuté
+depuis Thonny, il disparaît au redémarrage et ne se lance pas automatiquement.
+
+Démarrage persistant MicroPython
+--------------------------------
+
+Au démarrage, MicroPython monte le système de fichiers interne de l'ESP32, puis
+exécute les fichiers standards s'ils existent :
+
+.. code-block:: text
+
+   alimentation ESP32
+   -> démarrage MicroPython
+   -> montage du système de fichiers interne
+   -> exécution optionnelle de boot.py
+   -> exécution de main.py
+
+``boot.py`` est optionnel. Pour ce projet, il est préférable de le garder absent
+ou minimal, car un ``boot.py`` bloquant peut rendre la carte difficile à
+récupérer. Le firmware métier doit rester dans ``main.py``. C'est ce fichier qui
+contient la connexion Wi-Fi, la connexion MQTT, les lectures capteurs, la
+serrure et la boucle de télémétrie.
+
+Si ``main.py`` plante ou sort, MicroPython revient au REPL. Pour récupérer une
+carte bloquée, ouvrir la console série, envoyer ``Ctrl-C`` puis supprimer ou
+remplacer le fichier problématique :
+
+.. code-block:: python
+
+   import os
+   os.remove("main.py")
+
+Déploiement reproductible avec mpremote
+---------------------------------------
+
+Pour éviter les manipulations manuelles dans Thonny, utiliser ``mpremote``. Il
+permet de copier les fichiers dans LittleFS, redémarrer l'ESP32 et ouvrir une
+console série depuis un terminal.
+
+Installer les outils sur le PC :
+
+.. code-block:: powershell
+
+   python -m pip install esptool mpremote
+
+Identifier le port série :
+
+.. code-block:: powershell
+
+   mpremote connect list
+
+Sous Windows, le port ressemble à ``COM5``. Sous Linux, il ressemble plutôt à
+``/dev/ttyUSB0`` ou ``/dev/ttyACM0``.
+
+Flasher MicroPython sur une carte neuve ou réinitialisée :
+
+.. code-block:: powershell
+
+   python -m esptool --chip esp32 --port COM5 erase_flash
+   python -m esptool --chip esp32 --port COM5 --baud 460800 write_flash -z 0x1000 ESP32_GENERIC-<version>.bin
+
+Le fichier ``ESP32_GENERIC-<version>.bin`` doit être téléchargé depuis la page
+officielle MicroPython correspondant à la carte utilisée. Cette étape n'est pas
+nécessaire à chaque mise à jour applicative : une fois MicroPython installé, on
+copie seulement les fichiers Python.
+
+Déployer le firmware applicatif :
+
+.. code-block:: powershell
+
+   mpremote connect COM5 fs cp esp32\emplacement1\main.py :main.py
+   mpremote connect COM5 reset
+   mpremote connect COM5 repl
+
+Déployer aussi la version firmware affichée dans la supervision :
+
+.. code-block:: powershell
+
+   Set-Content -Path version.txt -Value "1.3.0-access-before-charge" -Encoding ASCII -NoNewline
+   mpremote connect COM5 fs cp version.txt :version.txt
+   mpremote connect COM5 reset
+
+Le dépôt fournit un script PowerShell pour automatiser les copies courantes :
+
+.. code-block:: powershell
+
+   .\scripts\deploy-esp32-micropython.ps1 `
+     -Port COM5 `
+     -SourceDir esp32\emplacement1 `
+     -FirmwareVersion "1.3.0-access-before-charge" `
+     -OpenRepl
+
+Avec MQTT TLS, ajouter le certificat racine converti en DER :
+
+.. code-block:: powershell
+
+   .\scripts\deploy-esp32-micropython.ps1 `
+     -Port COM5 `
+     -SourceDir esp32\emplacement1 `
+     -FirmwareVersion "1.3.0-access-before-charge" `
+     -RootCaPath certs\metropole-verte-root-ca.der `
+     -OpenRepl
+
+LittleFS sur l'ESP32
+--------------------
+
+LittleFS est le système de fichiers persistant monté par MicroPython dans la
+flash de l'ESP32. Il sert à stocker les fichiers qui doivent survivre aux
+redémarrages :
+
+.. code-block:: text
+
+   /
+   ├── main.py
+   ├── version.txt
+   ├── certs/
+   │   └── metropole-verte-root-ca.der
+   └── spool/
+       └── pending_telemetry.jsonl
+
+Accéder au contenu avec ``mpremote`` :
+
+.. code-block:: powershell
+
+   mpremote connect COM5 fs ls :
+   mpremote connect COM5 fs ls :certs
+   mpremote connect COM5 fs cat :version.txt
+   mpremote connect COM5 fs cp :main.py main-backup.py
+
+Créer des dossiers :
+
+.. code-block:: powershell
+
+   mpremote connect COM5 fs mkdir :certs
+   mpremote connect COM5 fs mkdir :spool
+
+Dans le code MicroPython, l'accès se fait comme sur un petit système de fichiers
+classique :
+
+.. code-block:: python
+
+   with open("spool/pending_telemetry.jsonl", "a") as spool:
+       spool.write(payload + "\n")
+
+Le journal LittleFS doit rester court. Il sert uniquement à éviter une perte de
+traces pendant une coupure MQTT temporaire. La source durable de l'historique
+reste la base PostgreSQL/TimescaleDB côté backend.
+
+Sécurisation MQTT TLS
+---------------------
+
+Le mode de test actuel utilise MQTT sur ``1883`` avec identifiants et ACL. Pour
+une installation plus robuste, Mosquitto peut être exposé en TLS sur ``8883``
+avec la CA locale ``Metropole Verte`` décrite dans la procédure Debian.
+
+Chaîne cible :
+
+.. code-block:: text
+
+   ESP32
+   -> Wi-Fi WPA2/WPA3
+   -> MQTT TLS 8883
+   -> Mosquitto
+   -> mqtt-bridge backend
+   -> TimescaleDB / Grafana
+
+L'ESP32 ne doit jamais contenir la clé privée de la CA. Il embarque uniquement le
+certificat racine public ``root_ca.crt`` converti en DER, car MicroPython avec le
+port mbedTLS attend ``cadata`` sous forme de certificat DER.
+
+Conversion du certificat racine :
+
+.. code-block:: powershell
+
+   openssl x509 -in mosquitto\certs\root_ca.crt -outform DER -out certs\metropole-verte-root-ca.der
+
+Copie dans LittleFS :
+
+.. code-block:: powershell
+
+   mpremote connect COM5 fs mkdir :certs
+   mpremote connect COM5 fs cp certs\metropole-verte-root-ca.der :certs\metropole-verte-root-ca.der
+
+Configuration firmware :
+
+.. code-block:: python
+
+   MQTT_HOST = "mqtt.station.local"
+   MQTT_PORT = 8883
+   MQTT_TLS_ENABLED = True
+   MQTT_TLS_CA_CERT_FILE = "certs/metropole-verte-root-ca.der"
+   MQTT_TLS_SERVER_HOSTNAME = "mqtt.station.local"
+
+Le nom ``MQTT_TLS_SERVER_HOSTNAME`` doit correspondre à un SAN du certificat
+Mosquitto. Si l'ESP32 se connecte à une IP, cette IP doit également être
+présente dans le certificat. Sans cela, la validation TLS échoue, ce qui est le
+comportement attendu.
+
+Sous MicroPython, le module ``ssl`` expose une interface simplifiée. Sur ESP32,
+la pile TLS sous-jacente repose sur l'intégration ESP-IDF, généralement basée
+sur mbedTLS. Dans le firmware du projet, ``MQTT_TLS_ENABLED=True`` force :
+
+* l'utilisation de ``ssl=True`` dans le client MQTT ;
+* la lecture du certificat CA depuis LittleFS ;
+* ``cert_reqs=ssl.CERT_REQUIRED`` ;
+* l'utilisation de ``server_hostname`` pour vérifier le nom du broker.
+
+Si la version de ``umqtt.simple`` installée ne supporte pas ``ssl_params``, le
+firmware refuse de démarrer en TLS plutôt que d'établir une connexion chiffrée
+sans validation correcte du certificat.
 
 Commande d'écoute :
 

@@ -34,6 +34,7 @@ class MqttSettings:
         "yes",
         "on",
     }
+    tls_ca_cert: str = os.environ.get("MQTT_TLS_CA_CERT", "")
     qos: int = int(os.environ.get("MQTT_QOS", "1"))
     ack_timeout_seconds: float = float(os.environ.get("MQTT_ACK_TIMEOUT_SECONDS", "2.5"))
     ack_required: bool = os.environ.get("MQTT_ACK_REQUIRED", "false").lower() in {
@@ -226,7 +227,7 @@ class MqttSlotMonitor:
         if settings.username:
             client.username_pw_set(settings.username, settings.password)
         if settings.tls_enabled:
-            client.tls_set()
+            client.tls_set(ca_certs=settings.tls_ca_cert or None)
         client.connect(settings.host, settings.port, settings.keepalive)
         client.loop_forever()
 
@@ -310,7 +311,7 @@ def publish_slot_command(slot_id: str, action: str, topic_prefix: str | None = N
     if settings.username:
         client.username_pw_set(settings.username, settings.password)
     if settings.tls_enabled:
-        client.tls_set()
+        client.tls_set(ca_certs=settings.tls_ca_cert or None)
 
     client.connect(settings.host, settings.port, settings.keepalive)
     client.loop_start()

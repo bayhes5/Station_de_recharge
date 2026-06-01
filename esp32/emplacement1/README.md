@@ -36,6 +36,9 @@ WIFI_PASSWORD = "WIFI_PASSWORD"
 MQTT_HOST = "192.168.1.10"
 MQTT_TOPIC_PREFIX = "station-demo/borne-1"
 SLOT_ID = "slot1"
+MQTT_TLS_ENABLED = False
+MQTT_TLS_CA_CERT_FILE = "certs/metropole-verte-root-ca.der"
+MQTT_TLS_SERVER_HOSTNAME = ""
 ```
 
 `MQTT_HOST` doit être l'adresse IP de la machine qui exécute Mosquitto :
@@ -109,6 +112,71 @@ l'ESP32 ne publie pas `cable=true`. Pour un essai de banc sans capteur Hall, il
 est possible de mettre `SIMULATE_CABLE_PRESENT_FOR_AUTO_START = True` : l'ESP32
 publiera alors `cable=true` en phase `waiting_plug`, ce qui permet de tester le
 démarrage automatique sans modifier le kiosk.
+
+## Flash persistant
+
+Pour que le programme démarre automatiquement quand l'ESP32 est alimenté, le
+fichier doit être enregistré dans LittleFS sous le nom `main.py`.
+
+Avec Thonny :
+
+1. ouvrir `main.py` ;
+2. choisir `Fichier > Enregistrer sous...` ;
+3. sélectionner `MicroPython device` ;
+4. nommer le fichier `main.py` ;
+5. redémarrer la carte.
+
+Avec `mpremote` :
+
+```powershell
+python -m pip install esptool mpremote
+mpremote connect list
+
+.\scripts\deploy-esp32-micropython.ps1 `
+  -Port COM5 `
+  -SourceDir esp32\emplacement1 `
+  -FirmwareVersion "1.3.0-access-before-charge" `
+  -OpenRepl
+```
+
+LittleFS conserve aussi `version.txt`, les certificats TLS et une future file
+locale courte de télémétries non transmises.
+
+## MQTT TLS avec la CA Metropole Verte
+
+Le prototype reste en MQTT `1883` par défaut. Pour tester MQTT TLS :
+
+1. générer les certificats Mosquitto avec smallstep ;
+2. convertir la racine CA en DER ;
+3. copier le fichier DER dans LittleFS ;
+4. passer le firmware en `MQTT_TLS_ENABLED = True`.
+
+Conversion et copie :
+
+```powershell
+openssl x509 -in mosquitto\certs\root_ca.crt -outform DER -out certs\metropole-verte-root-ca.der
+
+.\scripts\deploy-esp32-micropython.ps1 `
+  -Port COM5 `
+  -SourceDir esp32\emplacement1 `
+  -FirmwareVersion "1.3.0-access-before-charge" `
+  -RootCaPath certs\metropole-verte-root-ca.der `
+  -OpenRepl
+```
+
+Configuration firmware :
+
+```python
+MQTT_HOST = "mqtt.station.local"
+MQTT_PORT = 8883
+MQTT_TLS_ENABLED = True
+MQTT_TLS_CA_CERT_FILE = "certs/metropole-verte-root-ca.der"
+MQTT_TLS_SERVER_HOSTNAME = "mqtt.station.local"
+```
+
+Le nom `MQTT_TLS_SERVER_HOSTNAME` doit être présent dans le certificat du broker
+Mosquitto. Si l'on utilise directement une adresse IP, cette IP doit être dans
+les SAN du certificat.
 
 ## Tension de charge et puissance
 
