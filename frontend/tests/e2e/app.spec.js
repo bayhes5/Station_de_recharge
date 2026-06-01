@@ -113,6 +113,53 @@ async function mockApi(page, { admin = false, technician = false } = {}) {
       return;
     }
 
+    if (url.pathname === "/api/stations/") {
+      await route.fulfill(jsonResponse({
+        results: [
+          {
+            id_station: "station-1",
+            nom: "Station Centre",
+            localisation_text: "Centre-ville",
+            latitude: 48.8566,
+            longitude: 2.3522,
+            statut: "active",
+          },
+          {
+            id_station: "station-2",
+            nom: "Station Nord",
+            localisation_text: "Quartier nord",
+            latitude: 48.8666,
+            longitude: 2.3622,
+            statut: "active",
+          },
+        ],
+      }));
+      return;
+    }
+
+    if (url.pathname === "/api/reservations/" && request.method() === "GET") {
+      await route.fulfill(jsonResponse({ results: [] }));
+      return;
+    }
+
+    if (url.pathname === "/api/reservations/availability/") {
+      await route.fulfill(jsonResponse({
+        station: {
+          id_station: url.searchParams.get("station") || "station-1",
+          nom: url.searchParams.get("station") === "station-2" ? "Station Nord" : "Station Centre",
+          localisation_text: url.searchParams.get("station") === "station-2" ? "Quartier nord" : "Centre-ville",
+        },
+        available_count: 2,
+        total_count: 3,
+      }));
+      return;
+    }
+
+    if (url.pathname === "/api/me/auth-methods/") {
+      await route.fulfill(jsonResponse({ results: [] }));
+      return;
+    }
+
     if (url.pathname === "/api/admin/overview/") {
       await route.fulfill(jsonResponse({
         stats: {
@@ -478,6 +525,29 @@ test("reservation page does not depend on external CDN assets", async ({ request
   const html = await response.text();
   expect(html).not.toContain("unpkg.com");
   expect(html).not.toContain("leaflet@");
+});
+
+test("reservation page renders the local station map", async ({ page }) => {
+  await mockApi(page);
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
+  page.on("response", (response) => {
+    if (response.url().includes("/api/") && response.status() >= 400) {
+      errors.push(`${response.status()} ${new URL(response.url()).pathname}`);
+    }
+  });
+
+  await page.goto("/reservation.html");
+
+  const stationMap = page.locator("#station-map");
+  await expect(page.getByRole("heading", { name: "Nouvelle réservation" })).toBeVisible();
+  expect(errors).toEqual([]);
+  await expect(stationMap).toBeVisible();
+  await expect(stationMap.locator(".station-pin")).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "Station Centre Centre-ville" })).toBeVisible();
 });
 
 test("login flow uses mocked API and opens the dashboard", async ({ page }) => {

@@ -405,12 +405,22 @@ document.addEventListener("DOMContentLoaded", async () => {
         leafletMarkers = [];
     }
 
+    function resetLeafletMap() {
+        clearLeafletMarkers();
+        if (leafletMap && typeof leafletMap.remove === "function") {
+            leafletMap.remove();
+        }
+        leafletMap = null;
+        stationMap.classList.remove("leaflet-station-map");
+    }
+
     function renderLeafletMap(filteredStations) {
         const stationsWithCoordinates = filteredStations
             .map((station) => ({ station, coordinates: getStationCoordinates(station) }))
             .filter((entry) => entry.coordinates);
 
         if (!canUseLeaflet() || !stationsWithCoordinates.length) {
+            resetLeafletMap();
             return false;
         }
 
@@ -454,8 +464,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     function renderFallbackMap(filteredStations) {
+        resetLeafletMap();
         stationMap.classList.remove("leaflet-station-map");
         stationMap.innerHTML = "";
+
+        if (!filteredStations.length) {
+            const placeholder = document.createElement("span");
+            placeholder.className = "map-placeholder";
+            placeholder.textContent = "Aucune station disponible";
+            stationMap.appendChild(placeholder);
+            return;
+        }
 
         filteredStations.forEach((station, index) => {
             const isSelected = selectedStation?.id_station === station.id_station;
@@ -475,8 +494,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     function renderStationPicker() {
         const filteredStations = getFilteredStations();
         const useLeafletMap = renderLeafletMap(filteredStations);
-        if (!useLeafletMap && !leafletMap) {
-            stationMap.innerHTML = "";
+        if (!useLeafletMap) {
+            renderFallbackMap(filteredStations);
         }
         stationResults.innerHTML = "";
 
@@ -488,21 +507,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         stationResults.className = "station-results";
 
-        filteredStations.forEach((station, index) => {
+        filteredStations.forEach((station) => {
             const isSelected = selectedStation?.id_station === station.id_station;
-
-            const pin = document.createElement("button");
-            pin.type = "button";
-            pin.className = `station-pin${isSelected ? " active" : ""}`;
-            pin.style.left = `${getMapPosition(station, "x", index)}%`;
-            pin.style.top = `${getMapPosition(station, "y", index)}%`;
-            pin.setAttribute("aria-label", `Sélectionner ${station.nom}`);
-            pin.textContent = String(index + 1);
-            pin.addEventListener("click", () => selectStation(station));
-            stationMap.appendChild(pin);
-            if (useLeafletMap) {
-                pin.remove();
-            }
 
             const item = document.createElement("button");
             item.type = "button";
