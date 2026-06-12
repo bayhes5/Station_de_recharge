@@ -4,6 +4,9 @@ set -eu
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 BACKUP_DIR="${BACKUP_DIR:-/opt/station/backups}"
 ENV_FILE="${ENV_FILE:-.env}"
+BACKUP_DOCKER_VOLUMES="${BACKUP_DOCKER_VOLUMES:-false}"
+BACKUP_CONFIG="${BACKUP_CONFIG:-true}"
+BACKUP_INCLUDE_SECRETS="${BACKUP_INCLUDE_SECRETS:-false}"
 
 if [ ! -f "$COMPOSE_FILE" ]; then
     echo "Compose file not found: $COMPOSE_FILE" >&2
@@ -59,3 +62,59 @@ chmod 600 "$OUTPUT_GZ.sha256"
 
 echo "Backup written: $OUTPUT_GZ"
 echo "Checksum written: $OUTPUT_GZ.sha256"
+
+backup_container_path() {
+    container_name="$1"
+    source_path="$2"
+    output_name="$3"
+
+    if ! docker inspect "$container_name" >/dev/null 2>&1; then
+        echo "Skipping $container_name: container not found" >&2
+        return
+    fi
+
+    output_file="$BACKUP_DIR/${output_name}_${TIMESTAMP}.tar.gz"
+    docker exec "$container_name" tar -czf - -C "$source_path" . > "$output_file"
+    chmod 600 "$output_file"
+    sha256sum "$output_file" > "$output_file.sha256"
+    chmod 600 "$output_file.sha256"
+    echo "Archive written: $output_file"
+}
+
+if [ "$BACKUP_DOCKER_VOLUMES" = "true" ]; then
+    backup_container_path station_grafana_supervision /var/lib/grafana grafana
+fi
+
+if [ "$BACKUP_CONFIG" = "true" ]; then
+    CONFIG_ARCHIVE="$BACKUP_DIR/station_config_${TIMESTAMP}.tar.gz"
+    CONFIG_EXCLUDES="
+        --exclude=.git
+        --exclude=.env
+        --exclude=backups
+        --exclude=nginx/certs/*.key
+        --exclude=mosquitto/config/passwords
+        --exclude=mosquitto/certs/*.key
+    "
+
+    if [ "$BACKUP_INCLUDE_SECRETS" = "true" ]; then
+        CONFIG_EXCLUDES="
+            --exclude=.git
+            --exclude=backups
+        "
+    fi
+
+    # shellcheck disable=SC2086
+    tar -czf "$CONFIG_ARCHIVE" $CONFIG_EXCLUDES \
+        docker-compose.prod.yml \
+        nginx \
+        postgresql \
+        grafana/provisioning \
+        grafana/dashboards \
+        mosquitto/config \
+        scripts \
+        .env.example
+    chmod 600 "$CONFIG_ARCHIVE"
+    sha256sum "$CONFIG_ARCHIVE" > "$CONFIG_ARCHIVE.sha256"
+    chmod 600 "$CONFIG_ARCHIVE.sha256"
+    echo "Config archive written: $CONFIG_ARCHIVE"
+fi

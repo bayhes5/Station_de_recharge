@@ -19,9 +19,13 @@ OFFLINE_STORE = OfflineStore()
 CHARGE_STATE_STORE = ChargeStateStore()
 MQTT_SLOT_MONITOR = build_slot_monitor()
 BACKEND_API_BASE_URL = os.environ.get("BACKEND_API_BASE_URL", "http://backend:8000/api").rstrip("/")
+MOBILE_FRONTEND_BASE_URL = os.environ.get("MOBILE_FRONTEND_BASE_URL", "").strip().rstrip("/")
 TERMINAL_API_SECRET = os.environ.get("TERMINAL_API_SECRET", "").strip()
+TERMINAL_CODE = os.environ.get("TERMINAL_CODE", "").strip()
 TERMINAL_STATION_ID = os.environ.get("TERMINAL_STATION_ID", "").strip()
 TERMINAL_BORNE_ID = os.environ.get("TERMINAL_BORNE_ID", "").strip()
+TERMINAL_CONFIG_PATH = Path(os.environ.get("TERMINAL_CONFIG_PATH", "terminal_config.json"))
+TERMINAL_CONFIG = {}
 KIOSK_PORT = int(os.environ.get("KIOSK_PORT", "9000"))
 OFFLINE_SYNC_INTERVAL_SECONDS = int(os.environ.get("OFFLINE_SYNC_INTERVAL_SECONDS", "60"))
 OFFLINE_EVENT_BATCH_SIZE = int(os.environ.get("OFFLINE_EVENT_BATCH_SIZE", "50"))
@@ -48,7 +52,89 @@ def backend_headers(extra=None):
     headers = dict(extra or {})
     if TERMINAL_API_SECRET:
         headers["X-Terminal-Secret"] = TERMINAL_API_SECRET
+    if TERMINAL_CODE:
+        headers["X-Terminal-Code"] = TERMINAL_CODE
     return headers
+
+
+def apply_terminal_config(config):
+    """Apply a backend-provisioned terminal identity to the local kiosk process."""
+    global TERMINAL_BORNE_ID, TERMINAL_CONFIG, TERMINAL_STATION_ID
+
+    if not isinstance(config, dict):
+        return False
+    station_id = str(config.get("station_id") or "").strip()
+    borne_id = str(config.get("borne_id") or "").strip()
+    if not station_id or not borne_id:
+        return False
+
+    TERMINAL_STATION_ID = station_id
+    TERMINAL_BORNE_ID = borne_id
+    TERMINAL_CONFIG = dict(config)
+    return True
+
+
+def save_terminal_config(config):
+    """Persist the current terminal identity for degraded-mode restarts."""
+    TERMINAL_CONFIG_PATH.write_text(
+        json.dumps(config, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def load_cached_terminal_config():
+    """Restore the last known terminal identity when the backend is unavailable."""
+    if not TERMINAL_CONFIG_PATH.exists():
+        return False
+    try:
+        config = json.loads(TERMINAL_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return apply_terminal_config(config)
+
+
+def refresh_terminal_config():
+    """Fetch the station/borne identity linked to TERMINAL_CODE from the backend."""
+    if not TERMINAL_CODE:
+        return {
+            "configured": bool(TERMINAL_STATION_ID and TERMINAL_BORNE_ID),
+            "source": "environment",
+            "station_id": TERMINAL_STATION_ID,
+            "borne_id": TERMINAL_BORNE_ID,
+        }
+
+    query = urlencode({"terminal_code": TERMINAL_CODE})
+    request = Request(
+        f"{BACKEND_API_BASE_URL}/terminal/config/?{query}",
+        headers=backend_headers({"Accept": "application/json"}),
+    )
+    with urlopen(request, timeout=8) as response:
+        config = json.loads(response.read().decode("utf-8"))
+    if not apply_terminal_config(config):
+        raise RuntimeError("Configuration terminal incomplète reçue du backend.")
+    save_terminal_config(config)
+    return {"configured": True, "source": "backend", **config}
+
+
+def current_terminal_config():
+    """Return the active kiosk identity used for all terminal calls."""
+    return {
+        **TERMINAL_CONFIG,
+        "terminal_code": TERMINAL_CONFIG.get("terminal_code") or TERMINAL_CODE,
+        "station_id": TERMINAL_STATION_ID,
+        "borne_id": TERMINAL_BORNE_ID,
+        "source": "backend" if TERMINAL_CONFIG else "environment",
+    }
+
+
+def enrich_terminal_payload(payload):
+    """Force the backend payload to use the provisioned kiosk identity."""
+    enriched = dict(payload or {})
+    if TERMINAL_STATION_ID:
+        enriched["station_id"] = TERMINAL_STATION_ID
+    if TERMINAL_BORNE_ID:
+        enriched["borne_id"] = TERMINAL_BORNE_ID
+    return enriched
 
 
 def terminal_proxy_route(local_path):
@@ -103,6 +189,8 @@ def proxy_backend_json(method, route_key, payload=None):
 
 def sync_offline_cache():
     """Pull near-term reservations from the backend into the local SQLite cache."""
+    if TERMINAL_CODE:
+        refresh_terminal_config()
     query_params = {
         key: value
         for key, value in {
@@ -137,6 +225,8 @@ def sync_offline_events():
     events = OFFLINE_STORE.pending_events(limit=OFFLINE_EVENT_BATCH_SIZE)
     if not events:
         return {"sent": 0, "synced": 0, "rejected": []}
+    if TERMINAL_CODE:
+        refresh_terminal_config()
 
     payload = {
         "station_id": TERMINAL_STATION_ID,
@@ -205,6 +295,23 @@ class KioskHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_index(self):
+        """Serve the kiosk page with runtime configuration injected."""
+        index_path = Path(__file__).resolve().parent / "index.html"
+        html = index_path.read_text(encoding="utf-8")
+        runtime_config = (
+            "<script>"
+            f"window.__MOBILE_FRONTEND_BASE_URL__ = {json.dumps(MOBILE_FRONTEND_BASE_URL)};"
+            "</script>"
+        )
+        html = html.replace('<script defer src="app.js"></script>', f"{runtime_config}\n    <script defer src=\"app.js\"></script>")
+        body = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _read_json(self):
         length = int(self.headers.get("Content-Length", "0") or "0")
         if length <= 0:
@@ -219,7 +326,7 @@ class KioskHandler(SimpleHTTPRequestHandler):
         proxy_route = terminal_proxy_route(parsed_path.path)
         if proxy_route:
             try:
-                payload = self._read_json()
+                payload = enrich_terminal_payload(self._read_json())
             except json.JSONDecodeError:
                 self._send_json({"detail": "JSON invalide."}, status=400)
                 return
@@ -272,7 +379,7 @@ class KioskHandler(SimpleHTTPRequestHandler):
 
         if parsed_path.path == "/offline/authenticate":
             try:
-                payload = self._read_json()
+                payload = enrich_terminal_payload(self._read_json())
                 station_id = str(payload.get("station_id") or TERMINAL_STATION_ID).strip()
                 borne_id = str(payload.get("borne_id") or TERMINAL_BORNE_ID).strip()
                 result = OFFLINE_STORE.authenticate(payload, station_id=station_id, borne_id=borne_id)
@@ -434,6 +541,10 @@ class KioskHandler(SimpleHTTPRequestHandler):
         """Expose local Raspberry status endpoints and static files."""
 
         parsed_path = urlparse(self.path)
+        if parsed_path.path in {"", "/", "/index.html"}:
+            self._send_index()
+            return
+
         proxy_route = terminal_proxy_route(parsed_path.path)
         if proxy_route:
             self._send_proxy(proxy_backend_json("GET", proxy_route))
@@ -443,12 +554,31 @@ class KioskHandler(SimpleHTTPRequestHandler):
             self._send_json(RFID_RUNTIME.snapshot())
             return
 
+        if parsed_path.path == "/terminal/config":
+            if parsed_path.query == "refresh":
+                try:
+                    self._send_json(refresh_terminal_config())
+                except Exception as error:  # noqa: BLE001
+                    if load_cached_terminal_config():
+                        self._send_json(
+                            {
+                                **current_terminal_config(),
+                                "source": "cache",
+                                "warning": f"Configuration backend indisponible: {error}",
+                            },
+                            status=200,
+                        )
+                    else:
+                        self._send_json({"detail": f"Configuration terminal indisponible: {error}"}, status=503)
+                return
+            self._send_json(current_terminal_config())
+            return
+
         if parsed_path.path == "/offline/status":
             self._send_json(
                 {
                     "backend_api_base_url": BACKEND_API_BASE_URL,
-                    "station_id": TERMINAL_STATION_ID,
-                    "borne_id": TERMINAL_BORNE_ID,
+                    **current_terminal_config(),
                     **OFFLINE_STORE.stats(),
                 }
             )
@@ -498,6 +628,23 @@ class KioskHandler(SimpleHTTPRequestHandler):
 
 def main():
     os.chdir(Path(__file__).resolve().parent)
+    if TERMINAL_CODE:
+        try:
+            config = refresh_terminal_config()
+            print(
+                "Terminal provisioned: "
+                f"{config.get('station')} / {config.get('borne')} "
+                f"({TERMINAL_STATION_ID}/{TERMINAL_BORNE_ID})"
+            )
+        except Exception as error:  # noqa: BLE001 - kiosk must still boot offline.
+            if load_cached_terminal_config():
+                print(
+                    "Terminal config restored from cache: "
+                    f"{TERMINAL_STATION_ID}/{TERMINAL_BORNE_ID} "
+                    f"(backend unavailable: {error})"
+                )
+            else:
+                print(f"Terminal config unavailable: {error}")
     threading.Thread(target=background_offline_sync, daemon=True).start()
     MQTT_SLOT_MONITOR.start()
     server = ThreadingHTTPServer(("0.0.0.0", KIOSK_PORT), KioskHandler)

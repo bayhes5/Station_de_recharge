@@ -91,6 +91,8 @@ async function mockApi(page, { admin = false, technician = false } = {}) {
     }
 
     if (url.pathname === "/api/dashboard/") {
+      const start = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      const end = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
       await route.fulfill(jsonResponse({
         user: {
           id: admin ? "admin-id" : "user-id",
@@ -102,12 +104,24 @@ async function mockApi(page, { admin = false, technician = false } = {}) {
         },
         stats: {
           sessions_total: 0,
-          reservations_total: 0,
-          reservations_upcoming: 0,
+          reservations_total: 1,
+          reservations_upcoming: 1,
         },
         active_session: null,
         recharge_history: [],
-        upcoming_reservations: [],
+        ongoing_reservations: [],
+        upcoming_reservations: [{
+          id_reservation: "reservation-next",
+          station_nom: "Station Centre",
+          borne_nom: "Borne 1",
+          emplacement_numero: 1,
+          date_debut: start,
+          date_fin: end,
+          statut: "confirmee",
+          auth_mode: "qr",
+          reference_code: "DEMOQR1",
+          can_cancel: true,
+        }],
         reservations_history: [],
       }));
       return;
@@ -468,7 +482,25 @@ async function mockApi(page, { admin = false, technician = false } = {}) {
     }
 
     if (url.pathname === "/api/admin/reservations/") {
-      await route.fulfill(jsonResponse({ upcoming: [], archived: [] }));
+      await route.fulfill(jsonResponse({
+        upcoming: [],
+        archived: [
+          {
+            id_reservation: "reservation-archived-1",
+            reference_code: "ARCHQR1",
+            utilisateur_pseudo: "alice",
+            station_nom: "Station Centre",
+            borne_nom: "Borne 1",
+            emplacement_numero: 1,
+            date_debut: "2026-05-24T08:00:00Z",
+            date_fin: "2026-05-24T09:00:00Z",
+            auth_mode: "qr",
+            auth_is_active: false,
+            statut: "terminee",
+            can_cancel: false,
+          },
+        ],
+      }));
       return;
     }
 
@@ -529,6 +561,9 @@ test("reservation page does not depend on external CDN assets", async ({ request
 
 test("reservation page renders the local station map", async ({ page }) => {
   await mockApi(page);
+  await page.addInitScript(() => {
+    window.__ENABLE_EXTERNAL_MAP__ = false;
+  });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => {
@@ -547,6 +582,7 @@ test("reservation page renders the local station map", async ({ page }) => {
   expect(errors).toEqual([]);
   await expect(stationMap).toBeVisible();
   await expect(stationMap.locator(".station-pin")).toHaveCount(2);
+  await expect(page.locator("#reservation-auth-mode option")).toHaveText(["QR code temporaire"]);
   await expect(page.getByRole("button", { name: "Station Centre Centre-ville" })).toBeVisible();
 });
 
@@ -564,6 +600,20 @@ test("login flow uses mocked API and opens the dashboard", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Tableau de bord" })).toBeVisible();
 });
 
+test("dashboard exposes mobile bottom navigation", async ({ page }) => {
+  await mockApi(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  await page.goto("/dashboard.html");
+
+  await expect(page.getByRole("heading", { name: "Tableau de bord" })).toBeVisible();
+  await expect(page.getByText("Identité")).toBeVisible();
+  await expect(page.locator("[data-mobile-app-nav]")).toBeVisible();
+  await expect(page.locator("[data-mobile-app-nav]").getByRole("link", { name: "Accueil" })).toHaveClass(/is-active/);
+  await expect(page.locator("[data-mobile-app-nav]").getByRole("link", { name: "Réserver" })).toBeVisible();
+  await expect(page.locator("[data-mobile-app-nav]").getByRole("link", { name: "Profil" })).toBeVisible();
+});
+
 test("admin infrastructure opens a station profile", async ({ page }) => {
   await mockApi(page, { admin: true });
 
@@ -572,7 +622,7 @@ test("admin infrastructure opens a station profile", async ({ page }) => {
   await expect(page.getByRole("heading", { name: /Administration/i })).toBeVisible();
   const stationLink = page.getByRole("link", { name: "Ouvrir" }).first();
   await expect(stationLink).toBeVisible();
-  await expect(page.getByText("Station Centre")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Station Centre" })).toBeVisible();
 
   await stationLink.click();
 
@@ -594,6 +644,18 @@ test("admin supervision links directly to the Grafana dashboard", async ({ page 
     "http://127.0.0.1:3000/grafana/d/station-overview/station-vue-globale-supervision?orgId=1&from=now-6h&to=now&refresh=10s",
   );
   await expect(page.getByRole("button", { name: "Précédent" }).first()).toBeVisible();
+});
+
+test("admin archived reservations are read-only", async ({ page }) => {
+  await mockApi(page, { admin: true });
+
+  await page.goto("/admin-dashboard.html#reservations");
+
+  const archivedPanel = page.locator("#admin-archived-reservations");
+  await expect(archivedPanel.getByText("ARCHQR1")).toBeVisible();
+  await expect(archivedPanel.getByText(/Archiv/)).toBeVisible();
+  await expect(archivedPanel.getByText("Actions")).toHaveCount(0);
+  await expect(archivedPanel.getByRole("button", { name: /Annuler|RÃ©gÃ©nÃ©rer|RÃ©voquer/ })).toHaveCount(0);
 });
 
 test("technician supervision can be filtered by station", async ({ page }) => {
@@ -622,12 +684,12 @@ test("mobile session follows authorization until the kiosk consumes it", async (
 
   await page.goto("/mobile-session.html?token=demo-token");
 
-  await expect(page.getByRole("heading", { name: "Autoriser la borne" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Station Centre" })).toBeVisible();
-  await page.getByRole("button", { name: "Autoriser cette borne" }).click();
+  await expect(page.getByRole("heading", { name: "Valider l’accès" })).toBeVisible();
+  await expect(page.locator("#mobile-session-terminal-name")).toHaveText("Station Centre - Borne 1");
+  await page.getByRole("button", { name: "Déverrouiller l’emplacement 1" }).click();
 
-  await expect(page.locator("#mobile-session-authorized-title")).toHaveText("Autorisation envoyée");
+  await expect(page.locator("#mobile-session-authorized-title")).toHaveText("Accès envoyé");
   await expect(page.locator("#mobile-step-authorized")).toHaveClass(/active/);
-  await expect(page.locator("#mobile-session-authorized-title")).toHaveText("Borne autorisée", { timeout: 5000 });
+  await expect(page.locator("#mobile-session-authorized-title")).toHaveText("Borne déverrouillée", { timeout: 5000 });
   await expect(page.locator("#mobile-step-consumed")).toHaveClass(/active/);
 });

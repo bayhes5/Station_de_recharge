@@ -85,7 +85,6 @@ admin.site.register(Reservation)
 admin.site.register(Session)
 admin.site.register(SessionTelemetry)
 admin.site.register(Station)
-admin.site.register(Borne)
 admin.site.register(Emplacement)
 admin.site.register(DeviceCommandLog)
 admin.site.register(Capteur)
@@ -94,6 +93,15 @@ admin.site.register(Alerte)
 admin.site.register(Technicien)
 admin.site.register(TechnicienStation)
 admin.site.register(Maintenance)
+
+
+@admin.register(Borne)
+class BorneAdmin(admin.ModelAdmin):
+    """Expose terminal provisioning fields for physical kiosks."""
+
+    list_display = ("nom", "station", "numero", "terminal_code", "mqtt_prefix", "statut")
+    list_filter = ("statut", "station")
+    search_fields = ("nom", "terminal_code", "mqtt_prefix", "station__nom")
 
 
 @admin.register(Device)

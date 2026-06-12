@@ -14,9 +14,50 @@ function getToken() {
     return new URLSearchParams(window.location.search).get("token") || "";
 }
 
+function terminalLabel(session) {
+    const station = session?.station_nom || "Station";
+    const borne = session?.borne_nom || "borne";
+    return `${station} - ${borne}`;
+}
+
+function emplacementLabel(reservation) {
+    const numero = reservation.emplacement_numero || reservation.emplacement || "-";
+    return `Emplacement ${numero}`;
+}
+
+function unlockButtonLabel(reservation) {
+    const numero = reservation.emplacement_numero || reservation.emplacement || "-";
+    return `Déverrouiller l’emplacement ${numero}`;
+}
+
+function reservationWindowLabel(reservation) {
+    const start = reservation.date_debut ? new Date(reservation.date_debut) : null;
+    const end = reservation.date_fin ? new Date(reservation.date_fin) : null;
+    if (!start || Number.isNaN(start.getTime())) {
+        return "Réservation";
+    }
+    const day = new Intl.DateTimeFormat("fr-FR", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+    }).format(start);
+    const startTime = new Intl.DateTimeFormat("fr-FR", {
+        hour: "2-digit",
+        minute: "2-digit",
+    }).format(start);
+    const endTime = end && !Number.isNaN(end.getTime())
+        ? new Intl.DateTimeFormat("fr-FR", {
+            hour: "2-digit",
+            minute: "2-digit",
+        }).format(end)
+        : "--:--";
+    return `${day} · ${startTime} - ${endTime}`;
+}
+
 function setStatus(message, isError = false) {
     const status = document.getElementById("mobile-session-status");
     status.classList.toggle("error", Boolean(isError));
+    status.hidden = !message;
     status.textContent = message || "";
 }
 
@@ -42,22 +83,28 @@ function renderReservation(reservation, session, onAuthorize) {
     heading.className = "mobile-reservation-heading";
 
     const title = document.createElement("h2");
-    title.textContent = reservation.station_nom || reservation.station || "Station";
+    title.textContent = reservationWindowLabel(reservation);
 
     const state = document.createElement("span");
     state.className = compatible ? "session-pill" : "session-pill muted-pill";
-    state.textContent = compatible ? "Compatible" : "Autre borne";
+    state.textContent = compatible ? "Disponible ici" : "Autre borne";
 
     heading.append(title, state);
+
+    const target = document.createElement("p");
+    target.className = "mobile-reservation-target";
+    target.textContent = [
+        reservation.station_nom || reservation.station || "Station",
+        reservation.borne_nom || reservation.borne || "borne",
+        emplacementLabel(reservation),
+    ].join(" - ");
 
     const details = document.createElement("dl");
     details.className = "mobile-reservation-details";
     [
-        ["Borne", reservation.borne_nom || reservation.borne || "-"],
-        ["Emplacement", reservation.emplacement_numero || reservation.emplacement || "-"],
+        ["Code", reservation.reference_code || "-"],
         ["Début", formatDateTime(reservation.date_debut)],
         ["Fin", formatDateTime(reservation.date_fin)],
-        ["Code", reservation.reference_code || "-"],
     ].forEach(([label, value]) => {
         const term = document.createElement("dt");
         term.textContent = label;
@@ -69,11 +116,13 @@ function renderReservation(reservation, session, onAuthorize) {
     const button = document.createElement("button");
     button.className = "btn btn-primary full-width";
     button.type = "button";
-    button.textContent = "Autoriser cette borne";
+    button.textContent = compatible
+        ? unlockButtonLabel(reservation)
+        : "Réservation prévue ailleurs";
     button.disabled = !compatible || session.status === "authorized" || session.status === "consumed";
     button.addEventListener("click", () => onAuthorize(reservation, button));
 
-    item.append(heading, details, button);
+    item.append(heading, target, details, button);
     return item;
 }
 
@@ -97,10 +146,15 @@ function renderReservations(reservations, session, onAuthorize) {
 function updateSessionHeader(session) {
     const context = document.getElementById("mobile-session-context");
     const countdown = document.getElementById("mobile-session-countdown");
+    const terminalName = document.getElementById("mobile-session-terminal-name");
+    const terminalDetail = document.getElementById("mobile-session-terminal-detail");
 
-    context.textContent = session.station_nom
-        ? `${session.station_nom}${session.borne_nom ? ` - ${session.borne_nom}` : ""}`
+    const label = session.station_nom
+        ? terminalLabel(session)
         : "Borne en attente d'autorisation";
+    context.textContent = "Confirmez l'accès depuis votre téléphone, puis suivez les instructions sur l'écran tactile.";
+    terminalName.textContent = label;
+    terminalDetail.textContent = "Session QR temporaire";
     countdown.textContent = session.expires_in > 0
         ? window.AuthAPI.formatDuration(session.expires_in)
         : "expirée";
@@ -110,21 +164,21 @@ function showAuthorizedPanel(session, reservation = null) {
     const authorizedTitle = document.getElementById("mobile-session-authorized-title");
     const authorizedDetail = document.getElementById("mobile-session-authorized-detail");
     const reservationLabel = reservation
-        ? `${reservation.station_nom || reservation.station} - ${reservation.borne_nom || reservation.borne || "borne"} - emplacement ${reservation.emplacement_numero || reservation.emplacement}.`
-        : "La borne peut maintenant ouvrir le boîtier.";
+        ? `${emplacementLabel(reservation)} est autorisé sur ${reservation.borne_nom || reservation.borne || "la borne"}.`
+        : "La borne peut maintenant ouvrir l'emplacement.";
 
     document.getElementById("mobile-session-reservations-panel").hidden = true;
     document.getElementById("mobile-session-authorized").hidden = false;
     setMobileSessionStep(session.status);
 
     if (session.status === "consumed") {
-        authorizedTitle.textContent = "Borne autorisée";
-        authorizedDetail.textContent = "La borne a pris en compte l'autorisation. Suivez les instructions sur l'écran tactile.";
-        setStatus("Borne autorisée.");
+        authorizedTitle.textContent = "Borne déverrouillée";
+        authorizedDetail.textContent = "Retournez à la borne : l'emplacement est prêt pour le branchement.";
+        setStatus("");
     } else {
-        authorizedTitle.textContent = "Autorisation envoyée";
+        authorizedTitle.textContent = "Accès envoyé";
         authorizedDetail.textContent = reservationLabel;
-        setStatus("Autorisation confirmée. En attente de la borne...");
+        setStatus("En attente de prise en compte par la borne...");
     }
 }
 
@@ -142,7 +196,7 @@ function startAuthorizationPolling(token, reservation = null) {
             if (mobileSession.status === "consumed" || attempts >= maxAttempts) {
                 window.clearInterval(interval);
                 if (mobileSession.status !== "consumed") {
-                    setStatus("Autorisation envoyée. Vérifiez l'écran de la borne.");
+                    setStatus("Accès envoyé. Vérifiez l'écran de la borne.");
                 }
             }
         } catch (error) {
@@ -169,7 +223,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     async function authorizeReservation(reservation, button) {
         button.disabled = true;
-        setStatus("Envoi de l'autorisation à la borne...");
+        setStatus("Transmission de l'accès à la borne...");
         try {
             const result = await window.AuthAPI.authorizeMobileSession(token, reservation.id_reservation);
             const mobileSession = result.mobile_session;

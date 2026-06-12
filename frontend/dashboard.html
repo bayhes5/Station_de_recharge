@@ -70,7 +70,7 @@
                             <span id="kpi-reservations-total" class="value">-</span>
                         </div>
                         <div class="kpi">
-                            <span class="label">R&eacute;servations &agrave; venir</span>
+                            <span class="label">R&eacute;servations non termin&eacute;es</span>
                             <span id="kpi-upcoming-reservations" class="value">-</span>
                         </div>
                     </div>
@@ -82,10 +82,20 @@
                 <section class="dashboard-panel list-card admin-table-panel">
                     <div class="panel-heading table-toolbar">
                         <div>
+                            <p class="panel-title">R&eacute;servations en cours</p>
+                            <p class="table-caption">Cr&eacute;neaux commenc&eacute;s et non termin&eacute;s.</p>
+                        </div>
+                        <a class="link-btn compact" href="/reservation.html">Nouvelle r&eacute;servation</a>
+                    </div>
+                    <div id="ongoing-reservations" class="stacked-list dashboard-card-list"></div>
+                </section>
+
+                <section class="dashboard-panel list-card admin-table-panel">
+                    <div class="panel-heading table-toolbar">
+                        <div>
                             <p class="panel-title">R&eacute;servations &agrave; venir</p>
                             <p class="table-caption">Annulation possible avant le d&eacute;but de la r&eacute;servation.</p>
                         </div>
-                        <a class="link-btn compact" href="/reservation.html">Nouvelle r&eacute;servation</a>
                     </div>
                     <div id="upcoming-reservations" class="stacked-list dashboard-card-list"></div>
                 </section>

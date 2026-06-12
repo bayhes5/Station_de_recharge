@@ -8,6 +8,7 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from api.models import Consentement, Emplacement, Reservation, Station
 
@@ -131,6 +132,26 @@ def test_refresh_endpoint_uses_httponly_cookie():
 
     assert refresh_response.status_code == status.HTTP_200_OK
     assert "access" in refresh_response.data
+
+
+@pytest.mark.django_db
+def test_refresh_with_deleted_user_clears_cookie():
+    user = get_user_model().objects.create_user(
+        pseudo="deleted-cookie-user",
+        email="deleted-cookie-user@example.com",
+        password="CookiePass123!",
+    )
+    refresh = RefreshToken.for_user(user)
+    user.delete()
+
+    client = APIClient()
+    client.cookies[settings.JWT_REFRESH_COOKIE_NAME] = str(refresh)
+    response = client.post(reverse("token_refresh"), {}, format="json")
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert response.data["detail"] == "Session expirée."
+    assert settings.JWT_REFRESH_COOKIE_NAME in response.cookies
+    assert response.cookies[settings.JWT_REFRESH_COOKIE_NAME].value == ""
 
 
 @pytest.mark.django_db

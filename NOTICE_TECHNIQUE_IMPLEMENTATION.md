@@ -13,6 +13,93 @@ L'objectif est de pouvoir expliquer en soutenance :
 - quelle donnée est stockée ;
 - ce qui est volontairement évité pour des raisons de sécurité ou de robustesse.
 
+## 0. Comment le projet a-t-il été organisé ?
+
+### Réponse courte
+
+Le projet a été organisé en trois lots techniques : web/backend, Raspberry/kiosque et ESP32/capteurs. L'équipe a travaillé avec une méthode agile légère : itérations courtes, tests progressifs, retours matériels, puis ajustements. Teams a servi aux points de coordination, Discord aux échanges rapides et GitHub au versionnement, aux commits, aux pull requests et à la CI.
+
+### Comment dans le projet ?
+
+Le découpage fonctionnel est :
+
+```text
+Application web/backend
+  -> comptes, réservations, API, base, supervision, sécurité
+
+Raspberry/kiosque
+  -> interface tactile, RFID, validation terminal, mode local, commandes MQTT
+
+ESP32/capteurs
+  -> DHT22, SEN0214, serrure, LED/buzzer, télémétrie MQTT, alertes locales
+```
+
+La coordination technique repose sur des contrats d'interface :
+
+```text
+API REST
+  -> contrat entre frontend, mobile/PWA, administration et backend
+
+API terminal
+  -> contrat entre Raspberry et backend
+
+MQTT
+  -> contrat entre Raspberry, backend et ESP32
+
+Modèle de données
+  -> contrat commun pour réservations, sessions, devices, capteurs et alertes
+```
+
+Références :
+
+- API REST : [`backend/api/api_urls.py`](backend/api/api_urls.py)
+- endpoints terminal : [`backend/api/views.py`](backend/api/views.py)
+- contrat MQTT Raspberry : [`raspberry/app/mqtt_contract.py`](raspberry/app/mqtt_contract.py)
+- client MQTT Raspberry : [`raspberry/app/mqtt_client.py`](raspberry/app/mqtt_client.py)
+- firmware ESP32 : [`esp32/emplacement1/main.py`](esp32/emplacement1/main.py)
+- modèles métier : [`backend/api/models.py`](backend/api/models.py)
+
+### Avec quoi ?
+
+Les outils utilisés pour la gestion et l'intégration sont :
+
+- Teams : points de suivi et décisions plus formelles ;
+- Discord : debug rapide, captures d'erreurs, coordination pendant les essais ;
+- GitHub : commits, branches, pull requests, merges et historique ;
+- GitHub Actions : tests et contrôles automatisés ;
+- Docker Compose : environnement reproductible ;
+- documentation Sphinx et notices Markdown : support de coordination et de soutenance.
+
+### Démarche DevOps
+
+Le projet ne revendique pas une chaîne DevOps industrielle complète. La formulation correcte est :
+
+> Le projet applique plusieurs pratiques DevOps adaptées à un cadre académique.
+
+Pratiques présentes :
+
+- intégration continue GitHub Actions ;
+- tests backend, frontend et Raspberry ;
+- Ruff pour la qualité du code Python ;
+- CodeQL pour l'analyse statique ;
+- SBOM/Grype pour l'inventaire et l'analyse des composants ;
+- Docker Compose pour lancer la stack ;
+- profils dev/prod et checks de configuration ;
+- scripts de sauvegarde/restauration ;
+- supervision Grafana.
+
+Ce qui reste à faire pour une démarche DevOps complète :
+
+- déploiement continu automatique ;
+- environnement staging distinct ;
+- secrets manager avancé ;
+- rollback automatisé ;
+- tests E2E automatisés sur matériel réel.
+
+### Phrase de soutenance
+
+> Nous avons travaillé par itérations, avec une coordination Teams/Discord et GitHub comme point central. La clé a été de formaliser les contrats API et MQTT pour permettre aux trois parties d'avancer en parallèle. Côté DevOps, nous avons mis en place des pratiques adaptées au projet : CI, tests, Docker Compose, CodeQL, SBOM et documentation de déploiement, mais pas encore une chaîne CD industrielle complète.
+
 ## 1. Comment les mots de passe sont-ils gérés ?
 
 ### Réponse courte
@@ -333,10 +420,27 @@ Exemples de valeurs :
 login: 10/minute
 register: 5/hour
 token_refresh: 30/minute
+auth_factor: 20/minute
 sms: 3/minute
 terminal: 120/minute
 mobile_session: 60/minute
 ```
+
+Justification des seuils :
+
+| Scope DRF | Valeur | Raison |
+|---|---:|---|
+| `login` | `10/minute` | Tolère les erreurs humaines, bloque une force brute rapide. |
+| `register` | `5/hour` | Une inscription normale est rare ; limite les créations abusives. |
+| `token_refresh` | `30/minute` | Autorise le rafraîchissement automatique sans accepter une boucle infinie. |
+| `auth_factor` | `20/minute` | Protège les essais QR/RFID/SMS/association tout en gardant une borne utilisable. |
+| `sms` | `3/minute` | Limite le spam et les coûts d'envoi. |
+| `terminal` | `120/minute` | Plus haut car le Raspberry peut faire plusieurs appels techniques rapides. |
+| `mobile_session` | `60/minute` | Compatible avec un suivi mobile, limité contre le polling abusif. |
+
+Les valeurs sont volontairement différentes selon le risque. Un endpoint de
+connexion ou SMS est plus sensible qu'un endpoint terminal qui doit rester
+réactif pour une borne tactile.
 
 Utilisation :
 
@@ -611,11 +715,36 @@ Le backend associe le badge via :
 
 L'UID n'est pas stocké en clair comme secret de validation : son hash est stocké dans `Authentification.hash_valeur`.
 
+En utilisation normale, le badge RFID sert ensuite de moyen d'accès direct :
+
+```text
+ACR122U lit l'UID
+  -> kiosk appelle POST /api/terminal/authenticate/
+  -> backend retrouve l'authentification RFID hashée
+  -> backend retrouve une réservation active compatible
+  -> backend crée ou retrouve Session
+  -> Session.charge_state = access_validated
+  -> kiosk publie UNLOCK vers l'ESP32
+  -> ACK UNLOCK = session en waiting_plug
+```
+
+La validation RFID déclenche donc automatiquement l'ouverture du boîtier, mais
+pas le démarrage électrique. `START` est publié ensuite automatiquement lorsque
+la télémétrie de l'emplacement remonte `cable=true`. Pour le prototype actuel,
+tant que le capteur câble n'est pas câblé, le kiosk accepte aussi une mesure
+SEN0214 récente `current >= 0.1 A` comme preuve temporaire de branchement.
+
 ## 11. Comment le QR de session mobile fonctionne-t-il ?
 
 ### Réponse courte
 
 La borne crée une session mobile temporaire dans le cache backend. Le QR affiché par la borne contient seulement une URL avec un token. L'utilisateur scanne, se connecte, choisit une réservation compatible, puis autorise la borne.
+
+Le téléphone ne démarre pas la charge. Il valide seulement le droit d'accès et
+déverrouille l'emplacement via le kiosque. Le démarrage électrique reste
+déclenché par la borne après branchement. Dans le prototype, en l'absence de
+capteur câble, le courant minimum mesuré par le SEN0214 sert provisoirement de
+preuve de branchement.
 
 ### Comment dans le code ?
 
@@ -674,16 +803,32 @@ Références :
 - `mobile_session_authorize()` dans [`backend/api/views.py`](backend/api/views.py)
 - `terminal_consume_mobile_session()` dans [`backend/api/views.py`](backend/api/views.py)
 - [`frontend/js/mobile-session.js`](frontend/js/mobile-session.js)
+- [`frontend/mobile-session.html`](frontend/mobile-session.html)
+- navigation PWA : [`frontend/js/navigation.js`](frontend/js/navigation.js)
+- installation PWA : [`frontend/js/pwa.js`](frontend/js/pwa.js)
 - [`raspberry/app/app.js`](raspberry/app/app.js)
 
 Le backend vérifie que la réservation choisie appartient au compte connecté et correspond à la station/borne de la session mobile.
 
 Après l'autorisation, `frontend/js/mobile-session.js` continue d'interroger
 `GET /api/mobile-sessions/<token>/` pour afficher la progression côté
-téléphone. L'utilisateur voit d'abord `Autorisation confirmée`, puis `Session
-démarrée sur la borne` quand le kiosque a consommé le token. Si la page mobile
+téléphone. L'utilisateur voit d'abord `Accès validé`, puis `Borne
+déverrouillée` quand le kiosque a consommé le token. Si la page mobile
 est rechargée alors que la session est déjà autorisée ou consommée,
 `mobile_session_detail()` renvoie aussi la réservation sélectionnée.
+
+La PWA ajoute aussi une navigation basse sur smartphone et une carte
+`Prochaine action` dans le tableau de bord utilisateur. Cette carte est calculée
+côté frontend à partir de `active_session`, `ongoing_reservations` et
+`upcoming_reservations` renvoyés par `GET /api/dashboard/`. Elle permet à
+l'utilisateur de retrouver directement sa recharge active, son prochain QR ou
+son code SMS sans parcourir toute la page.
+
+Le bouton `Installer l'application` est affiché uniquement si le navigateur
+déclenche l'événement `beforeinstallprompt`. Le service worker est désactivé en
+développement Vite et sur HTTP local, mais autorisé en HTTPS sur le serveur,
+même avec une IP privée. Cela permet une démonstration locale installable quand
+la racine CA est installée sur le téléphone.
 
 ## 12. Comment le terminal Raspberry est-il authentifié auprès du backend ?
 
@@ -698,6 +843,29 @@ La vérification utilise :
 ```python
 hmac.compare_digest(provided_secret, expected_secret)
 ```
+
+### Pourquoi `hmac.compare_digest` ?
+
+Une comparaison classique comme :
+
+```python
+provided_secret == expected_secret
+```
+
+peut théoriquement s'arrêter dès qu'un caractère diffère. Si un attaquant peut
+faire beaucoup d'essais et mesurer très précisément les temps de réponse, il
+peut essayer de déduire combien de caractères initiaux sont corrects. C'est une
+attaque par canal auxiliaire temporel.
+
+`hmac.compare_digest()` réduit ce risque en comparant deux secrets avec un
+comportement adapté aux valeurs sensibles. Dans ce projet, il évite de traiter
+le secret terminal comme une simple chaîne métier.
+
+À retenir pour la soutenance :
+
+> Le secret terminal est comparé avec `hmac.compare_digest` pour éviter une
+> comparaison naïve sensible au timing. Cette protection complète le secret long,
+> le HTTPS, le rate limiting et la séparation des endpoints terminal.
 
 Référence :
 
@@ -765,11 +933,29 @@ Référence :
 
 - [`backend/api/reservation_rules.py`](backend/api/reservation_rules.py)
 
+### Comment les réservations sont-elles classées dans les tableaux ?
+
+Le backend sépare les réservations affichées dans les dashboards selon la fenêtre temporelle réelle :
+
+```python
+reservations_en_cours = date_debut <= maintenant < date_fin
+reservations_a_venir = date_debut > maintenant
+reservations_archivees = date_fin <= maintenant ou statut annule
+```
+
+Ce classement est volontairement distinct de l'état électrique de la charge. Une session peut être arrêtée avant la fin du créneau, mais la réservation reste dans la période en cours tant que la fenêtre payée n'est pas terminée.
+
+Références :
+
+- `dashboard()` dans [`backend/api/views.py`](backend/api/views.py)
+- `admin_reservations()` dans [`backend/api/views.py`](backend/api/views.py)
+- Tableaux frontend dans [`frontend/js/dashboard.js`](frontend/js/dashboard.js) et [`frontend/js/admin-dashboard.js`](frontend/js/admin-dashboard.js)
+
 ## 14. Comment une session de charge est-elle ouverte ?
 
 ### Réponse courte
 
-Après validation de l'accès, le backend crée ou retrouve une `Session`, passe la réservation à `active`, puis renvoie au Raspberry les informations nécessaires pour commander l'ESP32.
+Après validation de l'accès, le backend crée ou retrouve une `Session`, passe la réservation à `active`, puis renvoie au Raspberry les informations nécessaires pour commander l'ESP32. Cette étape ouvre le cycle opérationnel à la borne ; elle ne signifie pas encore que la charge électrique a démarré.
 
 ### Comment dans le code ?
 
@@ -812,6 +998,13 @@ Référence :
 ### Réponse courte
 
 Le Raspberry publie un message MQTT sur le topic de commande de l'emplacement, avec un `command_id`, une action et le `session_id`.
+
+Dans le parcours nominal, les deux commandes principales sont séparées :
+
+```text
+UNLOCK -> ouverture du boîtier après authentification
+START  -> démarrage électrique automatique après détection câble ou courant prototype
+```
 
 ### Comment dans le code ?
 
@@ -867,7 +1060,7 @@ threading.Event()
 
 pour attendre l'ACK pendant `MQTT_ACK_TIMEOUT_SECONDS`.
 
-## 16. Comment l'ESP32 reçoit et exécute START/STOP ?
+## 16. Comment l'ESP32 reçoit et exécute UNLOCK/START/STOP ?
 
 ### Réponse courte
 
@@ -901,6 +1094,7 @@ Commandes supportées :
 Fonctions :
 
 - `handle_command()`
+- `accept_unlock()`
 - `accept_start()`
 - `accept_stop()`
 - `publish_ack()`
@@ -913,15 +1107,30 @@ Fonctions :
 LOCK_OUTPUT_ENABLED = True
 LOCK_PIN = 26
 LOCK_RELAY_ACTIVE_LOW = True
-LOCK_UNLOCK_PULSE_SECONDS = 5
+LOCK_AUTO_RELOCK_SECONDS = 15
 CHARGE_RELAY_OUTPUT_ENABLED = False
 PHYSICAL_INPUTS_ENABLED = False
 ```
 
 La serrure fonctionne via un relais actif-bas sur `GPIO26`. Le firmware ouvre
-la serrure pendant 5 secondes, puis remet le relais au repos pour ne pas
-alimenter la serrure en continu. L'ACK MQTT de `START` est envoyé avant cette
-impulsion afin de rester compatible avec le timeout d'ACK du Raspberry.
+la serrure sur commande `UNLOCK`, puis programme un reverrouillage automatique
+au bout de 15 secondes si aucune charge ne démarre. Cette commande est envoyée
+juste après validation de l'authentification à la borne. La commande `START`
+est séparée : elle démarre la charge uniquement après branchement du câble,
+détection `cable=true` ou détection de courant selon le prototype, et
+vérification des capteurs disponibles.
+
+La détection par courant est volontairement bornée côté kiosk :
+
+```text
+current >= 0.1 A
+mesure reçue depuis moins de 15 secondes
+capteur câble absent ou indéterminé
+```
+
+Si un vrai capteur câble est branché et publie `cable=false`, ce signal bloque le
+démarrage même si une mesure de courant existe. Le capteur physique reste donc
+prioritaire dès qu'il est disponible.
 
 Le relais de charge, le contact de porte et le capteur de câble restent
 désactivés tant qu'ils ne sont pas câblés.
@@ -1221,6 +1430,15 @@ Référence :
 
 - [`backend/api/services/charge_session_state.py`](backend/api/services/charge_session_state.py)
 
+Effet attendu des ACK principaux :
+
+```text
+ACK UNLOCK status=unlocked -> Session.charge_state = waiting_plug
+ACK START status=accepted  -> Session.charge_state = waiting_plug
+ACK START status=charging  -> Session.charge_state = charging
+ACK STOP status=stopped    -> Session.charge_state = stopping jusqu'à clôture backend
+```
+
 ## 22. Comment les alertes sont-elles créées et levées ?
 
 ### Réponse courte
@@ -1245,15 +1463,17 @@ Seuils actuels :
 
 ```text
 temperature >= 60 °C -> overheat critique
-current >= 3.0 A    -> overcurrent haute
+current >= 4.0 A    -> overcurrent haute
 energy_kwh >= SESSION_ENERGY_ALERT_KWH -> energy_over_limit
 session active sans télémétrie récente -> session_without_telemetry
+accès validé sans câble après délai -> session_waiting_plug_too_long
 session bloquée en arrêt -> session_stopping_too_long
 ```
 
 Paramètres :
 
 - `SESSION_TELEMETRY_STALE_MINUTES`
+- `SESSION_WAITING_PLUG_STALE_MINUTES`
 - `SESSION_STOPPING_STALE_MINUTES`
 - `SESSION_TELEMETRY_DEFAULT_VOLTAGE`
 - `ENERGY_ACTIVITY_MIN_KWH`
@@ -1271,6 +1491,14 @@ Le scan des sessions sans télémétrie est exécuté par Celery Beat :
 
 - `scan_session_telemetry_gaps()` dans [`backend/api/services/operational_alerts.py`](backend/api/services/operational_alerts.py)
 - tâche `api.scan_session_telemetry_gaps` dans [`backend/api/tasks.py`](backend/api/tasks.py)
+
+Le scan distingue trois cas :
+
+- une session en charge sans mesure récente : `session_without_telemetry` ;
+- une session en `waiting_plug` trop longtemps après `UNLOCK` :
+  `session_waiting_plug_too_long` ;
+- une session en `stopping` trop longtemps après `STOP` :
+  `session_stopping_too_long`.
 
 ## 23. Comment les notifications technicien sont-elles envoyées ?
 
@@ -1335,6 +1563,33 @@ Dashboards :
 
 - [`grafana/dashboards/station-overview.json`](grafana/dashboards/station-overview.json)
 - [`grafana/dashboards/station-supervision.json`](grafana/dashboards/station-supervision.json)
+- [`grafana/dashboards/session-detail.json`](grafana/dashboards/session-detail.json)
+
+Organisation des vues :
+
+- `station-overview.json` est le tableau d'accueil supervision. Il agrège les
+  sessions actives, l'état des ESP32 et les alertes ouvertes.
+- `station-supervision.json` est la vue technique filtrée par station, borne et
+  emplacement. Elle sert à diagnostiquer un matériel ou une zone précise.
+- `session-detail.json` est la vue de traçabilité d'une session de charge. Sa
+  variable `session` est alimentée par une requête SQL sur `charging_session`,
+  `reservation`, `utilisateur`, `station`, `borne` et `emplacement`.
+
+Le dashboard de session lit prioritairement `session_telemetry`, car cette table
+est déjà rattachée à `id_session`. C'est ce qui permet de répondre à la question
+"que s'est-il passé pendant cette charge ?" sans mélanger les mesures d'une
+ancienne charge sur le même emplacement. Les mesures DHT22 stockées dans
+`capteur_data` sont jointes à l'emplacement de la session et bornées par
+`start_time` / `end_time`. Les commandes et confirmations sont lues dans
+`device_command_log`, et les incidents dans `alerte`.
+
+Pour vérifier un badge RFID en supervision admin, il faut donc regarder :
+
+- `charging_session.charge_state` : `access_validated` puis `waiting_plug` ;
+- `device_command_log.action` : présence de `UNLOCK` avec `status=unlocked` ;
+- `device.last_command_action` et `device.last_command_status` ;
+- les `status`/`telemetry` ESP32 suivants, qui alimentent `device`,
+  `capteur_data` et éventuellement `session_telemetry`.
 
 Tables lues :
 
@@ -1435,6 +1690,54 @@ Référence :
 
 Le cache ne contient pas de secrets en clair.
 
+### Durée du cache offline
+
+Le cache ne stocke pas les "dernières réservations" au sens historique. Il stocke
+les réservations proches du créneau, pour la station et la borne concernées.
+
+La fenêtre exportée par le backend est :
+
+```text
+now - tolérance de fin éventuelle
+jusqu'à
+now + TERMINAL_OFFLINE_CACHE_HOURS
+```
+
+Par défaut :
+
+```text
+TERMINAL_OFFLINE_CACHE_HOURS = 24
+RESERVATION_START_GRACE_MINUTES = 5
+RESERVATION_END_GRACE_MINUTES = 0
+RESERVATION_TURNOVER_BUFFER_MINUTES = 5
+```
+
+Conséquence :
+
+- une réservation créée il y a deux jours, mais prévue aujourd'hui ou dans les
+  prochaines 24 heures, peut être synchronisée ;
+- une réservation créée il y a deux jours et déjà terminée ne reste pas dans le
+  cache ;
+- une réservation prévue dans plus de 24 heures n'est pas encore exportée.
+
+La marge de début permet une arrivée anticipée à la borne. La marge de fin vaut
+0 minute par défaut : après la fin du créneau, l'utilisateur ne peut pas
+démarrer une nouvelle charge. Le buffer technique de 5 minutes est différent :
+il sert au calcul de disponibilité pour éviter deux réservations trop serrées,
+mais il ne donne pas un droit d'accès supplémentaire.
+
+Le mode dégradé peut donc fonctionner environ 24 heures sans backend central,
+mais seulement pour les droits déjà synchronisés avant la panne. Il ne crée pas
+de nouvelles réservations, ne génère pas de nouveaux secrets et ne connaît pas
+une révocation qui n'aurait pas encore été synchronisée.
+
+Choix défendable :
+
+> 24 heures est un compromis entre continuité de service et sécurité. On évite
+> de stocker trop longtemps des droits d'accès locaux sur la borne. Pour un site
+> isolé, on pourrait monter à 48 heures, mais seulement avec chiffrement local,
+> journalisation et politique de révocation renforcée.
+
 ## 27. Comment le backend est-il protégé côté réseau HTTP ?
 
 ### Réponse courte
@@ -1461,7 +1764,9 @@ Mesures présentes :
 - `Content-Security-Policy` ;
 - `client_max_body_size` ;
 - proxy WebSocket pour `/ws/` ;
-- routage séparé `/api/`, `/admin/`, `/grafana/`, `/kiosk/`.
+- routage séparé `/api/`, `/admin/`, `/grafana/` ;
+- `/kiosk/` sert la simulation en local, mais renvoie en production vers le fait
+  que le kiosque réel doit être exécuté sur le Raspberry physique.
 
 Configuration Django associée :
 
@@ -1599,13 +1904,77 @@ Tests de durcissement :
 
 ### Réponse courte
 
-Le projet prépare PostgreSQL Anonymizer de façon optionnelle : si l'extension `anon` est disponible, une migration pose des règles de masquage sur les colonnes sensibles.
+Le projet combine deux niveaux :
+
+1. une anonymisation applicative immédiate quand l'utilisateur supprime son compte ;
+2. des vues SQL anonymisées actives pour les exports et la supervision ;
+3. une préparation PostgreSQL Anonymizer optionnelle pour les rôles SQL masqués,
+   les dumps anonymisés ou les environnements de test avancés.
 
 ### Comment dans le code ?
 
-Migration :
+Service applicatif :
+
+- [`backend/api/services/retention.py`](backend/api/services/retention.py)
+
+Endpoint utilisateur :
+
+- `DELETE /api/me/profile/`
+- fonction `profile()` dans [`backend/api/views.py`](backend/api/views.py)
+
+Quand l'utilisateur supprime son compte, le backend ne fait plus un `user.delete()` dur. Il appelle :
+
+```python
+anonymize_user_account(user, reason="account_self_delete")
+```
+
+Le compte est conservé pour garder la cohérence des réservations et sessions, mais il n'est plus identifiable :
+
+- `pseudo` devient une valeur technique de type `user-<uuid>` ;
+- `email` devient `user-<uuid>@anonymized.invalid` ;
+- `statut` passe à `archive` ;
+- `is_active` passe à `False` ;
+- le mot de passe devient inutilisable avec `set_unusable_password()` ;
+- le profil perd `nom`, `telephone` et `telephone_verifie` ;
+- les moyens RFID, QR et SMS sont désactivés ;
+- les métadonnées de secrets sont remplacées par une trace technique d'anonymisation ;
+- l'adresse IP des journaux liés au compte est remplacée par `0.0.0.0`.
+
+Ce choix permet de respecter le principe de minimisation sans casser l'historique opérationnel. Une session de charge reste consultable, mais elle n'expose plus l'identité de l'utilisateur.
+
+Politique de rétention :
+
+- `apply_privacy_retention()` dans [`backend/api/services/retention.py`](backend/api/services/retention.py)
+- tâche Celery `api.apply_privacy_retention` dans [`backend/api/tasks.py`](backend/api/tasks.py)
+- commande `python manage.py apply_privacy_retention`
+
+Durées par défaut :
+
+| Donnée | Variable | Valeur |
+|---|---:|---:|
+| Mesures brutes capteurs | `TELEMETRY_RETENTION_DAYS` | 90 jours |
+| Télémétrie de session | `SESSION_TELEMETRY_RETENTION_DAYS` | 365 jours |
+| Commandes / ACK ESP32 | `DEVICE_COMMAND_LOG_RETENTION_DAYS` | 365 jours |
+| Journaux de sécurité | `SECURITY_LOG_RETENTION_DAYS` | 365 jours |
+| Alertes résolues | `ALERT_RETENTION_DAYS` | 365 jours |
+| Secrets inactifs ou expirés | `AUTH_METHOD_RETENTION_DAYS` | 90 jours |
+| Comptes archivés non anonymisés | `USER_ANONYMIZATION_RETENTION_DAYS` | 1095 jours |
+
+PostgreSQL Anonymizer :
 
 - [`backend/api/migrations/0027_optional_postgresql_anonymizer.py`](backend/api/migrations/0027_optional_postgresql_anonymizer.py)
+- [`backend/api/migrations/0033_timescale_timeseries_and_anonymized_views.py`](backend/api/migrations/0033_timescale_timeseries_and_anonymized_views.py)
+
+Vues anonymisées actives en production :
+
+- `utilisateur_anonyme`
+- `technicien_anonyme`
+- `journal_securite_anonyme`
+- `supervision_session_anonyme`
+
+Ces vues exposent des hashes ou des valeurs constantes au lieu des emails,
+noms, téléphones et adresses IP réelles. Elles permettent de vérifier ou
+d'exporter des données sans exposer directement les identités.
 
 Colonnes masquées :
 
@@ -1621,11 +1990,226 @@ Colonnes masquées :
 La migration vérifie d'abord :
 
 ```sql
-SELECT EXISTS FROM pg_available_extensions WHERE name = 'anon'
+SELECT EXISTS (
+  SELECT 1
+  FROM pg_available_extensions
+  WHERE name = 'anon'
+);
 ```
 
 Si l'extension n'est pas disponible, elle ne casse pas le déploiement.
 
-## 32. Comment expliquer le projet en une phrase technique ?
+État production actuel :
+
+- `timescaledb` et `pg_stat_statements` sont installés ;
+- les hypertables miroir et les vues anonymisées sont actives ;
+- l'image `timescale/timescaledb` ne fournit pas le fichier système
+  `anon.control`, donc `CREATE EXTENSION anon` n'est pas disponible dans cette
+  image ;
+- installer `anon` proprement nécessiterait une image PostgreSQL personnalisée
+  combinant TimescaleDB et PostgreSQL Anonymizer. Une installation manuelle dans
+  un conteneur en cours serait non durable.
+
+Phrase de soutenance possible :
+
+> La suppression de compte est traitée comme une anonymisation applicative. Je ne détruis pas les réservations ni les sessions, car elles servent à la traçabilité technique, mais je retire l'identité : email, téléphone, nom, secrets d'accès et IP liée au compte. En complément, une tâche Celery applique les durées de rétention, des vues SQL anonymisées sont actives pour les exports, et PostgreSQL Anonymizer est préparé pour les usages SQL avancés si l'image PostgreSQL le fournit.
+
+## 32. Comment les performances sont-elles prises en compte ?
+
+### Réponse courte
+
+La performance est traitée par un ensemble de choix complémentaires : index SQL,
+requêtes ORM optimisées, cache Redis, pagination, traitements asynchrones Celery,
+assets statiques servis par Nginx et rétention des mesures.
+
+### Comment dans le code ?
+
+Index et contraintes :
+
+- [`backend/api/models.py`](backend/api/models.py)
+- migrations [`backend/api/migrations/`](backend/api/migrations/)
+
+Les index couvrent notamment :
+
+- `Reservation(emplacement, date_debut, date_fin)` pour vérifier les
+  chevauchements de créneaux ;
+- `Reservation(utilisateur, date_debut)` pour l'historique utilisateur ;
+- `Session(start_time, end_time)` et `Session(charge_state, end_time)` pour les
+  sessions actives ou bloquées ;
+- `SessionTelemetry(session, timestamp)` pour les graphes de session ;
+- `CapteurData(timestamp)` pour la télémétrie brute ;
+- `Device(status, last_seen)` pour la supervision ESP32 ;
+- `Alerte(status, timestamp)` pour les alertes ouvertes et récentes.
+
+Optimisation ORM :
+
+Le code utilise `select_related()` pour les relations simples et
+`prefetch_related()` pour les collections, par exemple stations, bornes,
+emplacements, devices, réservations et techniciens.
+
+Références :
+
+- vues API dans [`backend/api/views.py`](backend/api/views.py)
+- services supervision dans [`backend/api/services/supervision.py`](backend/api/services/supervision.py)
+- ingestion télémétrie dans [`backend/api/services/telemetry.py`](backend/api/services/telemetry.py)
+
+Cache :
+
+- `STATIONS_CATALOG_CACHE_SECONDS=60` pour éviter de recalculer trop souvent le
+  catalogue station/borne/emplacement ;
+- Redis comme cache partagé en production ;
+- cache temporaire pour sessions mobiles et codes d'association RFID.
+
+Asynchrone :
+
+Celery évite de faire les traitements lourds dans le thread MQTT ou dans une
+requête HTTP longue :
+
+- parsing et ingestion MQTT ;
+- création/résolution d'alertes ;
+- notifications ;
+- rétention des mesures ;
+- anonymisation/rétention RGPD.
+
+Nginx et frontend :
+
+- frontend Vite buildé en fichiers statiques ;
+- cache long sur `/assets/` et `/static/` ;
+- gzip activé ;
+- logs Nginx avec temps de réponse upstream ;
+- limites de requêtes et taille maximale de body.
+
+Tests de performance :
+
+- [`backend/api/tests/test_query_performance.py`](backend/api/tests/test_query_performance.py)
+
+Ces tests vérifient que certaines vues gardent un nombre de requêtes constant,
+même quand le nombre d'objets augmente. C'est important pour éviter le problème
+N+1.
+
+### Limites
+
+Le projet n'a pas encore de test de charge industriel. TimescaleDB est actif via
+des hypertables miroir pour les mesures capteurs et la télémétrie de session,
+avec compression et rétention. Si le nombre d'ESP32 ou de mesures augmente
+fortement, il faudra compléter par des tests de charge, une analyse régulière
+des requêtes Grafana, des index supplémentaires si nécessaire et une supervision
+des requêtes lentes avec `pg_stat_statements`.
+
+### Phrase de soutenance
+
+> La performance n'est pas seulement traitée par une technologie. Elle est
+> répartie entre la base, le backend, Redis, Celery, Nginx et les tests. Les index
+> accélèrent les recherches métier, `select_related` et `prefetch_related`
+> évitent les requêtes N+1, Redis met en cache les données fréquentes et Celery
+> sort les traitements lourds du chemin direct utilisateur.
+
+## 33. Comment résumer la sécurité globale du projet ?
+
+### Réponse courte
+
+Le projet applique une défense en profondeur. Aucune mesure ne suffit seule :
+les protections se cumulent entre navigateur, API, terminal Raspberry, MQTT,
+base de données, Nginx, Docker et exploitation.
+
+### Couches principales
+
+Identité utilisateur :
+
+- mots de passe hashés par Django avec `set_password()` ;
+- règles de complexité ;
+- JWT access court en mémoire ;
+- refresh token en cookie `HttpOnly`.
+
+API :
+
+- permissions DRF ;
+- rôles utilisateur/admin/technicien ;
+- périmètre technicien par station ;
+- validation serveur par serializers et services métier ;
+- rate limiting par usage sensible.
+
+Moyens d'accès :
+
+- QR/SMS/RFID non stockés en clair ;
+- secrets temporaires dérivés avec HMAC-SHA256 ;
+- hash stocké en base ;
+- expiration, révocation et nombre d'essais limité ;
+- code SMS compatible clavier matriciel mais renforcé par longueur 8 et
+  verrouillage.
+
+Terminal Raspberry :
+
+- endpoints terminal séparés ;
+- secret `X-Terminal-Secret` ;
+- comparaison par `hmac.compare_digest` ;
+- validation station/borne/emplacement/créneau avant commande physique ;
+- cache offline limité aux droits déjà synchronisés.
+
+IoT/MQTT :
+
+- topics structurés par station/borne/emplacement ;
+- commandes avec `command_id` ;
+- ACK attendus ;
+- Mosquitto avec comptes et ACL en production ;
+- TLS MQTT à activer si le réseau n'est pas maîtrisé.
+
+Infrastructure :
+
+- Nginx comme reverse proxy ;
+- HTTPS signé par la CA locale Smallstep `Metropole Verte` en production LAN ;
+- HSTS activé avec `max-age=31536000`, sans `includeSubDomains` ni `preload`
+  car le prototype utilise une IP locale et une CA privée ;
+- CSP, CORS, cookies `Secure` en production ;
+- services internes non exposés directement ;
+- conteneurs non-root ;
+- logs bornés ;
+- sauvegarde et restauration documentées.
+
+TLS / certificats :
+
+- la CA Smallstep tourne sur le serveur Debian avec `step-ca.service` ;
+- la racine de confiance est `Metropole Verte` ;
+- le certificat Nginx couvre `192.168.10.10`, `127.0.0.1`, `localhost` et
+  `SRV-Station` dans les SAN ;
+- la racine CA doit être installée sur le PC, le téléphone, le Raspberry et les
+  conteneurs qui valident TLS ;
+- MQTT TLS est préparé mais doit être activé seulement après génération du
+  certificat Mosquitto côté Raspberry et distribution de la racine CA aux ESP32.
+
+Le point important à défendre est la séparation entre chiffrement et confiance :
+TLS chiffre la connexion, mais le navigateur n'accepte le certificat que si la
+racine `Metropole Verte` est installée et si l'adresse utilisée apparaît dans
+les SAN du certificat. C'est pour cela que l'IP du serveur est présente dans le
+certificat.
+
+Protection des données :
+
+- anonymisation immédiate après suppression de compte ;
+- rétention technique configurée ;
+- vue anonymisée et PostgreSQL Anonymizer optionnel ;
+- limitation des données dans les exports ;
+- prévisualisation des exports administrateur avant téléchargement ;
+- export des journaux de sécurité filtrable par période, statut, action,
+  utilisateur ou adresse IP ;
+- journalisation des téléchargements d'exports dans `JournalSecurite`.
+
+### Limites à annoncer franchement
+
+- pas de coffre-fort de secrets type Vault ;
+- pas de pentest externe ;
+- pas encore de recette complète sur matériel final ;
+- TLS MQTT et certificats définitifs à finaliser selon le réseau de production ;
+- RFID simple potentiellement clonable selon le badge.
+
+### Phrase de soutenance
+
+> La sécurité est construite par couches. Le navigateur ne décide pas seul, le
+> Raspberry ne décide pas seul, l'ESP32 ne décide pas des droits utilisateur, et
+> la base ne stocke pas les secrets en clair. Le backend reste la source de
+> vérité métier, avec permissions, rate limiting, secrets hashés, journalisation,
+> contrôle terminal et durcissement production.
+
+## 34. Comment expliquer le projet en une phrase technique ?
 
 Le projet est une architecture Django/PWA/Raspberry/ESP32 où le backend central décide les droits d'accès, le Raspberry exécute localement les commandes de borne, les ESP32 remontent leur télémétrie par MQTT, Redis/Celery absorbe l'ingestion asynchrone, PostgreSQL/TimescaleDB conserve l'historique, et Grafana/Channels exposent la supervision.

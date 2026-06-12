@@ -26,14 +26,16 @@ from umqtt.simple import MQTTClient
 # Local configuration to adjust before flashing with Thonny.
 # ---------------------------------------------------------------------------
 
-WIFI_SSID = "WIFI_SSID"
-WIFI_PASSWORD = "WIFI_PASSWORD"
+WIFI_SSID = "MetropoleVerte-IoT"
+WIFI_PASSWORD = "NouveauMotDePasse8car"
 
-# For local tests, use the Wi-Fi IP of the PC/Raspberry running Mosquitto.
-MQTT_HOST = "192.168.1.10"
+# For the target station setup, use the Wi-Fi/AP IP of the Raspberry running
+# Mosquitto. In the soutenance topology, ESP32 devices join the Raspberry
+# access point on 192.168.20.0/24, so they reach Mosquitto through wlan0.
+MQTT_HOST = "192.168.20.1"
 MQTT_PORT = 1883
-MQTT_USER = None
-MQTT_PASSWORD = None
+MQTT_USER = "esp32_station_demo_borne_1_slot1"
+MQTT_PASSWORD = "TEST"
 MQTT_KEEPALIVE_SECONDS = 60
 MQTT_BASE_TOPIC = "station"
 MQTT_TLS_ENABLED = False
@@ -101,7 +103,7 @@ HALL_PIN = 19
 DOOR_PIN = 25
 LOCK_PIN = 26
 LOCK_RELAY_ACTIVE_LOW = True
-LOCK_UNLOCK_PULSE_SECONDS = 5
+LOCK_AUTO_RELOCK_SECONDS = 30
 CHARGE_RELAY_PIN = 22
 
 # Optional local visual/acoustic indicators from the prototype alert circuit.
@@ -117,10 +119,15 @@ LOCAL_ALARM_PIN = 27
 TELEMETRY_ACTIVE_INTERVAL_SECONDS = 5
 TELEMETRY_IDLE_INTERVAL_SECONDS = 30
 STATUS_INTERVAL_SECONDS = 15
-WARNING_CURRENT_A = 2.5
-MAX_CURRENT_A = 3.0
-WARNING_TEMPERATURE_C = 45.0
-MAX_TEMPERATURE_C = 50.0
+GREEN_CHARGING_BLINK_MS = 500
+# Demo thresholds requested for the soutenance prototype.
+# WARNING_CURRENT_A drives the yellow LED.
+# MAX_CURRENT_A is the local safety threshold: red LED, buzzer, MQTT alert
+# and automatic STOP when the current reaches the critical demo limit.
+WARNING_CURRENT_A = 5.0
+MAX_CURRENT_A = 6.0
+WARNING_TEMPERATURE_C = 28.0
+MAX_TEMPERATURE_C = 999.0
 
 
 state = "idle"
@@ -145,10 +152,13 @@ red_led = None
 buzzer = None
 local_alarm = None
 lock_state_locked = None
+unlock_deadline_at = 0
 mqtt_client = None
 wlan = None
 reported_firmware_version = FIRMWARE_VERSION
 last_local_alert_level = ""
+green_blink_on = False
+last_green_blink_ms = 0
 
 
 def normalized_topic_root():
@@ -177,6 +187,22 @@ TOPIC_TELEMETRY = topic("telemetry")
 def now_seconds():
     """Return a monotonic-ish timestamp available on MicroPython."""
     return time.time()
+
+
+def now_millis():
+    """Return a monotonic millisecond clock for non-blocking LED blinking."""
+    try:
+        return time.ticks_ms()
+    except AttributeError:
+        return int(time.time() * 1000)
+
+
+def elapsed_millis(current_ms, previous_ms):
+    """Return elapsed milliseconds with MicroPython tick wrap-around support."""
+    try:
+        return time.ticks_diff(current_ms, previous_ms)
+    except AttributeError:
+        return current_ms - previous_ms
 
 
 def round_value(value, digits=3):
@@ -212,10 +238,29 @@ def connect_wifi():
     station = network.WLAN(network.STA_IF)
     station.active(True)
 
-    if not station.isconnected():
-        print("Connecting to WiFi...")
+    current_ssid = ""
+    try:
+        current_ssid = station.config("essid")
+    except Exception:
+        current_ssid = ""
+
+    if station.isconnected() and current_ssid == WIFI_SSID:
+        print("WiFi already connected to configured SSID:", WIFI_SSID)
+    else:
+        if station.isconnected():
+            print("Disconnecting from previous WiFi:", current_ssid or "<unknown>")
+            station.disconnect()
+            time.sleep(1)
+
+        # A soft reboot can keep stale Wi-Fi state on some MicroPython builds.
+        # Restarting STA mode makes sure the new credentials are really used.
+        station.active(False)
+        time.sleep(1)
+        station.active(True)
+
+        print("Connecting to WiFi SSID:", WIFI_SSID)
         station.connect(WIFI_SSID, WIFI_PASSWORD)
-        max_wait = 20
+        max_wait = 25
         while max_wait > 0 and not station.isconnected():
             max_wait -= 1
             time.sleep(1)
@@ -223,7 +268,13 @@ def connect_wifi():
     if not station.isconnected():
         raise RuntimeError("WiFi connection failed")
 
-    print("Connected to WiFi:", station.ifconfig())
+    ip_address, netmask, gateway, dns = station.ifconfig()
+    print("WiFi connected.")
+    print("ESP32 IP:", ip_address)
+    print("Netmask:", netmask)
+    print("Gateway:", gateway)
+    print("DNS:", dns)
+    print("MQTT broker:", "{}:{}".format(MQTT_HOST, MQTT_PORT))
     return station
 
 
@@ -632,12 +683,35 @@ def unlock_slot():
         lock.value(lock_pin_value(False))
 
 
-def pulse_unlock_slot(duration_seconds=LOCK_UNLOCK_PULSE_SECONDS):
-    """Open the lock for a short pulse, then return the relay to rest."""
+def clear_unlock_window():
+    """Clear any pending auto-relock deadline."""
+    global unlock_deadline_at
+    unlock_deadline_at = 0
+
+
+def open_unlock_window():
+    """Open the lock and schedule a non-blocking auto-relock deadline."""
+    global unlock_deadline_at
     unlock_slot()
-    if lock is not None and duration_seconds and duration_seconds > 0:
-        time.sleep(duration_seconds)
+    unlock_deadline_at = now_seconds() + LOCK_AUTO_RELOCK_SECONDS
+
+
+def enforce_unlock_timeout(client):
+    """Relock automatically when access was granted but no charge started."""
+    global unlock_deadline_at, state, session_id
+    if not unlock_deadline_at:
+        return
+    if state == "charging":
+        clear_unlock_window()
+        return
+    if now_seconds() >= unlock_deadline_at:
         lock_slot()
+        clear_unlock_window()
+        state = "idle"
+        set_local_alert_outputs("idle")
+        publish_status(client, "locked", "auto_relock_no_charge")
+        publish_telemetry_now(client)
+        session_id = ""
 
 
 def start_charge_output():
@@ -663,7 +737,7 @@ def compute_local_alert_level(power_sample, environment):
     current = power_sample.get("current")
     temperature = environment.get("temperature")
 
-    if current is not None and current > MAX_CURRENT_A:
+    if current is not None and current >= MAX_CURRENT_A:
         return "danger"
     if temperature is not None and temperature > MAX_TEMPERATURE_C:
         return "danger"
@@ -678,11 +752,28 @@ def compute_local_alert_level(power_sample, environment):
 
 def set_local_alert_outputs(level):
     """Apply the current local alert level to LEDs, buzzer and alarm pin."""
-    set_output(green_led, level == "normal")
+    set_output(green_led, level == "normal" and state != "charging")
     set_output(yellow_led, level == "warning")
     set_output(red_led, level == "danger")
     set_output(buzzer, level == "danger")
     set_output(local_alarm, level == "danger")
+
+
+def refresh_green_charge_blink():
+    """Blink the green LED while the charge is physically active."""
+    global green_blink_on, last_green_blink_ms
+    if green_led is None:
+        return
+    if state != "charging" or last_local_alert_level in ("warning", "danger"):
+        green_blink_on = False
+        last_green_blink_ms = 0
+        return
+
+    now = now_millis()
+    if not last_green_blink_ms or elapsed_millis(now, last_green_blink_ms) >= GREEN_CHARGING_BLINK_MS:
+        green_blink_on = not green_blink_on
+        last_green_blink_ms = now
+        set_output(green_led, green_blink_on)
 
 
 def update_local_alert_outputs(power_sample, environment):
@@ -694,11 +785,17 @@ def update_local_alert_outputs(power_sample, environment):
     if level != last_local_alert_level:
         print("Local alert level:", level)
         last_local_alert_level = level
+    refresh_green_charge_blink()
 
 
 def publish_json(client, mqtt_topic, payload):
     """Publish one JSON message on MQTT."""
     client.publish(mqtt_topic, ujson.dumps(payload))
+
+
+def mqtt_json_string(value):
+    """Return a JSON string literal for compact manually ordered MQTT payloads."""
+    return ujson.dumps("" if value is None else str(value))
 
 
 def publish_status(client, event, reason=""):
@@ -719,17 +816,25 @@ def publish_status(client, event, reason=""):
 
 def publish_ack(client, command_payload, status, message=""):
     """Publish an ACK matching the Raspberry command_id/action contract."""
-    payload = {
-        "command_id": str(command_payload.get("command_id") or ""),
-        "action": str(command_payload.get("action") or "").upper(),
-        "status": status,
-        "message": message,
-        "state": state,
-        "session_id": session_id or str(command_payload.get("session_id") or ""),
-        "uptime_seconds": now_seconds(),
-    }
-    payload.update(device_identity())
-    publish_json(client, TOPIC_ACK, payload)
+    command_id = str(command_payload.get("command_id") or "")
+    action = str(command_payload.get("action") or "").upper()
+    related_session = session_id or str(command_payload.get("session_id") or "")
+    # Keep ACKs compact and ordered. MicroPython can truncate long MQTT JSON
+    # payloads on constrained boards; the Raspberry needs these fields first.
+    payload = (
+        '{"command_id":'
+        + mqtt_json_string(command_id)
+        + ',"action":'
+        + mqtt_json_string(action)
+        + ',"status":'
+        + mqtt_json_string(status)
+        + ',"state":'
+        + mqtt_json_string(state)
+        + ',"session_id":'
+        + mqtt_json_string(related_session)
+        + ',"source":"esp32"}'
+    )
+    client.publish(TOPIC_ACK, payload)
 
 
 def publish_alert(client, alert_type, message=""):
@@ -757,9 +862,8 @@ def accept_unlock(client, payload):
     state = "waiting_plug"
     set_local_alert_outputs("normal")
     publish_ack(client, payload, "unlocked", "Boîtier déverrouillé.")
+    open_unlock_window()
     publish_status(client, "unlocked")
-    pulse_unlock_slot()
-    publish_status(client, "waiting_plug", "unlock_pulse_finished")
     publish_telemetry_now(client)
 
 
@@ -775,6 +879,7 @@ def accept_start(client, payload):
     if read_cable_present() and read_door_closed():
         start_charge_output()
         lock_slot()
+        clear_unlock_window()
         state = "charging"
         set_local_alert_outputs("normal")
         publish_status(client, "charging_started")
@@ -797,7 +902,7 @@ def accept_stop(client, payload, reason="remote_stop"):
     state = "idle"
     set_local_alert_outputs("idle")
     publish_ack(client, payload, "stopped", "Charge arrêtée.")
-    pulse_unlock_slot()
+    open_unlock_window()
     publish_status(client, "stopped", reason)
     publish_telemetry_now(client)
     session_id = ""
@@ -819,6 +924,7 @@ def handle_command(topic_bytes, message):
         accept_stop(mqtt_client, payload)
     elif action == "LOCK":
         lock_slot()
+        clear_unlock_window()
         publish_status(mqtt_client, "locked")
         publish_ack(mqtt_client, payload, "locked", "Boîtier verrouillé.")
         publish_telemetry_now(mqtt_client)
@@ -905,8 +1011,8 @@ def safety_check(client, power_sample, environment):
     elif PHYSICAL_INPUTS_ENABLED and not read_cable_present():
         publish_alert(client, "cable_removed", "Câble retiré pendant la charge.")
         accept_stop(client, {"action": "STOP", "command_id": "local-cable"}, "cable_removed")
-    elif current is not None and current > MAX_CURRENT_A:
-        publish_alert(client, "overcurrent", "Courant trop eleve.")
+    elif current is not None and current >= MAX_CURRENT_A:
+        publish_alert(client, "overcurrent", "Courant trop élevé.")
         accept_stop(client, {"action": "STOP", "command_id": "local-overcurrent"}, "overcurrent")
     elif temperature is not None and temperature > MAX_TEMPERATURE_C:
         publish_alert(client, "overheat", "Temperature trop elevee.")
@@ -983,6 +1089,8 @@ def main():
         try:
             mqtt_client.check_msg()
             now = now_seconds()
+            enforce_unlock_timeout(mqtt_client)
+            refresh_green_charge_blink()
 
             if now - last_telemetry_at >= current_telemetry_interval():
                 publish_telemetry_now(mqtt_client)

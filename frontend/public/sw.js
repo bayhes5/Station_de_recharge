@@ -1,4 +1,4 @@
-const CACHE_VERSION = "metropole-verte-v3";
+const CACHE_VERSION = "metropole-verte-v7";
 const APP_SHELL = [
   "/",
   "/index.html",

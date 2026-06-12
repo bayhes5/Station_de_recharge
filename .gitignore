@@ -28,3 +28,7 @@ presentation_final/
 scripts/build-report.ps1
 debug.log
 .dev-logs/
+.codex_temp/
+.tmp/
+presentation_backups/
+test-results/

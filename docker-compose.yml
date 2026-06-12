@@ -117,6 +117,9 @@ services:
       - "1025:1025"
 
   mqtt:
+    profiles:
+      - local-mqtt
+      - simulation
     image: eclipse-mosquitto:2
     container_name: mqtt_broker
     env_file:
@@ -161,8 +164,6 @@ services:
       db:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      mqtt:
         condition: service_healthy
       mailpit:
         condition: service_started
@@ -260,8 +261,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      mqtt:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "manage.py", "check_mqtt_bridge_health"]
       interval: 10s
@@ -283,7 +282,7 @@ services:
       - ./backend:/app
     environment:
       BACKEND_API_BASE_URL: http://backend:8000/api
-      MQTT_HOST: mqtt
+      MQTT_HOST: ${MQTT_HOST:-mqtt}
       MQTT_PORT: 1883
       MQTT_BASE_TOPIC: station
     depends_on:
@@ -349,7 +348,7 @@ services:
     ports:
       - "9000:9000"
     environment:
-      MQTT_HOST: mqtt
+      MQTT_HOST: ${MQTT_HOST:-mqtt}
       MQTT_PORT: 1883
       MQTT_BASE_TOPIC: station
       MQTT_RASPBERRY_CLIENT_ID: raspberry-kiosk
@@ -360,14 +359,15 @@ services:
       MQTT_ACK_TIMEOUT_SECONDS: ${MQTT_ACK_TIMEOUT_SECONDS:-2.5}
       MQTT_ACK_REQUIRED: ${MQTT_ACK_REQUIRED:-false}
       BACKEND_API_BASE_URL: http://backend:8000/api
+      MOBILE_FRONTEND_BASE_URL: ${MOBILE_FRONTEND_BASE_URL:-${FRONTEND_BASE_URL:-}}
       TERMINAL_API_SECRET: ${TERMINAL_API_SECRET:-dev-terminal-secret}
+      TERMINAL_CODE: ${TERMINAL_CODE:-station-demo-borne-1}
       TERMINAL_STATION_ID: ${TERMINAL_STATION_ID:-}
       TERMINAL_BORNE_ID: ${TERMINAL_BORNE_ID:-}
       OFFLINE_DB_PATH: /tmp/offline_cache.sqlite3
       CHARGE_STATE_DB_PATH: /tmp/charge_state.sqlite3
     depends_on:
       - backend
-      - mqtt
 
   reverse-proxy:
     image: nginx:1.27-alpine
@@ -379,6 +379,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "8443:443"
     depends_on:
       - backend
       - frontend

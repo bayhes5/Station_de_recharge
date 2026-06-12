@@ -100,6 +100,135 @@ function createStatusBadge(label, variant = "") {
     return badge;
 }
 
+function isAnonymizedIdentity(value) {
+    return /@anonymized\.invalid$/i.test(String(value || ""));
+}
+
+function formatUserDisplay(value) {
+    if (!value || isAnonymizedIdentity(value)) {
+        return "Compte supprimé";
+    }
+    return cleanDisplayText(value);
+}
+
+function createStackedCell(lines, className = "") {
+    const cell = document.createElement("div");
+    cell.className = `table-stacked-cell${className ? ` ${className}` : ""}`;
+    lines.filter(Boolean).forEach((line, index) => {
+        const element = document.createElement(index === 0 ? "strong" : "span");
+        element.textContent = line;
+        cell.appendChild(element);
+    });
+    return cell;
+}
+
+function formatReservationStatus(status) {
+    const labels = {
+        confirmee: "Confirmée",
+        active: "Active",
+        en_attente: "En attente",
+        terminee: "Terminée",
+        annulee: "Annulée",
+    };
+    return labels[status] || status || "-";
+}
+
+function formatAuthMode(mode) {
+    const labels = {
+        rfid: "Badge RFID",
+        qr: "QR code",
+        code: "Code SMS",
+    };
+    return labels[mode] || mode || "-";
+}
+
+function cleanDisplayText(value) {
+    if (value === null || value === undefined || value === "") return "-";
+    return String(value)
+        .replaceAll("\u00c3\u00a9", "é")
+        .replaceAll("\u00c3\u00a8", "è")
+        .replaceAll("\u00c3\u00aa", "ê")
+        .replaceAll("\u00c3\u00b4", "ô")
+        .replaceAll("\u00c3\u00a2", "â")
+        .replaceAll("\u00c3\u00a0", "à")
+        .replaceAll("\u00c3\u00a7", "ç")
+        .replaceAll("\u00c3\u2030", "É")
+        .replaceAll("\u00e2\u20ac\u2122", "’")
+        .replaceAll("\u00e2\u20ac\u201c", "–");
+}
+
+function formatUserStatus(status) {
+    const labels = {
+        actif: "Actif",
+        suspendu: "Suspendu",
+        archive: "Archivé",
+    };
+    return labels[status] || cleanDisplayText(status);
+}
+
+function formatStationStatus(status) {
+    const labels = {
+        active: "Active",
+        maintenance: "Maintenance",
+        inactive: "Inactive",
+    };
+    return labels[status] || cleanDisplayText(status);
+}
+
+function formatMaintenanceStatus(status) {
+    const labels = {
+        planifiee: "Planifiée",
+        en_cours: "En cours",
+        realisee: "Réalisée",
+        annulee: "Annulée",
+    };
+    return labels[status] || cleanDisplayText(status);
+}
+
+function formatLockState(lockState) {
+    const labels = {
+        verrouille: "Verrouillée",
+        deverrouille: "Déverrouillée",
+        bloque: "Bloquée",
+    };
+    return labels[lockState] || cleanDisplayText(lockState);
+}
+
+function formatFirmwareStatus(status) {
+    const labels = {
+        unknown: "Non renseigné",
+        up_to_date: "À jour",
+        update_required: "Mise à jour requise",
+        update_scheduled: "Mise à jour planifiée",
+        updating: "Mise à jour en cours",
+        failed: "Échec de mise à jour",
+    };
+    return labels[status] || cleanDisplayText(status);
+}
+
+function formatAlertStatus(status) {
+    const labels = {
+        nouvelle: "Nouvelle",
+        active: "Active",
+        prise_en_charge: "Prise en charge",
+        resolue: "Résolue",
+        closed: "Fermée",
+        fermee: "Fermée",
+    };
+    return labels[status] || cleanDisplayText(status);
+}
+
+function alertSeverityVariant(severity) {
+    const normalized = normalizeSearchValue(severity);
+    if (["critical", "critique", "high", "haute", "elevee", "elevée"].includes(normalized)) {
+        return "danger";
+    }
+    if (["medium", "moyenne", "warning", "avertissement", "moderee", "modérée"].includes(normalized)) {
+        return "warning";
+    }
+    return "";
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
     const AUTO_REFRESH_MS = 30000;
     const GRAFANA_DASHBOARD_UID = "station-overview";
@@ -111,14 +240,24 @@ document.addEventListener("DOMContentLoaded", async () => {
     const logoutBtn = document.getElementById("logout-admin");
     const grafanaLink = document.getElementById("grafana-link");
     const realtimeStatus = document.getElementById("supervision-realtime-status");
+    const exportJsonBtn = document.getElementById("admin-export-json");
+    const exportCsvBtn = document.getElementById("admin-export-csv");
+    const exportDatasetSelect = document.getElementById("admin-export-dataset");
+    const exportStationSelect = document.getElementById("admin-export-station");
+    const exportDateFromInput = document.getElementById("admin-export-date-from");
+    const exportDateToInput = document.getElementById("admin-export-date-to");
+    const exportLogStatusSelect = document.getElementById("admin-export-log-status");
+    const exportQueryInput = document.getElementById("admin-export-query");
+    const exportSummary = document.getElementById("admin-export-summary");
+    const exportPreviewTable = document.getElementById("admin-export-preview-table");
 
     let users = [];
     let stations = [];
     let bornes = [];
     let emplacements = [];
     let technicians = [];
-    let technicianAssignments = [];
     let maintenances = [];
+    let ongoingReservations = [];
     let upcomingReservations = [];
     let archivedReservations = [];
     let activeSessions = [];
@@ -134,11 +273,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     let currentTab = "overview";
     let isLoading = false;
     let isRefreshingLiveData = false;
+    let isRefreshingSessionData = false;
+    let exportPreviewTimer = null;
+    let exportPreviewRequestId = 0;
     let supervisionSocket = null;
     let supervisionReconnectTimer = null;
     let supervisionRealtimeStarted = false;
     let supervisionReconnectAttempts = 0;
-    const paginatedTables = ["users", "stations", "technicians", "technicianAssignments", "maintenances"];
+    const paginatedTables = ["users", "stations", "technicians", "maintenances"];
     const supervisionPaginationState = {
         devices: { page: 1, pageSize: 10 },
         commands: { page: 1, pageSize: 10 },
@@ -161,8 +303,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         users: "",
         stations: "",
         technicians: "",
-        technicianAssignments: "",
         maintenances: "",
+        ongoingReservations: "",
         upcomingReservations: "",
         archivedReservations: "",
         activeSessions: "",
@@ -192,23 +334,16 @@ document.addEventListener("DOMContentLoaded", async () => {
             technician.utilisateur_pseudo,
             ...(technician.assigned_stations || []).map((assignment) => `${assignment.station_nom} ${assignment.role}`),
         ]),
-        technicianAssignments: (assignment) => collectSearchText([
-            assignment.technicien_nom,
-            assignment.station_nom,
-            assignment.station_localisation,
-            assignment.role,
-            assignment.role_display,
-            assignment.is_active ? "active" : "inactive",
-        ]),
         maintenances: (maintenance) => collectSearchText([
             maintenance.station_nom,
             maintenance.technicien_nom,
             maintenance.type,
             maintenance.description,
-            maintenance.status,
+            formatMaintenanceStatus(maintenance.status),
             formatDateTime(maintenance.date_planifiee),
             formatDateTime(maintenance.date_realisee),
         ]),
+        ongoingReservations: reservationSearchText,
         upcomingReservations: reservationSearchText,
         archivedReservations: reservationSearchText,
         activeSessions: sessionSearchText,
@@ -226,7 +361,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             reservation.auth_mode,
             reservation.auth_display_value,
             reservation.auth_expiration,
-            reservation.statut,
+            formatReservationStatus(reservation.statut),
             formatDateTime(reservation.date_debut),
             formatDateTime(reservation.date_fin),
         ]);
@@ -240,8 +375,37 @@ document.addEventListener("DOMContentLoaded", async () => {
             session.borne,
             session.emplacement,
             session.status === "active" ? "en cours active" : "archivee archivée",
+            session.latest_telemetry?.courant,
+            session.latest_telemetry?.tension,
+            session.latest_telemetry?.puissance_w,
+            session.latest_telemetry?.energie_kwh,
+            formatDateTime(session.latest_telemetry?.timestamp),
             formatDateTime(session.start_time),
             formatDateTime(session.end_time),
+        ]);
+    }
+
+    function formatTelemetryNumber(value, unit, digits = 2) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) return "-";
+        return `${numeric.toLocaleString("fr-FR", {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: digits,
+        })} ${unit}`.trim();
+    }
+
+    function renderSessionTelemetry(session) {
+        const telemetry = session.latest_telemetry;
+        if (!telemetry) {
+            return createStackedCell(["Aucune mesure"], "muted-cell");
+        }
+        const current = formatTelemetryNumber(telemetry.courant, "A");
+        const power = formatTelemetryNumber(telemetry.puissance_w, "W", 1);
+        const energy = formatTelemetryNumber(telemetry.energie_kwh, "kWh", 4);
+        return createStackedCell([
+            `${current} · ${power}`,
+            `Énergie ${energy}`,
+            formatDateTime(telemetry.timestamp),
         ]);
     }
 
@@ -344,6 +508,12 @@ document.addEventListener("DOMContentLoaded", async () => {
             if (message?.type !== "supervision.snapshot" || !message.payload) return;
             supervision = message.payload;
             renderSupervision();
+            if (
+                message.summary?.session_telemetry_created ||
+                ["mqtt-telemetry", "mqtt-status", "mqtt-ack"].includes(message.reason)
+            ) {
+                refreshSessionData();
+            }
         });
 
         socket.addEventListener("close", async (event) => {
@@ -528,12 +698,160 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (pushHash && window.location.hash !== `#${name}`) {
             window.history.replaceState(null, "", `#${name}`);
         }
+        if (name === "exports") {
+            scheduleExportPreview(0);
+        }
+    }
+
+    function setOperationsSubtab(name) {
+        document.querySelectorAll("[data-operations-subtab]").forEach((button) => {
+            const active = button.dataset.operationsSubtab === name;
+            button.classList.toggle("active", active);
+            button.setAttribute("aria-selected", String(active));
+        });
+        document.querySelectorAll("[data-operations-panel]").forEach((panel) => {
+            panel.hidden = panel.dataset.operationsPanel !== name;
+        });
     }
 
     function setStatus(message, isError = false) {
         status.classList.toggle("error", isError);
         status.classList.toggle("success", Boolean(message) && !isError);
         status.textContent = message;
+    }
+
+    function collectExportFilters() {
+        return {
+            dataset: exportDatasetSelect?.value || "operational",
+            station_id: exportStationSelect?.value || "",
+            date_from: exportDateFromInput?.value || "",
+            date_to: exportDateToInput?.value || "",
+            log_status: exportLogStatusSelect?.value || "",
+            query: exportQueryInput?.value || "",
+        };
+    }
+
+    function updateExportFilterAvailability() {
+        const isSecurityLogExport = exportDatasetSelect?.value === "security_logs";
+        if (exportStationSelect) {
+            exportStationSelect.disabled = isSecurityLogExport;
+            if (isSecurityLogExport) exportStationSelect.value = "";
+        }
+        [exportLogStatusSelect, exportQueryInput].forEach((field) => {
+            if (!field) return;
+            field.disabled = !isSecurityLogExport;
+            if (!isSecurityLogExport) field.value = "";
+        });
+    }
+
+    function exportSummaryText(payload) {
+        const metadata = payload.metadata || {};
+        const summary = payload.summary || {};
+        const rowCount = payload.rows?.length ?? 0;
+        if (metadata.dataset === "security_logs") {
+            const total = summary.total_matches ?? rowCount;
+            const limitText = summary.limited ? `, limit\u00e9 \u00e0 ${rowCount} lignes affich\u00e9es` : "";
+            return `${metadata.label || "Journaux"} : ${total} entr\u00e9e(s) trouv\u00e9e(s)${limitText}.`;
+        }
+        return `${metadata.label || "Export"} : ${rowCount} emplacement(s), ${summary.sessions_in_period ?? 0} session(s), ${summary.reservations_in_period ?? 0} r\u00e9servation(s).`;
+    }
+
+    function renderExportPreview(payload) {
+        if (!exportSummary || !exportPreviewTable) return;
+        exportSummary.textContent = exportSummaryText(payload);
+
+        const metadata = payload.metadata || {};
+        const rows = payload.rows || [];
+        const columns = (metadata.columns || []).map((key) => ({
+            key,
+            label: {
+                date_action: "Date",
+                utilisateur: "Utilisateur",
+                action: "Action",
+                statut: "Statut",
+                ip: "Adresse IP",
+                statut_emplacement: "\u00c9tat emplacement",
+                serrure: "Serrure",
+                statut_esp32: "Statut ESP32",
+                firmware_attendu: "Firmware attendu",
+                conformite_firmware: "Conformit\u00e9 firmware",
+                derniere_telemetrie: "Derni\u00e8re t\u00e9l\u00e9m\u00e9trie",
+                session_active: "Session active",
+                etat_session: "\u00c9tat session",
+                reservations_periode: "R\u00e9servations",
+                sessions_periode: "Sessions",
+                alertes_actives: "Alertes actives",
+            }[key] || key.replaceAll("_", " "),
+            render: (row) => {
+                const value = row[key];
+                if (key.startsWith("date") || key === "derniere_telemetrie") return formatDateTime(value);
+                if (key === "utilisateur") return formatUserDisplay(value);
+                if (key === "statut") return value === "success" ? "Succ\u00e8s" : value === "failure" ? "\u00c9chec" : cleanDisplayText(value);
+                return cleanDisplayText(value);
+            },
+        }));
+        createDataTable(
+            exportPreviewTable,
+            columns,
+            rows,
+            "Aucune donn\u00e9e ne correspond aux filtres."
+        );
+    }
+
+    async function previewOperationalExport() {
+        if (!exportPreviewTable) return;
+        const requestId = ++exportPreviewRequestId;
+        if (exportSummary) {
+            exportSummary.textContent = "Chargement des résultats...";
+        }
+        try {
+            const payload = await window.AuthAPI.getAdminOperationalExport(collectExportFilters());
+            if (requestId !== exportPreviewRequestId) return;
+            renderExportPreview(payload);
+        } catch (error) {
+            if (requestId !== exportPreviewRequestId) return;
+            exportSummary.textContent = "";
+            createDataTable(exportPreviewTable, [], [], "Aucune donn\u00e9e disponible pour ces filtres.");
+            setStatus(error.message || "Impossible de charger les donn\u00e9es d'export.", true);
+        }
+    }
+
+    function scheduleExportPreview(delay = 350) {
+        if (!exportPreviewTable) return;
+        window.clearTimeout(exportPreviewTimer);
+        exportPreviewTimer = window.setTimeout(() => {
+            previewOperationalExport();
+        }, delay);
+    }
+
+    async function downloadOperationalExport(format) {
+        try {
+            const result = await window.AuthAPI.downloadAdminOperationalExport(format, collectExportFilters());
+            const url = URL.createObjectURL(result.blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = result.filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+            setStatus(`Export ${format.toUpperCase()} généré.`);
+        } catch (error) {
+            setStatus(error.message || "Export impossible.", true);
+        }
+    }
+
+    function populateExportStationFilter() {
+        if (!exportStationSelect) return;
+        const selected = exportStationSelect.value;
+        exportStationSelect.replaceChildren(new Option("Toutes les stations", ""));
+        stations
+            .slice()
+            .sort((a, b) => String(a.nom || "").localeCompare(String(b.nom || "")))
+            .forEach((station) => {
+                exportStationSelect.appendChild(new Option(station.nom, station.id_station));
+            });
+        exportStationSelect.value = stations.some((station) => station.id_station === selected) ? selected : "";
     }
 
     function renderOverviewStats(overview) {
@@ -565,6 +883,11 @@ document.addEventListener("DOMContentLoaded", async () => {
             && new Date(reservation.date_fin) >= new Date();
     }
 
+    function isArchivedReservation(reservation) {
+        return reservation.statut === "annulee"
+            || (reservation.date_fin && new Date(reservation.date_fin) < new Date());
+    }
+
     function renderAccessSummary(reservation) {
         const summary = document.createElement("div");
         summary.className = "access-summary";
@@ -573,6 +896,14 @@ document.addEventListener("DOMContentLoaded", async () => {
         statusBadge.className = "badge";
 
         const detail = document.createElement("small");
+
+        if (isArchivedReservation(reservation)) {
+            statusBadge.textContent = "Archiv\u00e9";
+            detail.textContent = "Acc\u00e8s non utilisable";
+            summary.appendChild(statusBadge);
+            summary.appendChild(detail);
+            return summary;
+        }
 
         if (!["qr", "code"].includes(reservation.auth_mode)) {
             statusBadge.textContent = "RFID";
@@ -704,7 +1035,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { label: "E-mail", render: (user) => user.email },
                 { label: "Nom", render: (user) => user.nom || "-" },
                 { label: "T\u00e9l\u00e9phone", render: (user) => user.telephone || "-" },
-                { label: "Statut", render: (user) => user.statut || "-" },
+                { label: "Statut", render: (user) => formatUserStatus(user.statut) },
                 {
                     label: "R\u00f4les",
                     render: (user) => [
@@ -713,7 +1044,6 @@ document.addEventListener("DOMContentLoaded", async () => {
                         user.is_technician ? "technicien" : null,
                     ].filter(Boolean).join(", ") || "utilisateur",
                 },
-                { label: "Actif", render: (user) => user.is_active ? "Oui" : "Non" },
                 { label: "Cr\u00e9\u00e9 le", render: (user) => formatDateTime(user.date_joined) },
                 {
                     label: "Actions",
@@ -763,7 +1093,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                     },
                 },
                 { label: "Localisation", render: (station) => station.localisation_text || "-" },
-                { label: "Statut", render: (station) => station.statut || "-" },
+                { label: "Statut", render: (station) => formatStationStatus(station.statut) },
                 {
                     label: "Bornes",
                     render: (station) => bornes.filter((borne) => String(borne.station) === String(station.id_station)).length,
@@ -800,7 +1130,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             [
                 { label: "Nom", render: (technician) => technician.nom },
                 { label: "E-mail", render: (technician) => technician.email },
-                { label: "Utilisateur li\u00e9", render: (technician) => technician.utilisateur_pseudo || "-" },
+                { label: "Utilisateur li\u00e9", render: (technician) => formatUserDisplay(technician.utilisateur_pseudo) },
                 { label: "T\u00e9l\u00e9phone", render: (technician) => technician.telephone || "-" },
                 {
                     label: "Stations",
@@ -828,49 +1158,14 @@ document.addEventListener("DOMContentLoaded", async () => {
         renderPagination("technicians-list", "technicians");
     }
 
-    function renderTechnicianAssignments() {
-        createDataTable(
-            document.getElementById("technician-assignments-list"),
-            [
-                { label: "Technicien", render: (assignment) => assignment.technicien_nom || "-" },
-                { label: "Station", render: (assignment) => assignment.station_nom || "-" },
-                { label: "Localisation", render: (assignment) => assignment.station_localisation || "-" },
-                { label: "R\u00f4le", render: (assignment) => assignment.role_display || assignment.role || "-" },
-                {
-                    label: "Statut",
-                    renderNode: (assignment) => createStatusBadge(
-                        assignment.is_active ? "Actif" : "Inactif",
-                        assignment.is_active ? "success" : "warning"
-                    ),
-                },
-                {
-                    label: "Actions",
-                    className: "actions-column",
-                    renderNode: (assignment) => renderActions({
-                        resource: "technician-station",
-                        id: assignment.id_assignment,
-                        label: `${assignment.technicien_nom} - ${assignment.station_nom}`,
-                        onDelete: () => deleteAndReload(
-                            `Supprimer l'affectation ${assignment.technicien_nom} / ${assignment.station_nom} ?`,
-                            () => window.AuthAPI.deleteAdminTechnicianStationAssignment(assignment.id_assignment)
-                        ),
-                    }),
-                },
-            ],
-            filterRows("technicianAssignments", technicianAssignments),
-            emptyMessageFor("technicianAssignments", "Aucune affectation technicien-station.")
-        );
-        renderPagination("technician-assignments-list", "technicianAssignments");
-    }
-
     function renderMaintenances() {
         createDataTable(
             document.getElementById("maintenances-list"),
             [
                 { label: "Station", render: (maintenance) => maintenance.station_nom },
                 { label: "Technicien", render: (maintenance) => maintenance.technicien_nom || "-" },
-                { label: "Type", render: (maintenance) => maintenance.type },
-                { label: "Statut", render: (maintenance) => maintenance.status },
+                { label: "Type", render: (maintenance) => cleanDisplayText(maintenance.type) },
+                { label: "Statut", render: (maintenance) => formatMaintenanceStatus(maintenance.status) },
                 { label: "Date planifi\u00e9e", render: (maintenance) => formatDateTime(maintenance.date_planifiee) },
                 { label: "Date r\u00e9alis\u00e9e", render: (maintenance) => formatDateTime(maintenance.date_realisee) },
                 {
@@ -879,9 +1174,9 @@ document.addEventListener("DOMContentLoaded", async () => {
                     renderNode: (maintenance) => renderActions({
                         resource: "maintenance",
                         id: maintenance.id_maintenance,
-                        label: maintenance.type,
+                        label: cleanDisplayText(maintenance.type),
                         onDelete: () => deleteAndReload(
-                            `Supprimer la maintenance ${maintenance.type} ?`,
+                            `Supprimer la maintenance ${cleanDisplayText(maintenance.type)} ?`,
                             () => window.AuthAPI.deleteAdminMaintenance(maintenance.id_maintenance)
                         ),
                     }),
@@ -893,26 +1188,59 @@ document.addEventListener("DOMContentLoaded", async () => {
         renderPagination("maintenances-list", "maintenances");
     }
 
-    function renderReservations(containerId, rows, emptyMessage, searchKey) {
+    function renderReservations(containerId, rows, emptyMessage, searchKey, { includeActions = true } = {}) {
+        const columns = [
+            {
+                label: "Réservation",
+                className: "reservation-summary-column",
+                renderNode: (reservation) => createStackedCell([
+                    reservation.reference_code || "-",
+                    formatReservationStatus(reservation.statut),
+                ]),
+            },
+            { label: "Utilisateur", render: (reservation) => formatUserDisplay(reservation.utilisateur_pseudo) },
+            {
+                label: "Lieu",
+                className: "location-column",
+                renderNode: (reservation) => createStackedCell([
+                    reservation.station_nom || "-",
+                    `${reservation.borne_nom || "Borne"} - emplacement ${reservation.emplacement_numero || reservation.emplacement || "-"}`,
+                ]),
+            },
+            {
+                label: "Créneau",
+                className: "time-window-column",
+                renderNode: (reservation) => createStackedCell([
+                    formatDateTime(reservation.date_debut),
+                    formatDateTime(reservation.date_fin),
+                ]),
+            },
+            {
+                label: "Accès",
+                className: "access-column",
+                renderNode: (reservation) => {
+                    const wrapper = document.createElement("div");
+                    wrapper.className = "reservation-access-cell";
+                    const mode = document.createElement("strong");
+                    mode.textContent = formatAuthMode(reservation.auth_mode);
+                    wrapper.appendChild(mode);
+                    wrapper.appendChild(renderAccessSummary(reservation));
+                    return wrapper;
+                },
+            },
+        ];
+
+        if (includeActions) {
+            columns.push({
+                label: "Actions",
+                className: "actions-column reservation-actions-column",
+                renderNode: renderReservationActions,
+            });
+        }
+
         createDataTable(
             document.getElementById(containerId),
-            [
-                { label: "Code", render: (reservation) => reservation.reference_code || "-" },
-                { label: "Utilisateur", render: (reservation) => reservation.utilisateur_pseudo || "-" },
-                { label: "Station", render: (reservation) => reservation.station_nom || "-" },
-                { label: "Borne", render: (reservation) => reservation.borne_nom || "-" },
-                { label: "Emplacement", render: (reservation) => reservation.emplacement_numero || reservation.emplacement || "-" },
-                { label: "Début", render: (reservation) => formatDateTime(reservation.date_debut) },
-                { label: "Fin", render: (reservation) => formatDateTime(reservation.date_fin) },
-                { label: "Mode", render: (reservation) => reservation.auth_mode || "-" },
-                { label: "Accès", className: "access-column", renderNode: renderAccessSummary },
-                { label: "Statut", render: (reservation) => reservation.statut || "-" },
-                {
-                    label: "Actions",
-                    className: "actions-column reservation-actions-column",
-                    renderNode: renderReservationActions,
-                },
-            ],
+            columns,
             filterRows(searchKey, rows),
             emptyMessageFor(searchKey, emptyMessage)
         );
@@ -922,12 +1250,13 @@ document.addEventListener("DOMContentLoaded", async () => {
         createDataTable(
             document.getElementById(containerId),
             [
-                { label: "Utilisateur", render: (session) => session.utilisateur_pseudo || "-" },
+                { label: "Utilisateur", render: (session) => formatUserDisplay(session.utilisateur_pseudo) },
                 { label: "Code réservation", render: (session) => session.reference_code || "-" },
                 { label: "Station", render: (session) => session.station || "-" },
                 { label: "Borne", render: (session) => session.borne || "-" },
                 { label: "Emplacement", render: (session) => session.emplacement || "-" },
-                { label: "Début", render: (session) => formatDateTime(session.start_time) },
+                { label: "Accès validé", render: (session) => formatDateTime(session.start_time) },
+                { label: "Dernière télémétrie", renderNode: renderSessionTelemetry },
                 { label: "Fin", render: (session) => formatDateTime(session.end_time) },
                 { label: "Statut", render: (session) => session.status === "active" ? "En cours" : "Archivée" },
             ],
@@ -950,15 +1279,15 @@ document.addEventListener("DOMContentLoaded", async () => {
             [
                 { label: "Emplacement", render: (device) => device.slot_label || device.slot_id || "-" },
                 { label: "Connexion", renderNode: (device) => createStatusBadge(device.online ? "En ligne" : "Hors ligne", device.online ? "success" : "danger") },
-                { label: "Dernier état reçu", render: (device) => device.status_display || device.status || "-" },
+                { label: "Dernier état reçu", render: (device) => cleanDisplayText(device.status_display || device.status) },
                 { label: "Dernière confirmation", render: formatCommandAck },
                 { label: "Station", render: (device) => device.station_nom || "-" },
                 { label: "Borne", render: (device) => device.borne_nom || "-" },
                 { label: "Emplacement", render: (device) => device.emplacement_numero ?? "-" },
-                { label: "Serrure", render: (device) => device.lock_state || "-" },
+                { label: "Serrure", render: (device) => formatLockState(device.lock_state) },
                 { label: "Version", render: (device) => device.firmware_version || "-" },
                 { label: "Version attendue", render: (device) => device.effective_expected_firmware_version || device.expected_firmware_version || "-" },
-                { label: "Mise à jour", render: (device) => device.firmware_update_status || "-" },
+                { label: "Mise à jour", render: (device) => formatFirmwareStatus(device.firmware_update_status) },
                 { label: "IP", render: (device) => device.ip_address || "-" },
                 { label: "Adresse matérielle", render: (device) => device.hardware_mac || "-" },
                 { label: "Dernier signal", render: (device) => formatDateTime(device.last_seen) },
@@ -991,8 +1320,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             [
                 { label: "Date", render: (alert) => formatDateTime(alert.timestamp) },
                 { label: "Type", render: (alert) => alert.type || "-" },
-                { label: "Sévérité", renderNode: (alert) => createStatusBadge(alert.niveau_severite || "-", ["critical", "critique"].includes(alert.niveau_severite) ? "danger" : "warning") },
-                { label: "Statut", render: (alert) => alert.status || "-" },
+                { label: "Sévérité", renderNode: (alert) => createStatusBadge(cleanDisplayText(alert.niveau_severite), alertSeverityVariant(alert.niveau_severite)) },
+                { label: "Statut", render: (alert) => formatAlertStatus(alert.status) },
                 { label: "Station", render: (alert) => alert.station_nom || "-" },
                 { label: "Borne", render: (alert) => alert.borne_nom || "-" },
                 { label: "Emplacement", render: (alert) => alert.emplacement_numero ?? "-" },
@@ -1026,10 +1355,10 @@ document.addEventListener("DOMContentLoaded", async () => {
         renderUsers();
         renderStations();
         renderTechnicians();
-        renderTechnicianAssignments();
         renderMaintenances();
+        renderReservations("admin-ongoing-reservations", ongoingReservations, "Aucune réservation en cours.", "ongoingReservations");
         renderReservations("admin-upcoming-reservations", upcomingReservations, "Aucune réservation à venir.", "upcomingReservations");
-        renderReservations("admin-archived-reservations", archivedReservations, "Aucune réservation archivée.", "archivedReservations");
+        renderReservations("admin-archived-reservations", archivedReservations, "Aucune réservation archivée.", "archivedReservations", { includeActions: false });
         renderSessions("admin-active-sessions", activeSessions, "Aucune session en cours.", "activeSessions");
         renderSessions("admin-archived-sessions", archivedSessions, "Aucune session archivée.", "archivedSessions");
     }
@@ -1047,7 +1376,6 @@ document.addEventListener("DOMContentLoaded", async () => {
                 adminBornes,
                 adminEmplacements,
                 adminTechnicians,
-                adminTechnicianAssignments,
                 adminMaintenances,
             ] = await Promise.all([
                 window.AuthAPI.getAdminOverview(),
@@ -1057,11 +1385,10 @@ document.addEventListener("DOMContentLoaded", async () => {
                 window.AuthAPI.getAdminBornes(),
                 window.AuthAPI.getAdminEmplacements(),
                 window.AuthAPI.getAdminTechnicians(pageParams("technicians")),
-                window.AuthAPI.getAdminTechnicianStationAssignments(pageParams("technicianAssignments")),
                 window.AuthAPI.getAdminMaintenances(pageParams("maintenances")),
             ]);
 
-            let adminReservations = { upcoming: [], archived: [] };
+            let adminReservations = { ongoing: [], future: [], upcoming: [], archived: [] };
             let adminSessions = { active: [], archived: [] };
             let optionalDataFailed = false;
 
@@ -1081,20 +1408,22 @@ document.addEventListener("DOMContentLoaded", async () => {
             bornes = adminBornes.results || [];
             emplacements = adminEmplacements.results || [];
             technicians = adminTechnicians.results || [];
-            technicianAssignments = adminTechnicianAssignments.results || [];
             maintenances = adminMaintenances.results || [];
             supervision = adminSupervision || supervision;
             updatePageState("users", adminUsers);
             updatePageState("stations", adminStations);
             updatePageState("technicians", adminTechnicians);
-            updatePageState("technicianAssignments", adminTechnicianAssignments);
             updatePageState("maintenances", adminMaintenances);
-            upcomingReservations = adminReservations.upcoming || [];
+            ongoingReservations = adminReservations.ongoing || [];
+            upcomingReservations = adminReservations.future || adminReservations.upcoming || [];
             archivedReservations = adminReservations.archived || [];
             activeSessions = adminSessions.active || [];
             archivedSessions = adminSessions.archived || [];
 
+            populateExportStationFilter();
+            updateExportFilterAvailability();
             renderAllTables();
+            scheduleExportPreview(0);
 
             setStatus(
                 optionalDataFailed
@@ -1125,6 +1454,21 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     }
 
+    async function refreshSessionData() {
+        if (isLoading || isRefreshingSessionData) return;
+        isRefreshingSessionData = true;
+
+        try {
+            const adminSessions = await window.AuthAPI.getAdminSessions();
+            activeSessions = adminSessions.active || [];
+            archivedSessions = adminSessions.archived || [];
+            renderSessions("admin-active-sessions", activeSessions, "Aucune session en cours.", "activeSessions");
+            renderSessions("admin-archived-sessions", archivedSessions, "Aucune session archivée.", "archivedSessions");
+        } finally {
+            isRefreshingSessionData = false;
+        }
+    }
+
     document.querySelectorAll("[data-admin-search]").forEach((input) => {
         input.addEventListener("input", () => {
             searchState[input.dataset.adminSearch] = input.value;
@@ -1136,11 +1480,30 @@ document.addEventListener("DOMContentLoaded", async () => {
         button.addEventListener("click", () => setAdminTab(button.dataset.adminTab));
     });
 
+    document.querySelectorAll("[data-operations-subtab]").forEach((button) => {
+        button.addEventListener("click", () => setOperationsSubtab(button.dataset.operationsSubtab));
+    });
+
     document.querySelectorAll("[data-admin-jump]").forEach((button) => {
         button.addEventListener("click", () => setAdminTab(button.dataset.adminJump));
     });
 
     logoutBtn.addEventListener("click", () => window.AuthAPI.logout());
+    exportDatasetSelect?.addEventListener("change", () => {
+        updateExportFilterAvailability();
+        scheduleExportPreview(0);
+    });
+    [
+        exportStationSelect,
+        exportDateFromInput,
+        exportDateToInput,
+        exportLogStatusSelect,
+    ].forEach((field) => {
+        field?.addEventListener("change", () => scheduleExportPreview(0));
+    });
+    exportQueryInput?.addEventListener("input", () => scheduleExportPreview());
+    exportJsonBtn?.addEventListener("click", () => downloadOperationalExport("json"));
+    exportCsvBtn?.addEventListener("click", () => downloadOperationalExport("csv"));
     if (grafanaLink) {
         grafanaLink.href = resolveGrafanaUrl();
     }
@@ -1173,7 +1536,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
 
         const initialTab = (window.location.hash || "#overview").replace("#", "");
-        const allowedTabs = ["overview", "supervision", "users", "infrastructure", "reservations", "sessions", "operations"];
+        const allowedTabs = ["overview", "supervision", "users", "infrastructure", "reservations", "sessions", "operations", "exports"];
         const selectedTab = allowedTabs.includes(initialTab) ? initialTab : "overview";
         window.AppNavigation.render(dashboard, {
             active: selectedTab === "overview" ? "admin" : selectedTab,

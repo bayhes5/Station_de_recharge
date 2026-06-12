@@ -279,7 +279,8 @@ def build_admin_supervision_payload(station_ids=None):
         "session__emplacement__station",
         "session__emplacement__borne",
     )
-    recent_sensor_data_queryset = CapteurData.objects.select_related(
+    sensor_since = now - timedelta(hours=24)
+    recent_sensor_data_queryset = CapteurData.objects.filter(timestamp__gte=sensor_since).select_related(
         "capteur",
         "capteur__device",
         "capteur__device__emplacement",
@@ -293,7 +294,6 @@ def build_admin_supervision_payload(station_ids=None):
         "device__emplacement__borne",
         "session",
     )
-    sensor_since = now - timedelta(hours=24)
     telemetry_queryset = CapteurData.objects.filter(timestamp__gte=sensor_since)
 
     if station_ids is not None:

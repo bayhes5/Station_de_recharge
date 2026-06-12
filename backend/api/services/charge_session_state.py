@@ -115,7 +115,12 @@ def mark_state_from_device(session: Session | None, state: str, *, now=None) -> 
     if normalized in {ChargeSessionState.WAITING_PLUG, "waiting_cable", "reserved", "ready"}:
         return set_session_state(session, ChargeSessionState.WAITING_PLUG, now=now)
     if normalized in {"idle", "stopped"}:
-        return mark_stop_requested(session, now=now)
+        if session.charge_state in {
+            ChargeSessionState.CHARGING,
+            ChargeSessionState.STOPPING,
+        }:
+            return mark_stop_requested(session, now=now)
+        return session
     if normalized in ERROR_STATES or normalized == ChargeSessionState.ERROR:
         return mark_error(session, now=now)
     return session

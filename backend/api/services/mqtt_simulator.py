@@ -41,10 +41,10 @@ def build_telemetry_payload(
 
     scenario = _scenario_for_tick(scenario, tick)
     timestamp = (started_at or datetime.now(timezone.utc)) + timedelta(seconds=tick)
-    current = _wave(base=1.2, amplitude=0.28, tick=tick, period=12)
-    voltage = _wave(base=41.5, amplitude=0.8, tick=tick, period=18)
-    temperature = _wave(base=31.0, amplitude=2.4, tick=tick, period=20)
-    humidity = _wave(base=45.0, amplitude=4.0, tick=tick, period=25)
+    current = _smooth_current(tick)
+    voltage = _smooth_voltage(tick)
+    temperature = _smooth_temperature(tick)
+    humidity = _smooth_humidity(tick)
     door = True
     cable = True
     lock = True
@@ -61,7 +61,7 @@ def build_telemetry_payload(
     elif scenario == "overheat":
         temperature = 64.0
     elif scenario == "overcurrent":
-        current = 3.4
+        current = 4.4
     elif scenario == "fault":
         state = "error"
 
@@ -101,6 +101,29 @@ def _scenario_for_tick(scenario: str, tick: int) -> str:
     return "normal"
 
 
-def _wave(base: float, amplitude: float, tick: int, period: int) -> float:
-    """Return a small deterministic sensor variation."""
-    return base + amplitude * math.sin((tick % period) / period * math.tau)
+def _smooth_current(tick: int) -> float:
+    """Return a stable prototype charging current in amperes."""
+    warmup = min(max(tick, 0) / 90, 1)
+    base = 1.05 + 0.12 * warmup
+    slow_ripple = 0.025 * math.sin((tick % 180) / 180 * math.tau)
+    sensor_noise = 0.008 * math.sin((tick % 23) / 23 * math.tau)
+    return max(0.0, base + slow_ripple + sensor_noise)
+
+
+def _smooth_voltage(tick: int) -> float:
+    """Return the fixed 12 V prototype bus voltage with tiny ADC variation."""
+    return 12.0 + 0.025 * math.sin((tick % 240) / 240 * math.tau)
+
+
+def _smooth_temperature(tick: int) -> float:
+    """Return a slow DHT22 temperature drift during a charge."""
+    thermal_rise = 1.8 * (1 - math.exp(-max(tick, 0) / 900))
+    ambient_ripple = 0.12 * math.sin((tick % 360) / 360 * math.tau)
+    return 24.6 + thermal_rise + ambient_ripple
+
+
+def _smooth_humidity(tick: int) -> float:
+    """Return a mostly stable DHT22 humidity value."""
+    slow_drop = 0.6 * (1 - math.exp(-max(tick, 0) / 1200))
+    ambient_ripple = 0.18 * math.sin((tick % 420) / 420 * math.tau)
+    return 48.0 - slow_drop + ambient_ripple

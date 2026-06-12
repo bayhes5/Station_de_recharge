@@ -14,6 +14,7 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 "Session telemetry health checked: "
-                f"created={result.created} updated={result.updated} resolved={result.resolved}"
+                f"created={result.created} updated={result.updated} "
+                f"resolved={result.resolved} closed={result.closed}"
             )
         )

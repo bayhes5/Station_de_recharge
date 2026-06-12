@@ -78,7 +78,7 @@ def test_availability_requires_existing_station(authenticated_client, reservatio
 
 @pytest.mark.django_db
 def test_availability_rejects_non_aligned_slot(authenticated_client, station, reservation_start):
-    start = reservation_start + timedelta(minutes=5)
+    start = reservation_start + timedelta(minutes=3)
     response = authenticated_client.get(
         reverse("api-reservation-availability"),
         {
@@ -89,6 +89,22 @@ def test_availability_rejects_non_aligned_slot(authenticated_client, station, re
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.django_db
+def test_availability_accepts_five_minute_slot(authenticated_client, station, reservation_start):
+    start = reservation_start + timedelta(minutes=5)
+    response = authenticated_client.get(
+        reverse("api-reservation-availability"),
+        {
+            "station": str(station.id_station),
+            "date_debut": start.isoformat(),
+            "date_fin": (start + timedelta(minutes=30)).isoformat(),
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["duration_minutes"] == 30
 
 
 @pytest.mark.django_db
@@ -211,7 +227,7 @@ def test_reservation_creation_rejects_requested_overlapping_emplacement(
 
 
 @pytest.mark.django_db
-def test_reservation_creation_allows_adjacent_paid_window_before_next_reservation(
+def test_reservation_creation_rejects_slot_without_turnover_before_next_reservation(
     authenticated_client,
     user,
     station,
@@ -245,14 +261,11 @@ def test_reservation_creation_allows_adjacent_paid_window_before_next_reservatio
         format="json",
     )
 
-    assert response.status_code == status.HTTP_201_CREATED
-    reservation = Reservation.objects.get(id_reservation=response.data["reservation"]["id_reservation"])
-    assert reservation.emplacement == emplacements[0]
-    assert reservation.date_fin == reservation_start
+    assert response.status_code == status.HTTP_409_CONFLICT
 
 
 @pytest.mark.django_db
-def test_reservation_creation_allows_adjacent_paid_window_after_previous_reservation(
+def test_reservation_creation_rejects_slot_without_turnover_after_previous_reservation(
     authenticated_client,
     user,
     station,
@@ -286,10 +299,48 @@ def test_reservation_creation_allows_adjacent_paid_window_after_previous_reserva
         format="json",
     )
 
+    assert response.status_code == status.HTTP_409_CONFLICT
+
+
+@pytest.mark.django_db
+def test_reservation_creation_allows_slot_after_turnover_buffer(
+    authenticated_client,
+    user,
+    station,
+    emplacements,
+    reservation_start,
+):
+    other_user = get_user_model().objects.create_user(
+        pseudo="buffer-prev-owner",
+        email="buffer-prev-owner@example.com",
+        password="OtherPass123!",
+    )
+    Reservation.objects.create(
+        utilisateur=other_user,
+        emplacement=emplacements[0],
+        reference_code="BUFFER1",
+        auth_choice="qr",
+        date_debut=reservation_start,
+        date_fin=reservation_start + timedelta(minutes=30),
+        statut="confirmee",
+    )
+
+    response = authenticated_client.post(
+        reverse("api-reservations"),
+        {
+            "station": str(station.id_station),
+            "emplacement": str(emplacements[0].id_emplacement),
+            "date_debut": (reservation_start + timedelta(minutes=35)).isoformat(),
+            "duration_minutes": 60,
+            "auth_mode": "qr",
+        },
+        format="json",
+    )
+
     assert response.status_code == status.HTTP_201_CREATED
     reservation = Reservation.objects.get(id_reservation=response.data["reservation"]["id_reservation"])
     assert reservation.emplacement == emplacements[0]
-    assert reservation.date_debut == reservation_start + timedelta(minutes=30)
+    assert reservation.date_debut == reservation_start + timedelta(minutes=35)
 
 
 @pytest.mark.django_db
@@ -507,7 +558,7 @@ def test_sms_code_can_be_sent_and_used(
     ProfilUtilisateur.objects.create(utilisateur=user, nom="User", telephone="+33600000000")
     sent_messages = []
 
-    def fake_send_sms(phone_number, message):
+    def fake_send_sms(phone_number, message, **kwargs):
         from api.services.sms import SmsResult
 
         sent_messages.append((phone_number, message))
@@ -561,7 +612,7 @@ def test_sms_resend_is_rate_limited(authenticated_client, user, station, emplace
     ProfilUtilisateur.objects.create(utilisateur=user, nom="User", telephone="+33600000000")
     sent_messages = []
 
-    def fake_send_sms(phone_number, message):
+    def fake_send_sms(phone_number, message, **kwargs):
         from api.services.sms import SmsResult
 
         sent_messages.append((phone_number, message))

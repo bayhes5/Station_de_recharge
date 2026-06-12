@@ -7,7 +7,14 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from api.models import Alerte, AlertStatus, ChargeSessionState, Session, SessionTelemetry
+from api.models import (
+    Alerte,
+    AlertStatus,
+    ChargeSessionState,
+    DeviceStatus,
+    Session,
+    SessionTelemetry,
+)
 from api.services.email_notifications import notify_technicians_for_alert
 
 
@@ -16,6 +23,7 @@ PRESERVED_ACTIVE_ALERT_STATUSES = {AlertStatus.IN_PROGRESS}
 SESSION_WITHOUT_TELEMETRY = "session_without_telemetry"
 SESSION_STOPPING_TOO_LONG = "session_stopping_too_long"
 SESSION_WAITING_PLUG_TOO_LONG = "session_waiting_plug_too_long"
+SESSION_ACCESS_VALIDATED_TOO_LONG = "session_access_validated_too_long"
 
 
 @dataclass(frozen=True)
@@ -25,6 +33,7 @@ class OperationalAlertScanResult:
     created: int = 0
     updated: int = 0
     resolved: int = 0
+    closed: int = 0
 
 
 def _telemetry_stale_delta() -> timedelta:
@@ -42,6 +51,12 @@ def _stopping_stale_delta() -> timedelta:
 def _waiting_plug_stale_delta() -> timedelta:
     """Return the tolerated time for a validated access waiting for cable plug-in."""
     minutes = getattr(settings, "SESSION_WAITING_PLUG_STALE_MINUTES", 5)
+    return timedelta(minutes=max(1, int(minutes)))
+
+
+def _access_validated_stale_delta() -> timedelta:
+    """Return the tolerated time for an access validated without terrain ACK."""
+    minutes = getattr(settings, "SESSION_ACCESS_VALIDATED_STALE_MINUTES", 2)
     return timedelta(minutes=max(1, int(minutes)))
 
 
@@ -66,6 +81,11 @@ def _open_stopping_alerts():
 def _open_waiting_plug_alerts():
     """Return unresolved alerts for sessions stuck before cable plug-in."""
     return _open_session_alerts(SESSION_WAITING_PLUG_TOO_LONG)
+
+
+def _open_access_validated_alerts():
+    """Return unresolved alerts for sessions stuck just after authentication."""
+    return _open_session_alerts(SESSION_ACCESS_VALIDATED_TOO_LONG)
 
 
 def _open_session_alerts(alert_type: str):
@@ -168,6 +188,60 @@ def _upsert_waiting_plug_alert(session: Session, now) -> bool:
     )
 
 
+def _upsert_access_validated_alert(session: Session, now) -> bool:
+    """Create or update the alert for one access validated without terrain ACK."""
+    return _upsert_session_alert(
+        session=session,
+        now=now,
+        alert_type=SESSION_ACCESS_VALIDATED_TOO_LONG,
+        message=(
+            "Accès validé sans confirmation terrain depuis trop longtemps sur "
+            f"{_session_location_label(session)}. La session est clôturée "
+            "automatiquement pour libérer l'emplacement."
+        ),
+        severity="moyenne",
+    )
+
+
+def session_can_be_auto_closed_without_charge(session: Session, now) -> bool:
+    """Return whether a pre-charge session may be closed to free the bay."""
+    if session.end_time is not None:
+        return False
+    state_updated_at = session.charge_state_updated_at or session.start_time
+    if session.charge_state == ChargeSessionState.ACCESS_VALIDATED:
+        return state_updated_at <= now - _access_validated_stale_delta()
+    if session.charge_state == ChargeSessionState.WAITING_PLUG:
+        return state_updated_at <= now - _waiting_plug_stale_delta()
+    return False
+
+
+def auto_close_sessions_without_charge(sessions: list[Session], now) -> int:
+    """Close sessions that never reached effective charging to free the bay."""
+    closed = 0
+    for session in sessions:
+        if session.end_time is not None:
+            continue
+        session.end_time = max(now, session.start_time + timedelta(seconds=1))
+        session.charge_state = ChargeSessionState.STOPPED
+        session.charge_state_updated_at = now
+        session.save(
+            update_fields=["end_time", "charge_state", "charge_state_updated_at"]
+        )
+
+        reservation = session.reservation
+        if reservation.statut != "terminee":
+            reservation.statut = "terminee"
+            reservation.save(update_fields=["statut"])
+
+        device = getattr(session.emplacement, "device", None)
+        if device and device.status == DeviceStatus.CHARGING:
+            device.status = DeviceStatus.ONLINE
+            device.last_seen = now
+            device.save(update_fields=["status", "last_seen"])
+        closed += 1
+    return closed
+
+
 def _resolve_non_stale_alerts(open_alerts, stale_session_ids: set, now) -> int:
     """Resolve alerts whose session recovered or ended."""
     resolved = 0
@@ -196,6 +270,7 @@ def scan_session_telemetry_gaps(now=None) -> OperationalAlertScanResult:
         )
         .filter(end_time__isnull=True, start_time__lte=cutoff)
         .exclude(charge_state__in=[
+            ChargeSessionState.ACCESS_VALIDATED,
             ChargeSessionState.STOPPING,
             ChargeSessionState.WAITING_PLUG,
         ])
@@ -240,6 +315,26 @@ def scan_session_telemetry_gaps(now=None) -> OperationalAlertScanResult:
         session.id_session for session in stale_waiting_plug_sessions
     }
 
+    access_validated_cutoff = now - _access_validated_stale_delta()
+    stale_access_validated_sessions = list(
+        Session.objects.select_related(
+            "reservation",
+            "emplacement",
+            "emplacement__station",
+            "emplacement__borne",
+            "emplacement__device",
+        )
+        .filter(
+            end_time__isnull=True,
+            charge_state=ChargeSessionState.ACCESS_VALIDATED,
+            charge_state_updated_at__lte=access_validated_cutoff,
+        )
+        .distinct()
+    )
+    stale_access_validated_session_ids = {
+        session.id_session for session in stale_access_validated_sessions
+    }
+
     created = 0
     updated = 0
     for session in stale_sessions:
@@ -260,6 +355,17 @@ def scan_session_telemetry_gaps(now=None) -> OperationalAlertScanResult:
         else:
             updated += 1
 
+    for session in stale_access_validated_sessions:
+        if _upsert_access_validated_alert(session, now):
+            created += 1
+        else:
+            updated += 1
+
+    closed = auto_close_sessions_without_charge(
+        [*stale_access_validated_sessions, *stale_waiting_plug_sessions],
+        now,
+    )
+
     resolved = _resolve_non_stale_alerts(
         _open_session_telemetry_alerts,
         stale_session_ids,
@@ -275,7 +381,17 @@ def scan_session_telemetry_gaps(now=None) -> OperationalAlertScanResult:
         stale_waiting_plug_session_ids,
         now,
     )
-    return OperationalAlertScanResult(created=created, updated=updated, resolved=resolved)
+    resolved += _resolve_non_stale_alerts(
+        _open_access_validated_alerts,
+        stale_access_validated_session_ids,
+        now,
+    )
+    return OperationalAlertScanResult(
+        created=created,
+        updated=updated,
+        resolved=resolved,
+        closed=closed,
+    )
 
 
 def latest_session_telemetry_at(session: Session):

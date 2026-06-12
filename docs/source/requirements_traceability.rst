@@ -81,9 +81,10 @@ Couverture par partie
      - Améliorer progressivement l'ergonomie et tester les parcours sur mobile.
    * - Gestion utilisateurs et RGPD
      - Modèle utilisateur Django, profil, JWT, refresh token ``HttpOnly``,
-       export de compte, séparation des rôles.
-     - Compléter la suppression définitive/anonymisation selon le scénario RGPD
-       retenu.
+       export de compte, anonymisation de compte, politique de rétention et
+       séparation des rôles.
+     - Valider juridiquement les durées de conservation définitives avec le
+       contexte réel d'exploitation.
    * - Réservation en ligne
      - API de réservation, sélection station/créneau, attribution automatique
        d'un emplacement disponible.

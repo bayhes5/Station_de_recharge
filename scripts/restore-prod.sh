@@ -21,6 +21,10 @@ if [ ! -f "$BACKUP_FILE" ]; then
     exit 1
 fi
 
+if [ -f "$BACKUP_FILE.sha256" ]; then
+    sha256sum -c "$BACKUP_FILE.sha256"
+fi
+
 if [ ! -f "$ENV_FILE" ]; then
     echo "Environment file not found: $ENV_FILE" >&2
     exit 1
@@ -47,7 +51,7 @@ if [ -z "$DB_NAME_VALUE" ]; then
     DB_NAME_VALUE="station"
 fi
 
-docker compose -f "$COMPOSE_FILE" stop backend celery celery-beat mqtt-bridge raspberry reverse-proxy
+docker compose -f "$COMPOSE_FILE" stop backend celery celery-beat mqtt-bridge reverse-proxy
 
 case "$BACKUP_FILE" in
     *.gz)
@@ -65,6 +69,6 @@ case "$BACKUP_FILE" in
         ;;
 esac
 
-docker compose -f "$COMPOSE_FILE" up -d backend celery celery-beat mqtt-bridge raspberry reverse-proxy
+docker compose -f "$COMPOSE_FILE" up -d backend celery celery-beat mqtt-bridge reverse-proxy
 
 echo "Restore completed from: $BACKUP_FILE"

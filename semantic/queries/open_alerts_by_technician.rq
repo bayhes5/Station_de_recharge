@@ -1,0 +1,21 @@
+PREFIX station: <https://station-recharge.local/ontology#>
+
+SELECT ?technician ?stationName ?slotNumber ?severity ?message ?lastSeen
+WHERE {
+  ?station a station:ChargingStation ;
+           station:name ?stationName ;
+           station:hasTechnician ?technicianResource ;
+           station:hasSlot ?slot .
+
+  ?technicianResource station:name ?technician .
+
+  ?slot station:number ?slotNumber ;
+        station:raisedAlert ?alert .
+
+  ?alert station:severity ?severity ;
+         station:message ?message ;
+         station:lastSeen ?lastSeen .
+
+  FILTER (?severity IN ("haute", "critical", "critique"))
+}
+ORDER BY ?technician DESC(?lastSeen)

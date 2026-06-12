@@ -56,6 +56,8 @@ services:
       - "1025"
 
   mqtt:
+    profiles:
+      - simulation
     image: ${MOSQUITTO_IMAGE:-eclipse-mosquitto@sha256:a908c65cc8e67ec9d292ef27c2c0360dbaaee7eb1b935cdd194e67697f15dea1}
     container_name: station_mqtt_broker
     restart: unless-stopped
@@ -101,17 +103,17 @@ services:
       DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Station <no-reply@station.local>}
       ALERT_EMAIL_NOTIFICATIONS_ENABLED: ${ALERT_EMAIL_NOTIFICATIONS_ENABLED:-true}
       TERMINAL_API_SECRET: ${TERMINAL_API_SECRET}
+      MQTT_BRIDGE_HEARTBEAT_FILE: /var/lib/station-mqtt-bridge/mqtt_bridge_heartbeat
     volumes:
       - static_data:/app/staticfiles
       - ./mosquitto/certs:/etc/station/mqtt-certs:ro
+      - mqtt_bridge_state:/var/lib/station-mqtt-bridge
     expose:
       - "8000"
     depends_on:
       db:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      mqtt:
         condition: service_healthy
       mailpit:
         condition: service_started
@@ -204,14 +206,14 @@ services:
       EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}
       DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Station <no-reply@station.local>}
       ALERT_EMAIL_NOTIFICATIONS_ENABLED: ${ALERT_EMAIL_NOTIFICATIONS_ENABLED:-true}
+      MQTT_BRIDGE_HEARTBEAT_FILE: /var/lib/station-mqtt-bridge/mqtt_bridge_heartbeat
     volumes:
       - ./mosquitto/certs:/etc/station/mqtt-certs:ro
+      - mqtt_bridge_state:/var/lib/station-mqtt-bridge
     depends_on:
       db:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      mqtt:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "manage.py", "check_mqtt_bridge_health"]
@@ -236,6 +238,8 @@ services:
       retries: 5
 
   raspberry:
+    profiles:
+      - simulation
     build:
       context: ./raspberry
     container_name: station_raspberry_kiosk
@@ -253,8 +257,8 @@ services:
       MQTT_PORT: 1883
       MQTT_BASE_TOPIC: station
       MQTT_RASPBERRY_CLIENT_ID: ${MQTT_RASPBERRY_CLIENT_ID:-raspberry-kiosk}
-      MQTT_USERNAME: ${MQTT_RASPBERRY_USERNAME:?Set MQTT_RASPBERRY_USERNAME}
-      MQTT_PASSWORD: ${MQTT_RASPBERRY_PASSWORD:?Set MQTT_RASPBERRY_PASSWORD}
+      MQTT_USERNAME: ${MQTT_RASPBERRY_USERNAME:-raspberry_kiosk}
+      MQTT_PASSWORD: ${MQTT_RASPBERRY_PASSWORD:-change-me-raspberry-mqtt-password}
       MQTT_TLS_ENABLED: ${MQTT_TLS_ENABLED:-false}
       MQTT_TLS_CA_CERT: ${MQTT_TLS_CA_CERT:-}
       MQTT_QOS: ${MQTT_QOS:-1}
@@ -262,6 +266,7 @@ services:
       MQTT_ACK_REQUIRED: ${MQTT_ACK_REQUIRED:-true}
       BACKEND_API_BASE_URL: http://backend:8000/api
       TERMINAL_API_SECRET: ${TERMINAL_API_SECRET}
+      TERMINAL_CODE: ${TERMINAL_CODE:-station-demo-borne-1}
       TERMINAL_STATION_ID: ${TERMINAL_STATION_ID:-}
       TERMINAL_BORNE_ID: ${TERMINAL_BORNE_ID:-}
       OFFLINE_DB_PATH: /var/lib/station/offline_cache.sqlite3
@@ -311,13 +316,13 @@ services:
       - backend
       - frontend
       - grafana
-      - raspberry
 
 volumes:
   grafana_data:
   mailpit_data:
   mqtt_data:
   mqtt_log:
+  mqtt_bridge_state:
   postgres_data:
   raspberry_state:
   redis_data:

@@ -420,7 +420,7 @@ def test_terminal_offline_cache_exports_hashes_without_clear_secret(api_client, 
     assert cached["slot_id"] == "slot1"
     assert cached["mqtt_prefix"] == "station-centre/borne-1"
     assert response.data["start_grace_minutes"] == 5
-    assert response.data["end_grace_minutes"] == 10
+    assert response.data["end_grace_minutes"] == 0
     assert "OFFLINE-CODE" not in str(cached)
 
 
@@ -439,6 +439,48 @@ def test_terminal_offline_cache_requires_terminal_secret(api_client):
     )
 
     assert authorized_response.status_code == status.HTTP_200_OK
+
+
+@pytest.mark.django_db
+@override_settings(TERMINAL_API_SECRET="test-terminal-secret")
+def test_terminal_config_returns_provisioned_borne_identity(api_client, station, borne, emplacements):
+    borne.terminal_code = "station-demo-borne-1"
+    borne.mqtt_prefix = "station-demo/borne-1"
+    borne.save(update_fields=["terminal_code", "mqtt_prefix"])
+    Device.objects.create(
+        emplacement=emplacements[0],
+        type_device=DeviceType.ESP32,
+        firmware_version="1.4.0",
+        slot_id="slot1",
+        status=DeviceStatus.ONLINE,
+    )
+
+    response = api_client.get(
+        reverse("api-terminal-config"),
+        {"terminal_code": "station-demo-borne-1"},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["terminal_code"] == "station-demo-borne-1"
+    assert response.data["station_id"] == str(station.id_station)
+    assert response.data["borne_id"] == str(borne.id_borne)
+    assert response.data["mqtt_prefix"] == "station-demo/borne-1"
+    assert response.data["emplacements"][0]["slot_id"] == "slot1"
+
+
+@pytest.mark.django_db
+@override_settings(TERMINAL_API_SECRET="test-terminal-secret")
+def test_terminal_config_requires_terminal_secret(api_client, borne):
+    borne.terminal_code = "station-demo-borne-1"
+    borne.save(update_fields=["terminal_code"])
+    api_client.credentials()
+
+    response = api_client.get(
+        reverse("api-terminal-config"),
+        {"terminal_code": "station-demo-borne-1"},
+    )
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
 
 @pytest.mark.django_db
@@ -988,7 +1030,283 @@ def test_terminal_authenticate_rejects_when_bay_has_active_session(api_client, u
 
 
 @pytest.mark.django_db
-def test_terminal_authenticate_accepts_end_grace(api_client, user, station, emplacements):
+@override_settings(SESSION_ACCESS_VALIDATED_STALE_MINUTES=2)
+def test_terminal_authenticate_code_frees_stale_pre_charge_session_before_conflict(
+    api_client,
+    user,
+    station,
+    emplacements,
+):
+    """Allow SMS/code access after a stale validated access left the bay blocked."""
+    other_user = type(user).objects.create_user(
+        pseudo="stale-code-owner",
+        email="stale-code-owner@example.com",
+        password="OtherPass123!",
+    )
+    previous_reservation = Reservation.objects.create(
+        utilisateur=other_user,
+        emplacement=emplacements[0],
+        reference_code="STALECD",
+        auth_choice="qr",
+        date_debut=timezone.now() - timedelta(minutes=45),
+        date_fin=timezone.now() + timedelta(minutes=15),
+        statut="active",
+    )
+    previous_session = Session.objects.create(
+        reservation=previous_reservation,
+        emplacement=emplacements[0],
+        start_time=timezone.now() - timedelta(minutes=40),
+        charge_state=ChargeSessionState.ACCESS_VALIDATED,
+        charge_state_updated_at=timezone.now() - timedelta(minutes=3),
+    )
+    type_auth = TypeAuth.objects.create(libelle="CODE", factor_level=2)
+    auth_method = Authentification.objects.create(
+        utilisateur=user,
+        type_auth=type_auth,
+        hash_valeur=hash_secret("FREE-CODE"),
+        display_value="****CODE",
+        expiration=timezone.now() + timedelta(hours=1),
+    )
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="FREECODE",
+        authentification=auth_method,
+        auth_choice="code",
+        date_debut=timezone.now() - timedelta(minutes=5),
+        date_fin=timezone.now() + timedelta(minutes=55),
+        statut="confirmee",
+    )
+
+    response = api_client.post(
+        reverse("api-terminal-authenticate"),
+        {
+            "reservation_code": reservation.reference_code,
+            "auth_mode": "code",
+            "auth_value": "FREE-CODE",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    previous_session.refresh_from_db()
+    previous_reservation.refresh_from_db()
+    assert previous_session.end_time is not None
+    assert previous_session.charge_state == ChargeSessionState.STOPPED
+    assert previous_reservation.statut == "terminee"
+    session = Session.objects.get(reservation=reservation)
+    assert session.end_time is None
+    assert session.charge_state == ChargeSessionState.ACCESS_VALIDATED
+
+
+@pytest.mark.django_db
+@override_settings(SESSION_WAITING_PLUG_STALE_MINUTES=5)
+def test_terminal_authenticate_direct_rfid_frees_stale_waiting_plug_session_before_conflict(
+    api_client,
+    user,
+    station,
+    emplacements,
+):
+    """Allow direct RFID access after a previous access never reached charging."""
+    other_user = type(user).objects.create_user(
+        pseudo="stale-rfid-owner",
+        email="stale-rfid-owner@example.com",
+        password="OtherPass123!",
+    )
+    previous_reservation = Reservation.objects.create(
+        utilisateur=other_user,
+        emplacement=emplacements[0],
+        reference_code="STALERF",
+        auth_choice="rfid",
+        date_debut=timezone.now() - timedelta(minutes=45),
+        date_fin=timezone.now() + timedelta(minutes=15),
+        statut="active",
+    )
+    previous_session = Session.objects.create(
+        reservation=previous_reservation,
+        emplacement=emplacements[0],
+        start_time=timezone.now() - timedelta(minutes=40),
+        charge_state=ChargeSessionState.WAITING_PLUG,
+        charge_state_updated_at=timezone.now() - timedelta(minutes=6),
+    )
+    type_auth = TypeAuth.objects.create(libelle="RFID", factor_level=1)
+    auth_method = Authentification.objects.create(
+        utilisateur=user,
+        type_auth=type_auth,
+        hash_valeur=hash_secret("RFID-FREE"),
+        display_value="RFID-FREE",
+        expiration=timezone.now() + timedelta(days=365),
+    )
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="RFFREE1",
+        authentification=auth_method,
+        auth_choice="rfid",
+        date_debut=timezone.now() - timedelta(minutes=5),
+        date_fin=timezone.now() + timedelta(minutes=55),
+        statut="confirmee",
+    )
+
+    response = api_client.post(
+        reverse("api-terminal-authenticate"),
+        {
+            "auth_mode": "rfid",
+            "auth_value": "RFID-FREE",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    previous_session.refresh_from_db()
+    previous_reservation.refresh_from_db()
+    assert previous_session.end_time is not None
+    assert previous_reservation.statut == "terminee"
+    session = Session.objects.get(reservation=reservation)
+    assert session.end_time is None
+    assert session.charge_state == ChargeSessionState.ACCESS_VALIDATED
+
+
+@pytest.mark.django_db
+def test_terminal_authenticate_direct_rfid_ignores_already_closed_previous_reservation(
+    api_client,
+    user,
+    station,
+    emplacements,
+):
+    """Use the next RFID reservation when an earlier booking already has a closed session."""
+    type_auth = TypeAuth.objects.create(libelle="RFID", factor_level=1)
+    auth_method = Authentification.objects.create(
+        utilisateur=user,
+        type_auth=type_auth,
+        hash_valeur=hash_secret("RFID-NEXT"),
+        display_value="RFID-NEXT",
+        expiration=timezone.now() + timedelta(days=365),
+    )
+    previous_reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="RFOLD1",
+        authentification=auth_method,
+        auth_choice="rfid",
+        date_debut=timezone.now() - timedelta(minutes=20),
+        date_fin=timezone.now() + timedelta(minutes=10),
+        statut="active",
+    )
+    previous_session = Session.objects.create(
+        reservation=previous_reservation,
+        emplacement=emplacements[0],
+        start_time=timezone.now() - timedelta(minutes=18),
+        end_time=timezone.now() - timedelta(minutes=2),
+        charge_state=ChargeSessionState.STOPPED,
+    )
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[1],
+        reference_code="RFNEXT1",
+        authentification=auth_method,
+        auth_choice="rfid",
+        date_debut=timezone.now() - timedelta(minutes=1),
+        date_fin=timezone.now() + timedelta(minutes=29),
+        statut="confirmee",
+    )
+
+    response = api_client.post(
+        reverse("api-terminal-authenticate"),
+        {
+            "auth_mode": "rfid",
+            "auth_value": "RFID-NEXT",
+        },
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    previous_session.refresh_from_db()
+    assert previous_session.end_time is not None
+    session = Session.objects.get(reservation=reservation)
+    assert session.end_time is None
+    assert session.charge_state == ChargeSessionState.ACCESS_VALIDATED
+
+
+@pytest.mark.django_db
+@override_settings(SESSION_ACCESS_VALIDATED_STALE_MINUTES=2)
+def test_mobile_session_consume_frees_stale_pre_charge_session_before_conflict(
+    authenticated_client,
+    api_client,
+    user,
+    station,
+    borne,
+    emplacements,
+):
+    """Allow mobile QR authorization after a stale kiosk session blocked the bay."""
+    other_user = type(user).objects.create_user(
+        pseudo="stale-mobile-owner",
+        email="stale-mobile-owner@example.com",
+        password="OtherPass123!",
+    )
+    previous_reservation = Reservation.objects.create(
+        utilisateur=other_user,
+        emplacement=emplacements[0],
+        reference_code="STALEMO",
+        auth_choice="qr",
+        date_debut=timezone.now() - timedelta(minutes=45),
+        date_fin=timezone.now() + timedelta(minutes=15),
+        statut="active",
+    )
+    previous_session = Session.objects.create(
+        reservation=previous_reservation,
+        emplacement=emplacements[0],
+        start_time=timezone.now() - timedelta(minutes=40),
+        charge_state=ChargeSessionState.ACCESS_VALIDATED,
+        charge_state_updated_at=timezone.now() - timedelta(minutes=3),
+    )
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="MOBFREE",
+        auth_choice="qr",
+        date_debut=timezone.now() - timedelta(minutes=5),
+        date_fin=timezone.now() + timedelta(minutes=55),
+        statut="confirmee",
+    )
+    create_response = api_client.post(
+        reverse("api-terminal-mobile-session-create"),
+        {
+            "station_id": str(station.id_station),
+            "borne_id": str(borne.id_borne),
+        },
+        format="json",
+    )
+    token = create_response.data["mobile_session"]["token"]
+    authorize_response = authenticated_client.post(
+        reverse("api-mobile-session-authorize", kwargs={"token": token}),
+        {"reservation_id": str(reservation.id_reservation)},
+        format="json",
+    )
+    assert authorize_response.status_code == status.HTTP_200_OK
+
+    consume_response = api_client.post(
+        reverse("api-terminal-mobile-session-consume-body"),
+        {
+            "token": token,
+            "station_id": str(station.id_station),
+            "borne_id": str(borne.id_borne),
+        },
+        format="json",
+    )
+
+    assert consume_response.status_code == status.HTTP_200_OK
+    previous_session.refresh_from_db()
+    previous_reservation.refresh_from_db()
+    assert previous_session.end_time is not None
+    assert previous_reservation.statut == "terminee"
+    session = Session.objects.get(reservation=reservation)
+    assert session.end_time is None
+    assert session.charge_state == ChargeSessionState.ACCESS_VALIDATED
+
+
+@pytest.mark.django_db
+def test_terminal_authenticate_rejects_after_reservation_end(api_client, user, station, emplacements):
     type_auth = TypeAuth.objects.create(libelle="CODE", factor_level=2)
     auth_method = Authentification.objects.create(
         utilisateur=user,
@@ -1018,12 +1336,13 @@ def test_terminal_authenticate_accepts_end_grace(api_client, user, station, empl
         format="json",
     )
 
-    assert response.status_code == status.HTTP_200_OK
-    assert Session.objects.filter(reservation=reservation, emplacement=emplacements[0]).exists()
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.data["detail"] == "La fenêtre de réservation est expirée."
+    assert not Session.objects.filter(reservation=reservation).exists()
 
 
 @pytest.mark.django_db
-def test_terminal_authenticate_rejects_after_end_grace(api_client, user, station, emplacements):
+def test_terminal_authenticate_rejects_long_after_reservation_end(api_client, user, station, emplacements):
     type_auth = TypeAuth.objects.create(libelle="CODE", factor_level=2)
     auth_method = Authentification.objects.create(
         utilisateur=user,

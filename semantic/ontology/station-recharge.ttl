@@ -1,0 +1,57 @@
+@prefix station: <https://station-recharge.local/ontology#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+station:ChargingStation a rdfs:Class ;
+    rdfs:label "Station de recharge"@fr .
+
+station:ChargingCabinet a rdfs:Class ;
+    rdfs:label "Borne de recharge"@fr .
+
+station:ChargingSlot a rdfs:Class ;
+    rdfs:label "Emplacement de charge"@fr .
+
+station:EmbeddedDevice a rdfs:Class ;
+    rdfs:label "Équipement embarqué ESP32"@fr .
+
+station:ChargingSession a rdfs:Class ;
+    rdfs:label "Session de charge"@fr .
+
+station:OperationalAlert a rdfs:Class ;
+    rdfs:label "Alerte opérationnelle"@fr .
+
+station:Technician a rdfs:Class ;
+    rdfs:label "Technicien"@fr .
+
+station:hasCabinet a rdf:Property ;
+    rdfs:domain station:ChargingStation ;
+    rdfs:range station:ChargingCabinet .
+
+station:hasSlot a rdf:Property ;
+    rdfs:range station:ChargingSlot .
+
+station:hostsDevice a rdf:Property ;
+    rdfs:domain station:ChargingSlot ;
+    rdfs:range station:EmbeddedDevice .
+
+station:hasSensor a rdf:Property ;
+    rdfs:domain station:EmbeddedDevice ;
+    rdfs:range sosa:Sensor .
+
+station:latestObservation a rdf:Property ;
+    rdfs:domain sosa:Sensor ;
+    rdfs:range sosa:Observation .
+
+station:hasChargingSession a rdf:Property ;
+    rdfs:domain station:ChargingSlot ;
+    rdfs:range station:ChargingSession .
+
+station:raisedAlert a rdf:Property ;
+    rdfs:domain station:ChargingSlot ;
+    rdfs:range station:OperationalAlert .
+
+station:hasTechnician a rdf:Property ;
+    rdfs:domain station:ChargingStation ;
+    rdfs:range station:Technician .

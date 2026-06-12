@@ -84,8 +84,8 @@ def test_waiting_cable_status_is_accepted_as_legacy_alias(mqtt_contract):
             "intrusion",
         ),
         ({"state": "charging", "door": True, "cable": True, "lock": False}, "lock_unlocked"),
-        ({"state": "charging", "temperature": 60}, "overheat"),
-        ({"state": "charging", "current": 3.0}, "overcurrent"),
+        ({"state": "charging", "temperature": 28}, "overheat"),
+        ({"state": "charging", "current": 6.0}, "overcurrent"),
         ({"state": "error"}, "state_error"),
     ],
 )

@@ -38,7 +38,9 @@ un début et une durée de recharge. L'utilisateur ne choisit pas directement
 l'emplacement : le backend vérifie les bornes et emplacements disponibles sur la
 fenêtre demandée, puis attribue automatiquement un emplacement libre au moment de
 la création. Les durées proposées sont 30 minutes, 1 heure, 2 heures et 4 heures,
-avec 1 heure par défaut.
+avec 1 heure par défaut. Le début et la fin du créneau sont alignés sur un pas de
+5 minutes, puis un buffer technique de 5 minutes est ajouté après le créneau pour
+préparer l'emplacement suivant.
 
 Les emplacements restent des objets métier côté backend. Ils portent la
 réservation effective, les sessions de charge et le rattachement aux devices
@@ -71,7 +73,9 @@ Kiosque Raspberry
 -----------------
 
 Le dossier ``raspberry/app/`` contient une interface locale simple exposée sur le
-port ``9000`` dans la stack Docker.
+port ``9000``. En développement, elle peut être lancée dans Docker pour simuler
+la borne. En production, elle tourne sur le Raspberry physique connecté à
+l'écran tactile, au lecteur RFID et au broker local de la borne.
 
 L'écran tactile cible une résolution de ``1024x600``. Les parcours critiques du
 kiosque doivent être validés sur cette taille, notamment l'accueil, la lecture
@@ -106,8 +110,7 @@ centralise les routes d'accès :
 
 * ``/`` vers le frontend Vite ;
 * ``/api/`` et ``/admin/`` vers Django ;
-* ``/grafana/`` vers Grafana ;
-* ``/kiosk/`` vers le kiosque Raspberry.
+* ``/grafana/`` vers Grafana.
 
 Cette configuration prépare la mise en production en isolant progressivement les
 services internes derrière un point d'entrée unique. En développement, Nginx
@@ -115,6 +118,8 @@ services internes derrière un point d'entrée unique. En développement, Nginx
 certificat auto-signé local permet de valider les cookies sécurisés, les routes
 proxy et les en-têtes ``X-Forwarded-Proto`` dans des conditions proches d'un
 déploiement réel. Les ports directs restent disponibles pour le diagnostic.
+La route ``/kiosk/`` est uniquement une commodité de simulation en local ; en
+production, l'interface tactile est servie par le Raspberry lui-même.
 
 ESP32
 -----

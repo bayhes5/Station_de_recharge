@@ -1,0 +1,32 @@
+PREFIX station: <https://station-recharge.local/ontology#>
+PREFIX sosa: <http://www.w3.org/ns/sosa/>
+
+SELECT ?stationName ?cabinetName ?slotNumber ?device ?firmware ?expected ?temperature ?technician
+WHERE {
+  ?station a station:ChargingStation ;
+           station:name ?stationName ;
+           station:hasCabinet ?cabinet ;
+           station:hasTechnician ?technicianResource .
+
+  ?technicianResource station:name ?technician .
+
+  ?cabinet station:name ?cabinetName ;
+           station:hasSlot ?slot .
+
+  ?slot station:number ?slotNumber ;
+        station:status "occupe" ;
+        station:hostsDevice ?device .
+
+  ?device station:firmwareVersion ?firmware ;
+          station:expectedFirmwareVersion ?expected ;
+          station:firmwareStatus "update_required" ;
+          station:hasSensor ?sensor .
+
+  ?sensor station:sensorType "temperature" ;
+          station:latestObservation ?observation .
+
+  ?observation sosa:hasSimpleResult ?temperature .
+
+  FILTER (?temperature > 60)
+}
+ORDER BY DESC(?temperature)

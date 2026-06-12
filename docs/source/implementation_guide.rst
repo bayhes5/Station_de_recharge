@@ -55,12 +55,18 @@ porte son état métier et son état de serrure.
 
 ``Reservation`` relie un utilisateur, un emplacement, un moyen
 d'authentification et une fenêtre de temps. Les durées proposées sont 30 minutes,
-1 heure, 2 heures et 4 heures, avec 1 heure par défaut. Cette règle garde une
-expérience simple tout en restant réaliste pour une recharge de vélo électrique.
+1 heure, 2 heures et 4 heures, avec 1 heure par défaut. Le début et la fin du
+créneau sont alignés sur des tranches de 5 minutes, et un buffer technique de
+5 minutes est ajouté après chaque réservation pour préparer l'emplacement
+suivant.
 
-``Session`` représente la charge réellement ouverte à la borne. Elle est créée
-quand le kiosque valide l'accès. ``SessionTelemetry`` stocke les mesures
-électriques associées si une session active existe.
+``Session`` représente le cycle opérationnel ouvert à la borne : validation
+d'accès, attente du branchement, charge réelle, arrêt et clôture. Elle est
+créée dès que le kiosque valide l'accès afin de tracer l'ouverture de serrure
+et de rattacher la télémétrie au bon emplacement. La charge électrique n'est
+considérée réellement active qu'à partir de l'état ``charging``.
+``SessionTelemetry`` stocke les mesures électriques associées si une session
+active existe.
 
 ``Authentification`` centralise les moyens d'accès : RFID persistant, QR code et
 code SMS temporaire. Les secrets ne sont pas stockés en clair : ils sont hachés
@@ -148,19 +154,18 @@ acceptées sont centralisées dans ``backend/api/reservation_rules.py``. Les tes
 associés sont dans ``backend/api/tests/test_reservations.py`` et
 ``backend/api/tests/test_serializers.py``.
 
-La validation à la borne utilise deux marges métier : ``RESERVATION_START_GRACE_MINUTES``
-autorise l'arrivée un peu avant le début du créneau et
-``RESERVATION_END_GRACE_MINUTES`` autorise un léger retard après la fin. Par
-défaut, ces valeurs sont de 5 minutes et 10 minutes. Elles sont utilisées par
-les endpoints terminal, les sessions mobiles et le cache offline.
+La validation à la borne utilise une marge métier d'arrivée anticipée :
+``RESERVATION_START_GRACE_MINUTES`` autorise l'arrivée un peu avant le début du
+créneau, par défaut 5 minutes. La fin du créneau reste stricte pour une nouvelle
+authentification : ``RESERVATION_END_GRACE_MINUTES`` vaut 0 par défaut.
 
-Ces marges ne sont pas prises en compte par ``_available_emplacements`` ni par
-``_reservation_overlaps``. Le backend réserve uniquement la fenêtre payée par
-l'utilisateur afin de maximiser l'utilisation de la station. Deux réservations
-adjacentes, par exemple 13h00-14h00 puis 14h00-15h00, peuvent donc être affectées
-au même emplacement. Au moment de l'ouverture, ``_session_start_conflict_response``
-empêche toutefois de démarrer en avance si l'emplacement est encore couvert par
-le créneau précédent ou par une session de charge active.
+Le buffer de rotation est pris en compte par ``_available_emplacements`` et
+``_reservation_overlaps`` via ``reservation_conflict_bounds``. Le backend bloque
+donc la fenêtre payée et les 5 minutes qui suivent. Par exemple, une réservation
+14h30-15h30 rend l'emplacement indisponible jusqu'à 15h35. Au moment de
+l'ouverture, ``_session_start_conflict_response`` empêche aussi de démarrer en
+avance si l'emplacement est encore couvert par le créneau précédent, son buffer
+ou une session de charge active.
 
 QR code et code SMS temporaire
 ------------------------------
@@ -434,8 +439,10 @@ actuelles sont :
 * ``intrusion`` si ``intrusion`` vaut ``true`` pendant ``charging`` ;
 * ``cable_removed`` si ``cable`` vaut ``false`` pendant ``charging`` ;
 * ``lock_unlocked`` si ``lock`` vaut ``false`` pendant ``charging`` ;
-* ``overheat`` si la température est supérieure ou égale à ``60`` ;
-* ``overcurrent`` si le courant est supérieur ou égal à ``3.0`` ;
+* ``overheat`` si la température est supérieure ou égale à
+  ``OVERHEAT_ALERT_TEMPERATURE_C`` ;
+* ``overcurrent`` si le courant est supérieur ou égal à
+  ``OVERCURRENT_ALERT_CURRENT_A`` ;
 * ``state_error`` si l'état vaut ``error``, ``emergency`` ou ``fault`` ;
 * ``charge_without_session`` si l'ESP32 remonte une charge avec un ``session_id``
   inconnu du backend ;
@@ -571,9 +578,62 @@ technicien, via la section ``Périmètre d'intervention``. La ressource avancée
 d'une affectation, mais le flux recommandé est de visualiser et modifier le
 périmètre au même endroit que l'identité du technicien.
 
+Les rôles sont volontairement simples :
+
+* ``referent`` : technicien responsable d'une station ou d'un groupe de
+  stations ;
+* ``intervenant`` : technicien autorisé à traiter les alertes du périmètre ;
+* ``observateur`` : accès lecture seule à la supervision de la station. Ce rôle
+  permet de consulter les alertes et mesures, mais le backend refuse la prise en
+  charge ou la résolution d'alerte.
+
 L'endpoint ``GET /api/technician/maintenances/`` permet à un technicien connecté
 de consulter ses interventions. L'administration peut créer, modifier et
 supprimer les techniciens et maintenances.
+
+L'onglet ``Opérations`` de l'administration regroupe désormais les techniciens
+et maintenances sous forme de sous-onglets. Cela évite de mélanger la gestion
+des identités terrain avec la planification des interventions.
+
+Exports administrateur
+----------------------
+
+L'onglet ``Exports`` fournit une vue de prévisualisation automatique avant
+téléchargement. L'administrateur choisit le jeu de données et applique les
+filtres ; le tableau de droite se met alors à jour sans action supplémentaire.
+Il peut ensuite exporter exactement le même périmètre en CSV ou JSON. Cela évite
+les exports à l'aveugle et permet de justifier précisément le périmètre d'un
+audit.
+
+L'API associée est ``GET /api/admin/export/operational/``. Elle accepte les
+paramètres suivants :
+
+* ``dataset=operational`` : instantané station / borne / emplacement ;
+* ``dataset=security_logs`` : journaux de sécurité archivés ;
+* ``station_id`` : station ciblée pour l'instantané opérationnel ;
+* ``date_from`` et ``date_to`` : période analysée ;
+* ``query`` : recherche dans les journaux par utilisateur, action ou IP ;
+* ``log_status`` : filtre ``success`` ou ``failure`` pour les journaux ;
+* ``export_format=json`` ou ``export_format=csv`` ;
+* ``download=1`` : indique un téléchargement réel et déclenche la
+  journalisation de l'export dans ``JournalSecurite``.
+
+Deux formats sont disponibles :
+
+* ``export_format=json`` : rapport exploitable par une autre API ou pour audit ;
+* ``export_format=csv`` : fichier tableur destiné à l'analyse, à la soutenance
+  ou au partage avec l'équipe.
+
+L'export opérationnel contient un résumé global et une ligne par emplacement :
+station, borne, emplacement, état serrure, contrôleur ESP32, firmware, dernière
+télémétrie, session active, réservations/sessions de la période et alertes
+actives.
+
+L'export ``security_logs`` contient les événements historiques issus de
+``JournalSecurite`` : date, utilisateur, action, statut et adresse IP. Il est
+limité par défaut à 1000 lignes afin de garder l'interface et les exports
+exploitables. Les exports réels sont eux-mêmes tracés, par exemple sous la forme
+``admin:<pseudo>:export:security_logs:<n>_rows``.
 
 Le dashboard technicien ``frontend/technician-dashboard.html`` applique le même
 principe de moindre privilège côté interface. Les snapshots de supervision
@@ -608,6 +668,28 @@ La couche PWA se compose de :
 Ce cache ne remplace pas l'API : les réservations, statuts de session et moyens
 d'accès restent récupérés en ligne afin de conserver une source de vérité côté
 backend.
+
+Sur smartphone, les pages connectées reçoivent une navigation basse générée par
+``frontend/js/navigation.js``. Elle donne accès aux parcours principaux sans
+imposer les grands boutons d'en-tête : accueil utilisateur, réservation, profil
+et, si le rôle le permet, administration ou espace technicien. Le tableau de
+bord utilisateur reste centré sur les informations de compte, les réservations
+et l'historique de recharge ; les actions opérationnelles restent dans les
+onglets dédiés afin d'éviter les doublons de navigation.
+
+En affichage mobile, les liens principaux de l'en-tête sont masqués lorsque la
+barre basse est disponible. L'en-tête conserve uniquement une action courte de
+déconnexion, tandis que les onglets internes deviennent des grilles tactiles
+compactes afin d'éviter le défilement horizontal obligatoire. Ce choix rapproche
+la PWA d'une application mobile réelle : la navigation principale reste
+accessible au pouce, et les écrans de réservation ou de profil ne sont plus
+surchargés par deux navigations concurrentes.
+
+L'installation PWA est gérée par ``frontend/js/pwa.js``. Lorsque le navigateur
+émet ``beforeinstallprompt``, le frontend affiche un bouton
+``Installer l'application``. Le service worker reste désactivé en développement
+Vite et sur HTTP local, mais il est autorisé sur le serveur HTTPS, y compris sur
+une IP privée, afin de permettre une démonstration mobile installable.
 
 Le mode hors ligne de la PWA est volontairement limité. Il sert à afficher une
 réponse propre lorsque le téléphone ne peut plus joindre le service, pas à

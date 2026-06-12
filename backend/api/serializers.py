@@ -18,9 +18,11 @@ from .models import (
     Maintenance,
     ProfilUtilisateur,
     Reservation,
+    ReservationStatus,
     Station,
     Technicien,
     TechnicienStation,
+    UserStatus,
 )
 from .reservation_rules import (
     DEFAULT_RESERVATION_DURATION_MINUTES,
@@ -31,6 +33,7 @@ from .reservation_rules import (
     reservation_duration_minutes,
 )
 from .services.firmware import expected_firmware_version, firmware_update_required
+from .services.retention import is_anonymized_user_account
 
 
 User = get_user_model()
@@ -175,6 +178,9 @@ class ProfileSerializer(serializers.ModelSerializer):
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
+        if "statut" in validated_data:
+            instance.is_active = instance.statut == UserStatus.ACTIVE
+
         if instance.is_superuser:
             instance.is_staff = True
 
@@ -237,6 +243,9 @@ class AdminUserUpdateSerializer(ProfileSerializer):
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
+        if "statut" in validated_data:
+            instance.is_active = instance.statut == UserStatus.ACTIVE
+
         if instance.is_superuser:
             instance.is_staff = True
 
@@ -282,10 +291,13 @@ class ConsentPreferenceSerializer(serializers.Serializer):
 class AdminUserSerializer(serializers.ModelSerializer):
     """Serialize user records for administrative list and detail views."""
 
+    pseudo = serializers.SerializerMethodField()
+    email = serializers.SerializerMethodField()
     nom = serializers.SerializerMethodField()
     telephone = serializers.SerializerMethodField()
     telephone_verifie = serializers.SerializerMethodField()
     is_technician = serializers.SerializerMethodField()
+    is_deleted = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -305,23 +317,46 @@ class AdminUserSerializer(serializers.ModelSerializer):
             "date_joined",
             "nom",
             "is_technician",
+            "is_deleted",
         )
+
+    def get_pseudo(self, obj):
+        """Return a business-safe label for the user account."""
+        if is_anonymized_user_account(obj):
+            return "Compte supprimé"
+        return obj.pseudo
+
+    def get_email(self, obj):
+        """Avoid exposing the technical anonymized email address."""
+        if is_anonymized_user_account(obj):
+            return ""
+        return obj.email
 
     def get_nom(self, obj):
         """Return the display name stored on the related profile."""
+        if is_anonymized_user_account(obj):
+            return "Compte supprimé"
         return getattr(getattr(obj, "profil", None), "nom", "")
 
     def get_telephone(self, obj):
         """Return the phone number stored on the related profile."""
+        if is_anonymized_user_account(obj):
+            return ""
         return getattr(getattr(obj, "profil", None), "telephone", "")
 
     def get_telephone_verifie(self, obj) -> bool:
         """Return whether the phone number stored on the related profile is verified."""
+        if is_anonymized_user_account(obj):
+            return False
         return getattr(getattr(obj, "profil", None), "telephone_verifie", False)
 
     def get_is_technician(self, obj):
         """Return whether the user is linked to a technician profile."""
         return hasattr(obj, "technicien_profile")
+
+    def get_is_deleted(self, obj) -> bool:
+        """Expose the account deletion/anonymization state explicitly."""
+        return is_anonymized_user_account(obj)
 
 
 class StationSerializer(serializers.ModelSerializer):
@@ -346,6 +381,7 @@ class BorneSerializer(serializers.ModelSerializer):
             "station_nom",
             "numero",
             "nom",
+            "terminal_code",
             "mqtt_prefix",
             "statut",
             "emplacements_count",
@@ -353,6 +389,7 @@ class BorneSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "station": {"required": True},
             "statut": {"required": False},
+            "terminal_code": {"required": False, "allow_blank": True},
             "mqtt_prefix": {"required": False, "allow_blank": True},
         }
 
@@ -519,7 +556,7 @@ class ReservationSerializer(serializers.ModelSerializer):
     auth_type = serializers.CharField(source="authentification.type_auth.libelle", read_only=True)
     auth_display_value = serializers.SerializerMethodField()
     auth_expiration = serializers.DateTimeField(source="authentification.expiration", read_only=True)
-    auth_is_active = serializers.BooleanField(source="authentification.is_active", read_only=True)
+    auth_is_active = serializers.SerializerMethodField()
     duration_minutes = serializers.SerializerMethodField()
     can_cancel = serializers.SerializerMethodField()
 
@@ -568,6 +605,20 @@ class ReservationSerializer(serializers.ModelSerializer):
         if auth_method.type_auth and auth_method.type_auth.libelle == "RFID":
             return "Badge RFID enregistre"
         return auth_method.display_value
+
+    def get_auth_is_active(self, obj):
+        """Return whether the reservation access can still be used."""
+        auth_method = getattr(obj, "authentification", None)
+        if not auth_method or not auth_method.is_active:
+            return False
+        now = timezone.now()
+        if obj.statut in {ReservationStatus.CANCELLED, ReservationStatus.COMPLETED}:
+            return False
+        if obj.date_fin < now:
+            return False
+        if auth_method.expiration and auth_method.expiration < now:
+            return False
+        return True
 
 
 class ReservationCreateSerializer(serializers.Serializer):

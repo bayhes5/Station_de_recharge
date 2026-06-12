@@ -15,20 +15,26 @@ openssl req -x509 -nodes -newkey rsa:2048 -days 3650 `
   -config nginx\certs\localhost.conf
 ```
 
-## Option production locale avec smallstep
+## Option production locale avec Smallstep
 
-Pour une installation LAN plus propre, utiliser une CA locale smallstep au lieu
-du certificat autosigné fourni :
+Pour une installation LAN plus propre, utiliser une CA locale Smallstep au lieu
+du certificat autosigné fourni. Dans le projet, la CA s'appelle `Metropole
+Verte` et le serveur Debian est exposé sur `192.168.10.10`.
 
 ```bash
-step ca certificate station.local \
+step ca certificate 192.168.10.10 \
   nginx/certs/localhost.crt \
   nginx/certs/localhost.key \
-  --san station.local \
-  --san 192.168.1.50
+  --san 192.168.10.10 \
+  --san 127.0.0.1 \
+  --san localhost \
+  --san SRV-Station \
+  --not-after 720h
 chmod 600 nginx/certs/localhost.key
 ```
 
-La racine smallstep doit ensuite être installée sur les postes, téléphones et
-Raspberry qui accèdent à l'application. Pour un domaine public, préférer un
+La racine Smallstep doit ensuite être installée sur les postes, téléphones et
+Raspberry qui accèdent à l'application. La racine publique peut être distribuée
+aux clients ; les clés privées `*.key` ne doivent jamais être versionnées ni
+copiées hors de la machine concernée. Pour un domaine public, préférer un
 certificat Let's Encrypt ou un certificat fourni par l'infrastructure.

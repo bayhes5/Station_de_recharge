@@ -5,11 +5,14 @@ const RESERVATION_DURATIONS = [
     { minutes: 240, label: "4 h" },
 ];
 const DEFAULT_RESERVATION_DURATION_MINUTES = 60;
+const RESERVATION_STEP_MINUTES = 5;
 const AUTH_OPTIONS = {
     rfid: "Badge RFID",
     qr: "QR code temporaire",
     code: "Code SMS temporaire",
 };
+const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const OSM_RENDER_TIMEOUT_MS = 6500;
 
 function localToDate(value) {
     return value ? new Date(value) : null;
@@ -87,7 +90,7 @@ function renderReservations(container, reservations, onCancel, onAccess) {
                 accessButton.className = "btn btn-secondary";
                 accessButton.type = "button";
                 accessButton.dataset.accessToggle = reservation.id_reservation;
-                accessButton.textContent = reservation.auth_mode === "qr" ? "+ Afficher le QR" : "Recevoir le code SMS";
+                accessButton.textContent = reservation.auth_mode === "qr" ? "Afficher le QR" : "Recevoir le code SMS";
                 accessButton.addEventListener("click", () => onAccess(reservation, item, accessButton));
                 actions.appendChild(accessButton);
             }
@@ -147,7 +150,7 @@ function renderAvailability(container, station, availability) {
 function renderStationAvailability(container, station, availability) {
     if (!station) {
         container.className = "empty-state";
-        container.textContent = "Selectionnez une station pour voir les disponibilites.";
+        container.textContent = "Sélectionnez une station pour voir les disponibilités.";
         return;
     }
 
@@ -229,7 +232,7 @@ function appendAccessPayload(container, result) {
     }
 }
 
-document.addEventListener("DOMContentLoaded", async () => {
+async function initReservationPage() {
     const status = document.getElementById("reservation-status");
     const logoutButton = document.getElementById("reservation-logout");
     const adminLink = document.getElementById("reservation-admin-link");
@@ -265,13 +268,20 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     window.AppNavigation.render(session, { active: "reservation" });
 
+    const userHasPhoneNumber = Boolean(String(session.user?.telephone || "").trim());
     let stations = [];
     let savedRfidValue = "";
     let selectedStation = null;
     let leafletMap = null;
     let leafletMarkers = [];
+    let leafletTileLayer = null;
+    let leafletTileErrorCount = 0;
+    let leafletTileLoadCount = 0;
+    let leafletTileReadinessTimer = null;
+    let leafletDisabledForSession = false;
+    let mapRenderVersion = 0;
 
-    function roundToHalfHour(date, stepMinutes = 30) {
+    function roundToReservationStep(date, stepMinutes = RESERVATION_STEP_MINUTES) {
         const rounded = new Date(date);
         rounded.setSeconds(0, 0);
         const minutes = rounded.getMinutes();
@@ -283,13 +293,28 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     function toLocalInputValue(date) {
-        const rounded = roundToHalfHour(date);
+        const rounded = roundToReservationStep(date);
         const offset = rounded.getTimezoneOffset() * 60000;
         return new Date(rounded.getTime() - offset).toISOString().slice(0, 16);
     }
 
     function getStartDate() {
         return localToDate(startInput.value);
+    }
+
+    function getNextBookableStartDate() {
+        return roundToReservationStep(addMinutes(new Date(), RESERVATION_STEP_MINUTES));
+    }
+
+    function ensureFutureStartDate() {
+        const start = getStartDate();
+        const nextBookableStart = getNextBookableStartDate();
+        if (!start || start < nextBookableStart) {
+            startInput.value = toLocalInputValue(nextBookableStart);
+            updateEndDisplay();
+            return nextBookableStart;
+        }
+        return start;
     }
 
     function getSelectedDurationMinutes() {
@@ -335,7 +360,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
 
         appendAuthOption("qr");
-        appendAuthOption("code");
+        if (userHasPhoneNumber) {
+            appendAuthOption("code");
+        }
         authModeSelect.value = savedRfidValue ? "rfid" : "qr";
         updateAuthFieldVisibility();
     }
@@ -387,8 +414,19 @@ document.addEventListener("DOMContentLoaded", async () => {
         refreshAvailability();
     }
 
+    function shouldUseLeaflet() {
+        if (leafletDisabledForSession) return false;
+        if (window.__ENABLE_EXTERNAL_MAP__ === false) return false;
+        if (window.__ENABLE_EXTERNAL_MAP__ === true) return true;
+        return stationMap.dataset.mapProvider === "leaflet";
+    }
+
     function canUseLeaflet() {
-        return Boolean(window.__ENABLE_EXTERNAL_MAP__ === true && window.L && typeof window.L.map === "function");
+        return Boolean(window.L && typeof window.L.map === "function");
+    }
+
+    function loadLeafletAssets() {
+        return Promise.resolve(shouldUseLeaflet() && canUseLeaflet());
     }
 
     function getStationCoordinates(station) {
@@ -406,11 +444,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     function resetLeafletMap() {
+        if (leafletTileReadinessTimer) {
+            window.clearTimeout(leafletTileReadinessTimer);
+        }
         clearLeafletMarkers();
         if (leafletMap && typeof leafletMap.remove === "function") {
             leafletMap.remove();
         }
         leafletMap = null;
+        leafletTileLayer = null;
+        leafletTileErrorCount = 0;
+        leafletTileLoadCount = 0;
+        leafletTileReadinessTimer = null;
         stationMap.classList.remove("leaflet-station-map");
     }
 
@@ -419,48 +464,88 @@ document.addEventListener("DOMContentLoaded", async () => {
             .map((station) => ({ station, coordinates: getStationCoordinates(station) }))
             .filter((entry) => entry.coordinates);
 
-        if (!canUseLeaflet() || !stationsWithCoordinates.length) {
+        if (!shouldUseLeaflet() || !canUseLeaflet() || !stationsWithCoordinates.length) {
             resetLeafletMap();
             return false;
         }
 
-        stationMap.classList.add("leaflet-station-map");
+        try {
+            stationMap.classList.add("leaflet-station-map");
 
-        if (!leafletMap) {
-            leafletMap = window.L.map(stationMap, {
-                scrollWheelZoom: false,
+            if (!leafletMap) {
+                stationMap.innerHTML = "";
+                leafletMap = window.L.map(stationMap, {
+                    scrollWheelZoom: false,
+                });
+                leafletTileLayer = window.L.tileLayer(OSM_TILE_URL, {
+                    attribution: "&copy; OpenStreetMap contributors",
+                    maxZoom: 19,
+                });
+                leafletTileLayer.on("tileload", () => {
+                    leafletTileLoadCount += 1;
+                    leafletTileErrorCount = 0;
+                    if (leafletTileReadinessTimer) {
+                        window.clearTimeout(leafletTileReadinessTimer);
+                        leafletTileReadinessTimer = null;
+                    }
+                });
+                leafletTileLayer.on("tileerror", () => {
+                    leafletTileErrorCount += 1;
+                    if (leafletTileErrorCount >= 3) {
+                        leafletDisabledForSession = true;
+                        renderFallbackMap(getFilteredStations());
+                    }
+                });
+                leafletTileLayer.addTo(leafletMap);
+                leafletTileReadinessTimer = window.setTimeout(() => {
+                    if (leafletTileLoadCount === 0) {
+                        leafletDisabledForSession = true;
+                        renderFallbackMap(getFilteredStations());
+                    }
+                }, OSM_RENDER_TIMEOUT_MS);
+            }
+
+            clearLeafletMarkers();
+            const bounds = [];
+            stationsWithCoordinates.forEach(({ station, coordinates }, index) => {
+                const popup = document.createElement("div");
+                const name = document.createElement("strong");
+                const location = document.createElement("span");
+                name.textContent = station.nom;
+                location.textContent = station.localisation_text || "";
+                popup.append(name, document.createElement("br"), location);
+
+                const isSelected = selectedStation?.id_station === station.id_station;
+                const markerIcon = window.L.divIcon({
+                    className: `station-leaflet-marker${isSelected ? " active" : ""}`,
+                    html: `<span>${index + 1}</span>`,
+                    iconSize: [38, 38],
+                    iconAnchor: [19, 19],
+                });
+
+                const marker = window.L.marker(coordinates, { icon: markerIcon })
+                    .addTo(leafletMap)
+                    .bindPopup(popup);
+                marker.on("click", () => selectStation(station));
+                leafletMarkers.push(marker);
+                bounds.push(coordinates);
             });
-            window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-                attribution: "&copy; OpenStreetMap contributors",
-            }).addTo(leafletMap);
+
+            if (bounds.length === 1) {
+                leafletMap.setView(bounds[0], 14);
+            } else {
+                leafletMap.fitBounds(bounds, { padding: [28, 28] });
+            }
+
+            [0, 120, 450, 1000].forEach((delay) => {
+                window.setTimeout(() => leafletMap?.invalidateSize(), delay);
+            });
+            return true;
+        } catch (_error) {
+            leafletDisabledForSession = true;
+            resetLeafletMap();
+            return false;
         }
-
-        clearLeafletMarkers();
-        const bounds = [];
-        stationsWithCoordinates.forEach(({ station, coordinates }) => {
-            const popup = document.createElement("div");
-            const name = document.createElement("strong");
-            const location = document.createElement("span");
-            name.textContent = station.nom;
-            location.textContent = station.localisation_text || "";
-            popup.append(name, document.createElement("br"), location);
-
-            const marker = window.L.marker(coordinates)
-                .addTo(leafletMap)
-                .bindPopup(popup);
-            marker.on("click", () => selectStation(station));
-            leafletMarkers.push(marker);
-            bounds.push(coordinates);
-        });
-
-        if (bounds.length === 1) {
-            leafletMap.setView(bounds[0], 14);
-        } else {
-            leafletMap.fitBounds(bounds, { padding: [28, 28] });
-        }
-
-        window.setTimeout(() => leafletMap.invalidateSize(), 0);
-        return true;
     }
 
     function renderFallbackMap(filteredStations) {
@@ -484,7 +569,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             pin.className = `station-pin${isSelected ? " active" : ""}`;
             pin.style.left = `${getMapPosition(station, "x", index)}%`;
             pin.style.top = `${getMapPosition(station, "y", index)}%`;
-            pin.setAttribute("aria-label", `Selectionner ${station.nom}`);
+            pin.setAttribute("aria-label", `Sélectionner ${station.nom}`);
             pin.textContent = String(index + 1);
             pin.addEventListener("click", () => selectStation(station));
             stationMap.appendChild(pin);
@@ -493,9 +578,15 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     function renderStationPicker() {
         const filteredStations = getFilteredStations();
+        const renderVersion = ++mapRenderVersion;
         const useLeafletMap = renderLeafletMap(filteredStations);
         if (!useLeafletMap) {
             renderFallbackMap(filteredStations);
+            loadLeafletAssets().then((ready) => {
+                if (ready && renderVersion === mapRenderVersion) {
+                    renderLeafletMap(getFilteredStations());
+                }
+            });
         }
         stationResults.innerHTML = "";
 
@@ -576,7 +667,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             accessContainer.innerHTML = "";
             accessContainer.dataset.visible = "false";
             if (triggerButton) {
-                triggerButton.textContent = "+ Afficher le QR";
+                triggerButton.textContent = "Afficher le QR";
             }
             return;
         }
@@ -587,7 +678,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             appendAccessPayload(accessContainer, result);
             accessContainer.dataset.visible = "true";
             if (triggerButton) {
-                triggerButton.textContent = "- Masquer le QR";
+                triggerButton.textContent = "Masquer le QR";
             }
             status.classList.remove("error");
             status.textContent = "";
@@ -614,7 +705,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 accessContainer.dataset.visible = "false";
                 const toggleButton = document.querySelector(`[data-access-toggle="${reservationId}"]`);
                 if (toggleButton) {
-                    toggleButton.textContent = "+ Afficher le QR";
+                    toggleButton.textContent = "Afficher le QR";
                 }
             }
         }
@@ -645,7 +736,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     async function refreshAvailability() {
         const stationId = stationInput.value;
-        const start = getStartDate();
+        const start = ensureFutureStartDate();
         const end = getEndDate();
         updateEndDisplay();
 
@@ -674,7 +765,12 @@ document.addEventListener("DOMContentLoaded", async () => {
         updateEndDisplay();
         status.textContent = savedRfidValue
             ? "Badge RFID détecté. Il est sélectionné par défaut pour la réservation."
-            : "Aucun badge RFID enregistré. QR code et code SMS temporaire restent disponibles.";
+            : "QR code disponible pour cette réservation.";
+        if (!userHasPhoneNumber) {
+            status.textContent = savedRfidValue
+                ? "Badge RFID détecté. Il est sélectionné par défaut pour la réservation."
+                : "QR code disponible pour cette réservation.";
+        }
         window.setInterval(refreshVisibleAccesses, 15000);
         document.addEventListener("visibilitychange", () => {
             if (!document.hidden) refreshVisibleAccesses();
@@ -696,7 +792,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         const submitButton = form.querySelector('button[type="submit"]');
         submitButton.disabled = true;
 
-        const start = getStartDate();
+        const start = ensureFutureStartDate();
         const end = getEndDate();
         if (!start || !end) {
             status.classList.add("error");
@@ -715,6 +811,13 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (authModeSelect.value === "rfid" && !savedRfidValue) {
             status.classList.add("error");
             status.textContent = "Ajoutez d’abord un badge RFID dans votre profil.";
+            submitButton.disabled = false;
+            return;
+        }
+
+        if (authModeSelect.value === "code" && !userHasPhoneNumber) {
+            status.classList.add("error");
+            status.textContent = "Ajoutez un numéro de téléphone dans votre profil pour utiliser le code SMS temporaire.";
             submitButton.disabled = false;
             return;
         }
@@ -753,4 +856,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (stations.length) {
         await refreshAvailability();
     }
-});
+}
+
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initReservationPage, { once: true });
+} else {
+    initReservationPage();
+}

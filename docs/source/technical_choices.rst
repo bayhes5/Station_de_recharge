@@ -142,7 +142,7 @@ performance API viendront plutôt des index, de la pagination, du cache ciblé e
 de l'optimisation des serializers.
 
 Pourquoi ne pas ajouter htmx ou Alpine.js maintenant ?
------------------------------------------------------
+-------------------------------------------------------
 
 htmx et Alpine.js restent de bons outils, mais ils ne sont pas prioritaires dans
 la structure actuelle du projet.
@@ -182,6 +182,14 @@ installable et un service worker léger. Le cache PWA reste volontairement
 limité à l'enveloppe applicative et aux assets statiques : les données métier,
 les réservations et les secrets d'accès continuent de venir de l'API afin de ne
 pas figer des droits sensibles côté navigateur.
+
+L'interface mobile privilégie les actions immédiates : navigation basse,
+onglets dédiés aux réservations et page de session mobile dédiée au
+déverrouillage de la borne. Le téléphone n'est pas utilisé pour
+démarrer électriquement la charge ; il autorise l'accès. Le démarrage reste
+piloté par la borne lorsque le branchement est détecté. Dans le prototype, en
+l'absence de capteur câble, le courant minimum mesuré sert de signal de
+branchement temporaire.
 
 Cette base porte aussi le parcours "téléphone -> borne". La borne affiche un QR
 de session mobile, l'utilisateur ouvre la PWA, se connecte si nécessaire,
@@ -237,24 +245,22 @@ Durées de réservation
 
 La durée minimale est de 30 minutes et la durée par défaut est de 1 heure. Les
 durées proposées sont 30 minutes, 1 heure, 2 heures et 4 heures.
+Le début et la fin d'une réservation doivent être alignés sur des tranches de
+5 minutes. Ce pas permet de maximiser l'utilisation des emplacements sans
+proposer des durées de recharge trop courtes.
 
-Cette règle garde un calcul de disponibilité simple tout en restant réaliste
-pour une recharge de vélo électrique. Les accès temporaires restent valables sur
-la fenêtre réellement réservée.
+Le calcul de disponibilité ajoute aussi un buffer technique de 5 minutes après
+chaque réservation. Une réservation affichée 14h30-15h30 bloque donc
+techniquement l'emplacement jusqu'à 15h35. Le créneau suivant peut commencer à
+15h35, pas à 15h30. Ce buffer représente le temps de rotation minimal entre deux
+utilisateurs : arrêt de charge, retrait du câble, fermeture du boîtier et remise
+en état de l'emplacement.
 
-La borne applique aussi une tolérance d'accès : l'utilisateur peut démarrer un
-peu avant le début du créneau et conserve une courte marge après la fin. Les
-valeurs par défaut sont 5 minutes avant le début et 10 minutes après la fin.
-Elles sont exposées par le cache offline pour que le Raspberry applique les
-mêmes règles en mode dégradé.
-
-Ces marges ne font pas partie du calcul de disponibilité. Une réservation
-affichée 14h00-15h00 bloque l'emplacement sur cette fenêtre payée uniquement :
-un autre utilisateur peut donc réserver 13h00-14h00 ou 15h00-16h00 sur le même
-emplacement. La tolérance sert seulement au contrôle d'accès à la borne, sans
-créer un trou invisible dans le planning. Si le créneau précédent est encore en
-cours ou si une session de charge est active sur l'emplacement, la borne refuse
-l'ouverture anticipée.
+La borne applique seulement une tolérance d'arrivée anticipée de 5 minutes.
+Elle est acceptée si l'emplacement n'est pas encore couvert par le créneau
+précédent ni par une session active. Il n'y a pas de prolongation garantie après
+la fin : une nouvelle authentification après l'heure de fin est refusée, sauf si
+la session était déjà ouverte avant la fin du créneau.
 
 Si le projet évolue vers une tarification, ces durées pourront être déplacées
 dans une configuration métier ou dans un modèle de prix.
@@ -293,10 +299,13 @@ synchronisé côté station, mais il n'est envoyé à l'utilisateur que peu avan
 créneau ou lorsqu'il clique sur ``Recevoir le code SMS``.
 
 Le transport SMS est isolé derrière un service backend. En local, le fournisseur
-``console`` évite tout coût et tout envoi réel. En production, le fournisseur
-doit être choisi explicitement parmi ``twilio`` ou ``brevo`` avec ses
-identifiants dédiés. ``ovh`` n'est pas activé dans le profil durci, car la
-signature REST OVH repose sur SHA-1. Le mode production recommande aussi
+``console`` évite tout coût et tout envoi réel. Pour les démonstrations
+académiques, le fournisseur ``email`` envoie le même contenu vers Mailpit :
+l'utilisateur teste ainsi le parcours ``Recevoir le code SMS`` sans dépendre
+d'un compte Twilio ni d'un réseau opérateur. En production, le fournisseur doit
+être choisi explicitement parmi ``twilio`` ou ``brevo`` avec ses identifiants
+dédiés. ``ovh`` n'est pas activé dans le profil durci, car la signature REST OVH
+repose sur SHA-1. Le mode production recommande aussi
 ``SMS_REQUIRE_VERIFIED_PHONE=True`` et un délai de renvoi afin de limiter les
 erreurs de numéro, les abus et les boucles de clic sur l'interface mobile.
 
@@ -310,9 +319,10 @@ Pour les emails, le projet retient Mailpit en environnement académique. Django
 envoie via SMTP vers le service ``mailpit`` du ``docker-compose`` et les messages
 sont consultables dans l'interface web locale. Ce choix reste gratuit, open
 source et démontrable sans fournisseur externe. Les emails servent maintenant au
-QR de réservation et aux notifications technicien sur alerte persistante ; les
-parcours de vérification de compte ou de réinitialisation de mot de passe
-pourront réutiliser la même configuration.
+QR de réservation, aux notifications technicien sur alerte persistante et au
+transport de démonstration des codes SMS temporaires lorsque
+``SMS_BACKEND=email``. Les parcours de vérification de compte ou de
+réinitialisation de mot de passe pourront réutiliser la même configuration.
 
 La régénération par l'administration remplace la valeur active et ne présente
 plus le QR/code SMS dans une modale de copie. Cette décision évite de transformer
@@ -401,8 +411,10 @@ Le kiosque ne démarre jamais la charge avant validation de l'authentification.
 Après réponse positive du backend, ou du cache local en mode dégradé, il publie
 ``UNLOCK`` pour ouvrir le boîtier. La commande ``START`` est ensuite envoyée
 automatiquement lorsque l'ESP32 remonte ``cable=true`` pour l'emplacement
-autorisé. L'utilisateur voit donc ``Branchez le câble pour démarrer la charge``,
-puis ``Chargement en cours``.
+autorisé. Pour le prototype sans capteur câble, le kiosk accepte aussi une
+mesure SEN0214 récente ``current >= 0.1 A`` comme preuve temporaire de
+branchement. L'utilisateur voit donc ``Branchez le câble pour démarrer la
+charge``, puis ``Chargement en cours``.
 
 Le clavier tactile remplace le clavier matriciel si celui-ci n'est pas installé.
 Il sert uniquement aux codes courts : code de réservation, code SMS ou code
@@ -653,18 +665,22 @@ Reverse proxy Nginx
 
 Un reverse proxy Nginx local centralise les routes d'accès.
 
-Il expose ``/`` pour le frontend, ``/api/`` et ``/admin/`` pour Django,
-``/grafana/`` pour Grafana et ``/kiosk/`` pour le kiosque Raspberry. Les ports
-directs restent disponibles en développement, mais Nginx prépare la mise en
-production : un seul point d'entrée, terminaison TLS, ajout de headers de
-sécurité et future protection de Grafana derrière l'authentification
-admin/technicien.
+Il expose ``/`` pour le frontend, ``/api/`` et ``/admin/`` pour Django, et
+``/grafana/`` pour Grafana. En développement, ``/kiosk/`` peut servir une
+simulation de borne, mais en production l'interface tactile est servie par le
+Raspberry physique. Les ports directs restent disponibles en développement, mais
+Nginx prépare la mise en production : un seul point d'entrée, terminaison TLS,
+ajout de headers de sécurité et future protection de Grafana derrière
+l'authentification admin/technicien.
 
 La configuration locale active HTTPS par défaut avec un certificat auto-signé
 pour ``localhost``. Ce certificat n'a pas vocation à être utilisé en production,
 mais il permet de tester dès maintenant les comportements dépendants du contexte
 sécurisé : cookies de session, redirection HTTP vers HTTPS, génération des liens
 applicatifs et en-têtes ``X-Forwarded-Proto`` transmis aux services internes.
+La configuration Nginx force ``TLSv1.3`` uniquement pour le point d'entrée web :
+le choix réduit la surface de compatibilité à maintenir et évite de conserver
+des suites cryptographiques anciennes.
 
 Headers cache des assets Vite
 -----------------------------

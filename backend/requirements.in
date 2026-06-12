@@ -11,3 +11,4 @@ channels
 channels-redis
 daphne
 paho-mqtt
+rdflib

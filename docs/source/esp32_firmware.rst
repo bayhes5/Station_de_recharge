@@ -55,21 +55,42 @@ Extrait de configuration :
    LOCK_OUTPUT_ENABLED = True
    LOCK_PIN = 26
    LOCK_RELAY_ACTIVE_LOW = True
-   LOCK_UNLOCK_PULSE_SECONDS = 5
+   LOCK_AUTO_RELOCK_SECONDS = 30
    CHARGE_RELAY_OUTPUT_ENABLED = False
    CHARGE_RELAY_PIN = 22
 
 L'emplacement démarre verrouillé. La serrure testée physiquement utilise
 ``GPIO26`` avec un relais actif-bas : ``0`` alimente la serrure et ouvre, ``1``
-remet le relais au repos. Le firmware ouvre donc la serrure par impulsion de
-``5`` secondes lors de ``UNLOCK`` après authentification, puis remet le relais
-au repos pour éviter une alimentation continue.
+remet le relais au repos. Le firmware ouvre donc la serrure lors de ``UNLOCK``
+après authentification, puis programme un reverrouillage automatique non
+bloquant au bout de ``30`` secondes si la charge n'est pas passée à l'état
+``charging``. Cette fenêtre laisse le temps de brancher le câble sans alimenter
+la serrure en continu et sans bloquer la boucle MQTT.
 
 Le ``START`` est volontairement séparé de l'ouverture. Il ne démarre la charge
 qu'après branchement du câble et vérification des capteurs disponibles. En
 fonctionnement cible, le Raspberry envoie ``START`` automatiquement lorsque la
-télémétrie ESP32 remonte ``cable=true`` pour l'emplacement autorisé. Le statut
-réel de l'emplacement est ensuite publié sur ``status`` et ``telemetry``.
+télémétrie ESP32 remonte ``cable=true`` pour l'emplacement autorisé.
+
+Pour le prototype actuel, le capteur câble n'est pas encore câblé. Le kiosk peut
+donc utiliser une mesure SEN0214 récente, ``current >= 0.1 A`` depuis moins de
+15 secondes, comme équivalent provisoire d'un branchement détecté. Cette règle
+est côté Raspberry/kiosk : l'ESP32 continue de publier ``current`` et garde la
+vérification physique ``cable`` prioritaire dès que le capteur sera installé.
+Le statut réel de l'emplacement est ensuite publié sur ``status`` et
+``telemetry``.
+
+Les voyants locaux donnent une lecture simple de l'état terrain :
+
+* vert fixe : accès validé et attente de branchement ;
+* vert clignotant : charge réellement en cours, état ``charging`` ;
+* jaune : seuil d'alerte modérée, entre ``5 A`` et ``6 A`` ;
+* rouge et buzzer : seuil critique, à partir de ``6 A``.
+
+Pour la démonstration, la plage ``5 A <= current < 6 A`` sert à visualiser
+l'avertissement jaune. À partir de ``6 A``, le seuil critique publie une alerte
+``overcurrent``, active le rouge et le buzzer, puis arrête la charge localement.
+Les états d'alerte jaune et rouge restent prioritaires sur le clignotement vert.
 
 Déploiement avec Thonny
 -----------------------
@@ -363,9 +384,10 @@ Actions :
 ``START``
    Démarre uniquement la charge électrique. L'ouverture du boîtier est gérée
    avant par ``UNLOCK``. Le ``START`` est envoyé automatiquement par le Raspberry
-   lorsque la télémétrie de l'emplacement remonte ``cable=true``. L'ESP32 doit
-   encore vérifier localement le câble et le boîtier avant d'activer le relais de
-   charge.
+   lorsque la télémétrie de l'emplacement remonte ``cable=true`` ou, en mode
+   prototype sans capteur câble, lorsqu'un courant SEN0214 récent dépasse
+   ``0.1 A``. L'ESP32 doit encore vérifier localement le câble et le boîtier
+   avant d'activer le relais de charge quand ces capteurs seront câblés.
 
 ``STOP``
    Arrête la charge, déverrouille et publie un statut d'arrêt.
@@ -444,10 +466,11 @@ Transitions principales :
 Pour les essais sans capteur Hall câblé, le firmware conserve
 ``SIMULATE_CABLE_PRESENT_FOR_AUTO_START = False`` par défaut. Tant que cette
 valeur reste à ``False`` et que ``PHYSICAL_INPUTS_ENABLED = False``, la
-télémétrie publie ``cable=null`` et le kiosk attendra normalement le branchement.
-Mettre cette option à ``True`` permet uniquement un essai de banc : l'ESP32
-publie alors ``cable=true`` pendant ``waiting_plug`` afin de déclencher le
-``START`` automatique sans capteur physique.
+télémétrie publie ``cable=null``. Le kiosk utilise alors la mesure ``current`` du
+SEN0214 comme fallback prototype : ``START`` part si la mesure est récente et
+supérieure ou égale à ``0.1 A``. Mettre ``SIMULATE_CABLE_PRESENT_FOR_AUTO_START``
+à ``True`` reste possible pour un essai de banc, mais ce n'est plus nécessaire
+si le générateur produit déjà un courant mesurable.
 
 Le Raspberry maintient en parallèle une machine d'état locale plus explicite
 (``reserved``, ``access_validated``, ``waiting_plug``, ``charging``,

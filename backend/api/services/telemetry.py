@@ -460,10 +460,12 @@ def _alert_resolution_candidates(payload: dict[str, Any]):
     if "intrusion" in payload and payload.get("intrusion") is not True:
         candidates.append("intrusion")
     temperature = _as_float(payload.get("temperature"))
-    if temperature is not None and temperature < 60:
+    overheat_limit = _setting_float("OVERHEAT_ALERT_TEMPERATURE_C", 28.0)
+    if temperature is not None and temperature < overheat_limit:
         candidates.append("overheat")
     current = _as_float(payload.get("current"))
-    if current is not None and current < 3.0:
+    overcurrent_limit = _setting_float("OVERCURRENT_ALERT_CURRENT_A", 6.0)
+    if current is not None and current < overcurrent_limit:
         candidates.append("overcurrent")
     energy = _as_float(payload.get("energy_kwh"))
     energy_activity_min = _setting_float("ENERGY_ACTIVITY_MIN_KWH", 0.001)
@@ -517,12 +519,28 @@ def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp, 
         triggered_alerts.append(("lock_unlocked", "Serrure deverrouillee pendant une charge active.", "critique", "lock"))
 
     temperature = _as_float(payload.get("temperature"))
-    if temperature is not None and temperature >= 60:
-        triggered_alerts.append(("overheat", f"Température élevée: {temperature:.1f} C.", "critique", "temperature"))
+    overheat_limit = _setting_float("OVERHEAT_ALERT_TEMPERATURE_C", 28.0)
+    if temperature is not None and temperature >= overheat_limit:
+        triggered_alerts.append(
+            (
+                "overheat",
+                f"Température élevée: {temperature:.1f} C, seuil {overheat_limit:.1f} C.",
+                "haute",
+                "temperature",
+            )
+        )
 
     current = _as_float(payload.get("current"))
-    if current is not None and current >= 3.0:
-        triggered_alerts.append(("overcurrent", f"Surconsommation detectee: {current:.2f} A.", "haute", "current"))
+    overcurrent_limit = _setting_float("OVERCURRENT_ALERT_CURRENT_A", 6.0)
+    if current is not None and current >= overcurrent_limit:
+        triggered_alerts.append(
+            (
+                "overcurrent",
+                f"Surconsommation détectée : {current:.2f} A, seuil {overcurrent_limit:.2f} A.",
+                "haute",
+                "current",
+            )
+        )
 
     energy = _as_float(payload.get("energy_kwh"))
     energy_activity_min = _setting_float("ENERGY_ACTIVITY_MIN_KWH", 0.001)

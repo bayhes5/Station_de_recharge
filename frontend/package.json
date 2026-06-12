@@ -15,5 +15,9 @@
   "devDependencies": {
     "@playwright/test": "^1.59.1",
     "vite": "^7.3.2"
+  },
+  "dependencies": {
+    "cytoscape": "^3.33.4",
+    "leaflet": "^1.9.4"
   }
 }

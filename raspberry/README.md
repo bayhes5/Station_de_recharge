@@ -56,8 +56,7 @@ Exemple de variables pour un Raspberry connecté au même réseau que le backend
 ```bash
 export BACKEND_API_BASE_URL=http://<ip-backend>:8000/api
 export TERMINAL_API_SECRET=dev-terminal-secret
-export TERMINAL_STATION_ID=station-demo
-export TERMINAL_BORNE_ID=borne-1
+export TERMINAL_CODE=station-demo-borne-1
 
 export MQTT_HOST=<ip-broker>
 export MQTT_PORT=1883
@@ -68,9 +67,116 @@ export RFID_READER_BACKEND=acr122u
 export RFID_DEBOUNCE_SECONDS=2
 ```
 
-En développement, si Mosquitto tourne sur le PC dans Docker, `MQTT_HOST` est
-l'adresse Wi-Fi du PC. En production, Mosquitto doit idéalement tourner sur le
-Raspberry et `MQTT_HOST=localhost`.
+En développement historique, si Mosquitto tourne sur le PC dans Docker,
+`MQTT_HOST` est l'adresse Wi-Fi du PC. Pour le mode dégradé réel, Mosquitto doit
+tourner sur le Raspberry et `MQTT_HOST=localhost` côté kiosk.
+
+Au démarrage, le Raspberry appelle `/api/terminal/config/` avec `TERMINAL_CODE`
+et `TERMINAL_API_SECRET`. Le backend renvoie les UUID actuels de station et de
+borne, ainsi que le préfixe MQTT. Le kiosk les conserve dans
+`terminal_config.json` pour pouvoir redémarrer en mode dégradé si le backend est
+temporairement indisponible.
+
+## Broker MQTT local sur le Raspberry
+
+Architecture cible :
+
+```text
+ESP32 -> Mosquitto Raspberry -> bridge MQTT backend -> base -> Grafana
+Raspberry kiosk -> Mosquitto Raspberry -> ESP32
+```
+
+Le Raspberry devient le point local de commande. Si le backend tombe, le kiosk
+peut encore publier `UNLOCK`, `LOCK`, `START` ou `STOP` vers les ESP32 déjà
+connus et synchronisés.
+
+### Installation rapide
+
+Depuis le Raspberry :
+
+```bash
+cd ~/Station_de_recharge/raspberry
+chmod +x scripts/install-mosquitto-broker.sh
+./scripts/install-mosquitto-broker.sh
+```
+
+Le script :
+
+- installe `mosquitto` et `mosquitto-clients` ;
+- copie `raspberry/mosquitto/station.conf` dans `/etc/mosquitto/conf.d/` ;
+- copie `raspberry/mosquitto/aclfile` dans `/etc/mosquitto/` ;
+- crée `/etc/mosquitto/passwd` ;
+- demande les mots de passe MQTT ;
+- redémarre et active le service `mosquitto`.
+
+Le fichier actif utilise MQTT authentifié sur `1883`. Le fichier
+`raspberry/mosquitto/station.tls.conf` prépare la migration TLS sur `8883` avec
+un certificat signé par la CA locale `Metropole Verte`. Il ne doit remplacer
+`station.conf` qu'après distribution de la racine CA au backend, au kiosk et aux
+ESP32.
+
+Comptes créés :
+
+| Compte | Usage |
+|---|---|
+| `station_backend` | bridge MQTT backend, ingestion télémétrie |
+| `raspberry_kiosk` | kiosk local, commandes et lecture ACK/status |
+| `esp32_station_demo_borne_1_slot1` | ESP32 emplacement 1 |
+| `esp32_station_demo_borne_1_slot2` | ESP32 emplacement 2 optionnel |
+| `esp32_station_demo_borne_1_slot3` | ESP32 emplacement 3 optionnel |
+
+### Variables à utiliser après migration
+
+Sur le Raspberry kiosk :
+
+```bash
+export MQTT_HOST=localhost
+export MQTT_PORT=1883
+export MQTT_BASE_TOPIC=station
+export MQTT_USERNAME=raspberry_kiosk
+export MQTT_PASSWORD=<mot-de-passe-raspberry>
+export MQTT_ACK_REQUIRED=true
+```
+
+Sur le backend ou le bridge MQTT, dans `.env` :
+
+```env
+MQTT_HOST=<ip-wifi-raspberry>
+MQTT_PORT=1883
+MQTT_BASE_TOPIC=station
+MQTT_USERNAME=station_backend
+MQTT_PASSWORD=<mot-de-passe-backend>
+MQTT_ACK_REQUIRED=True
+```
+
+Sur l'ESP32 `slot1` :
+
+```python
+MQTT_HOST = "<ip-wifi-raspberry>"
+MQTT_USER = "esp32_station_demo_borne_1_slot1"
+MQTT_PASSWORD = "<mot-de-passe-esp32-slot1>"
+MQTT_TOPIC_PREFIX = "station-demo/borne-1"
+SLOT_ID = "slot1"
+```
+
+Ne jamais mettre `localhost` dans l'ESP32 : pour lui, `localhost` désigne
+l'ESP32 lui-même.
+
+### Tests utiles
+
+Depuis le Raspberry :
+
+```bash
+systemctl status mosquitto
+mosquitto_sub -h localhost -u raspberry_kiosk -P '<mot-de-passe>' -t 'station/#' -v
+```
+
+Depuis le PC backend :
+
+```bash
+mosquitto_pub -h <ip-wifi-raspberry> -u station_backend -P '<mot-de-passe>' \
+  -t 'station/health' -m 'ok'
+```
 
 ## Installation
 
@@ -320,8 +426,8 @@ RFID :
 4. Le backend valide la réservation et renvoie la session de charge.
 5. Le Raspberry publie `UNLOCK` vers l'ESP32 pour ouvrir le boîtier.
 6. La borne affiche "Recharger à l'emplacement X".
-7. L'utilisateur branche le câble puis démarre la charge.
-8. Le Raspberry publie `START` vers l'ESP32.
+7. L'utilisateur branche le câble ou active le générateur du prototype.
+8. Le Raspberry publie `START` vers l'ESP32 dès que `cable=true` est reçu, ou provisoirement dès qu'une mesure SEN0214 récente `current >= 0.1 A` est détectée sans capteur câble câblé.
 9. L'écran passe à "Chargement en cours".
 
 QR de réservation :

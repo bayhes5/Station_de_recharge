@@ -5,7 +5,8 @@ from datetime import timedelta
 
 RESERVATION_DURATION_MINUTES = (30, 60, 120, 240)
 DEFAULT_RESERVATION_DURATION_MINUTES = 60
-RESERVATION_STEP_MINUTES = 30
+RESERVATION_STEP_MINUTES = 5
+RESERVATION_TURNOVER_BUFFER_MINUTES = 5
 
 
 def reservation_duration_minutes(date_debut, date_fin) -> int | None:
@@ -25,6 +26,17 @@ def reservation_duration_is_allowed(date_debut, date_fin) -> bool:
 def default_reservation_end(date_debut):
     """Return the default reservation end for a new booking."""
     return date_debut + timedelta(minutes=DEFAULT_RESERVATION_DURATION_MINUTES)
+
+
+def reservation_blocked_until(date_fin):
+    """Return the technical release time after the post-charge turnover buffer."""
+    return date_fin + timedelta(minutes=RESERVATION_TURNOVER_BUFFER_MINUTES)
+
+
+def reservation_conflict_bounds(date_debut, date_fin):
+    """Return bounds used to detect paid-window and turnover-buffer conflicts."""
+    buffer_delta = timedelta(minutes=RESERVATION_TURNOVER_BUFFER_MINUTES)
+    return date_debut - buffer_delta, date_fin + buffer_delta
 
 
 def reservation_duration_error_message() -> str:

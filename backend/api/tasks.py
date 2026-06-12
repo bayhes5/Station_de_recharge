@@ -2,18 +2,29 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 from django.conf import settings
 
 from api.realtime import broadcast_supervision_update
 from api.services.email_notifications import notify_pending_alerts
 from api.services.operational_alerts import scan_session_telemetry_gaps
-from api.services.retention import prune_old_telemetry
+from api.services.retention import apply_privacy_retention, prune_old_telemetry
 from api.services.telemetry import ingest_slot_ack, ingest_slot_status, ingest_slot_telemetry
 
 logger = logging.getLogger(__name__)
 
 SUPPORTED_MQTT_MESSAGE_KINDS = {"ack", "alert", "status", "telemetry"}
+ACK_TEXT_FIELD_RE = re.compile(
+    r'"(command_id|action|status|state|message|session_id|source|slot_id)"\s*:\s*"([^"\r\n}]*)'
+)
+ACK_TRAILING_ACTION_RE = re.compile(r'"action"\s*:\s*"([^"\r\n}]*)\s*$')
+ACK_ACTION_PREFIXES = {
+    "STAR": "START",
+    "STO": "STOP",
+    "LOC": "LOCK",
+    "UNLOC": "UNLOCK",
+}
 
 
 def _topic_parts(topic: str) -> list[str]:
@@ -53,6 +64,35 @@ def _extract_topic_prefix(topic: str) -> str:
     return "/".join(prefix_parts)
 
 
+def _recover_truncated_ack_payload(raw_payload: str) -> dict[str, str] | None:
+    """Recover essential ACK fields from a partially truncated ESP32 JSON payload."""
+    recovered = {key: value for key, value in ACK_TEXT_FIELD_RE.findall(raw_payload)}
+    partial_action = str(recovered.get("action") or "").strip().upper()
+    if partial_action:
+        for prefix, action in ACK_ACTION_PREFIXES.items():
+            if partial_action.startswith(prefix):
+                recovered["action"] = action
+                break
+    trailing_action = ACK_TRAILING_ACTION_RE.search(raw_payload)
+    if trailing_action and "action" not in recovered:
+        partial_action = trailing_action.group(1).strip().upper()
+        for prefix, action in ACK_ACTION_PREFIXES.items():
+            if partial_action.startswith(prefix):
+                recovered["action"] = action
+                break
+    if "action" not in recovered:
+        status = str(recovered.get("status") or recovered.get("state") or "").strip().lower()
+        if status in {"unlocked", "waiting_plug"}:
+            recovered["action"] = "UNLOCK"
+        elif status == "locked":
+            recovered["action"] = "LOCK"
+        elif status in {"charging", "charging_started", "reserved", "ready"}:
+            recovered["action"] = "START"
+        elif status in {"stopped", "idle"}:
+            recovered["action"] = "STOP"
+    return recovered or None
+
+
 def process_mqtt_message(topic: str, payload: str | bytes):
     """Process one MQTT message synchronously for local/dev usage."""
     message_kind = _extract_message_kind(topic)
@@ -64,8 +104,23 @@ def process_mqtt_message(topic: str, payload: str | bytes):
     try:
         data = json.loads(raw_payload)
     except json.JSONDecodeError:
-        logger.warning("MQTT payload ignore: JSON invalide sur %s: %s", topic, raw_payload)
-        return None
+        if message_kind == "ack":
+            recovered_ack = _recover_truncated_ack_payload(raw_payload)
+            if recovered_ack:
+                logger.warning(
+                    "MQTT ACK JSON tronque recupere sur %s: command_id=%s action=%s status=%s",
+                    topic,
+                    recovered_ack.get("command_id", ""),
+                    recovered_ack.get("action", ""),
+                    recovered_ack.get("status") or recovered_ack.get("state") or "",
+                )
+                data = recovered_ack
+            else:
+                logger.warning("MQTT payload ignore: JSON invalide sur %s: %s", topic, raw_payload)
+                return None
+        else:
+            logger.warning("MQTT payload ignore: JSON invalide sur %s: %s", topic, raw_payload)
+            return None
 
     slot_id = str(data.pop("slot_id", "") or _extract_slot_id(topic))
     topic_prefix = _extract_topic_prefix(topic)
@@ -168,6 +223,7 @@ if celery_app:
             "created": result.created,
             "updated": result.updated,
             "resolved": result.resolved,
+            "closed": result.closed,
         }
 
     @celery_app.task(name="api.notify_pending_alerts")
@@ -186,8 +242,23 @@ if celery_app:
             "cutoff": result.cutoff.isoformat() if result.cutoff else None,
         }
 
+    @celery_app.task(name="api.apply_privacy_retention")
+    def apply_privacy_retention_task():
+        """Celery periodic task that applies the full privacy retention policy."""
+        result = apply_privacy_retention()
+        return {
+            "enabled": result.enabled,
+            "cutoffs": {
+                key: cutoff.isoformat() if cutoff else None
+                for key, cutoff in result.cutoffs.items()
+            },
+            "deleted": result.deleted,
+            "anonymized_users": result.anonymized_users,
+        }
+
 else:
     process_mqtt_message_task = None
     scan_session_telemetry_gaps_task = None
     notify_pending_alerts_task = None
     prune_old_telemetry_task = None
+    apply_privacy_retention_task = None

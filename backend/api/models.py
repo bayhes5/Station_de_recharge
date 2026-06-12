@@ -161,7 +161,7 @@ class MaintenanceStatus(models.TextChoices):
 class TechnicianStationRole(models.TextChoices):
     """Operational responsibility levels for a technician on one station."""
 
-    REFERENT = "referent", "Referent"
+    REFERENT = "referent", "Référent"
     INTERVENANT = "intervenant", "Intervenant"
     OBSERVATEUR = "observateur", "Observateur"
 
@@ -467,6 +467,7 @@ class Borne(models.Model):
     )
     numero = models.PositiveIntegerField()
     nom = models.CharField(max_length=100)
+    terminal_code = models.CharField(max_length=120, blank=True, default="")
     mqtt_prefix = models.CharField(max_length=120, blank=True, default="")
     statut = models.CharField(max_length=50, choices=BorneStatus.choices, default=BorneStatus.ACTIVE)
     created_at = models.DateTimeField(default=timezone.now)
@@ -479,9 +480,15 @@ class Borne(models.Model):
                 condition=Q(statut__in=BorneStatus.values),
                 name="chk_borne_statut",
             ),
+            models.UniqueConstraint(
+                fields=["terminal_code"],
+                condition=~Q(terminal_code=""),
+                name="uniq_borne_terminal_code",
+            ),
         ]
         indexes = [
             models.Index(fields=["station", "statut"], name="idx_borne_station_statut"),
+            models.Index(fields=["terminal_code"], name="idx_borne_terminal_code"),
             models.Index(fields=["mqtt_prefix"], name="idx_borne_mqtt_prefix"),
         ]
 

@@ -12,6 +12,52 @@ function createStatusBadge(label, variant = "") {
 
 const CLOSED_ALERT_STATUSES = new Set(["resolue", "resolved", "closed", "fermee"]);
 
+function cleanDisplayText(value) {
+    if (value === null || value === undefined || value === "") return "-";
+    return String(value)
+        .replaceAll("\u00c3\u00a9", "é")
+        .replaceAll("\u00c3\u00a8", "è")
+        .replaceAll("\u00c3\u00aa", "ê")
+        .replaceAll("\u00c3\u00b4", "ô")
+        .replaceAll("\u00c3\u00a2", "â")
+        .replaceAll("\u00c3\u00a0", "à")
+        .replaceAll("\u00c3\u00a7", "ç")
+        .replaceAll("\u00c3\u2030", "É")
+        .replaceAll("\u00e2\u20ac\u2122", "’")
+        .replaceAll("\u00e2\u20ac\u201c", "–");
+}
+
+function formatMaintenanceStatus(status) {
+    const labels = {
+        planifiee: "Planifiée",
+        en_cours: "En cours",
+        realisee: "Réalisée",
+        annulee: "Annulée",
+    };
+    return labels[status] || cleanDisplayText(status);
+}
+
+function formatLockState(lockState) {
+    const labels = {
+        verrouille: "Verrouillée",
+        deverrouille: "Déverrouillée",
+        bloque: "Bloquée",
+    };
+    return labels[lockState] || cleanDisplayText(lockState);
+}
+
+function formatAlertStatus(status) {
+    const labels = {
+        nouvelle: "Nouvelle",
+        active: "Active",
+        prise_en_charge: "Prise en charge",
+        resolue: "Résolue",
+        closed: "Fermée",
+        fermee: "Fermée",
+    };
+    return labels[status] || cleanDisplayText(status);
+}
+
 function alertStatusVariant(status) {
     if (CLOSED_ALERT_STATUSES.has(status)) return "success";
     if (status === "prise_en_charge") return "warning";
@@ -248,7 +294,7 @@ function renderMaintenances(container, maintenances) {
         title.textContent = `${maintenance.station_nom} - ${maintenance.type}`;
 
         const details = document.createElement("p");
-        details.textContent = `${maintenance.status} | ${formatDateTime(maintenance.date_planifiee)}`;
+        details.textContent = `${formatMaintenanceStatus(maintenance.status)} | ${formatDateTime(maintenance.date_planifiee)}`;
 
         const description = document.createElement("p");
         description.textContent = maintenance.description || "";
@@ -278,8 +324,8 @@ function renderSupervision(supervision) {
                     device.online ? "success" : "danger"
                 ),
             },
-            { label: "Dernier état", render: (device) => device.status_display || device.status || "-" },
-            { label: "Serrure", render: (device) => device.lock_state || "-" },
+            { label: "Dernier état", render: (device) => cleanDisplayText(device.status_display || device.status) },
+            { label: "Serrure", render: (device) => formatLockState(device.lock_state) },
             { label: "Version", render: (device) => device.firmware_version || "-" },
             { label: "IP", render: (device) => device.ip_address || "-" },
             { label: "Dernier signal", render: (device) => formatDateTime(device.last_seen) },
@@ -303,7 +349,7 @@ function renderSupervision(supervision) {
             {
                 label: "Statut",
                 renderNode: (alert) => createStatusBadge(
-                    alert.status_display || alert.status || "-",
+                    cleanDisplayText(alert.status_display || formatAlertStatus(alert.status)),
                     alertStatusVariant(alert.status)
                 ),
             },

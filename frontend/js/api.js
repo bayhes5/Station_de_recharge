@@ -35,6 +35,37 @@ async function parseResponse(response) {
     }
 }
 
+function flattenErrorMessages(value, messages = []) {
+    if (!value) {
+        return messages;
+    }
+
+    if (typeof value === "string") {
+        messages.push(value);
+        return messages;
+    }
+
+    if (Array.isArray(value)) {
+        value.forEach((item) => flattenErrorMessages(item, messages));
+        return messages;
+    }
+
+    if (typeof value === "object") {
+        Object.values(value).forEach((item) => flattenErrorMessages(item, messages));
+    }
+
+    return messages;
+}
+
+function extractErrorMessage(payload) {
+    if (payload?.detail || payload?.error) {
+        return payload.detail || payload.error;
+    }
+
+    const messages = flattenErrorMessages(payload);
+    return messages.length ? messages.join(" ") : "La requête a échoué.";
+}
+
 function base64UrlToBase64(input) {
     return input.replace(/-/g, "+").replace(/_/g, "/").padEnd(
         Math.ceil(input.length / 4) * 4,
@@ -265,7 +296,7 @@ async function doRequest(path, options = {}) {
     const payload = await parseResponse(response);
 
     if (!response.ok) {
-        const error = new Error(payload.detail || payload.error || "La requête a échoué.");
+        const error = new Error(extractErrorMessage(payload));
         error.payload = payload;
         error.status = response.status;
 
@@ -287,6 +318,48 @@ async function doRequest(path, options = {}) {
     }
 
     return payload;
+}
+
+async function downloadRequest(path, options = {}) {
+    const {
+        auth = true,
+        headers,
+        retryOnAuthFailure = true,
+        ...fetchOptions
+    } = options;
+    const accessToken = auth ? getAccessToken() : null;
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+        ...fetchOptions,
+        credentials: "include",
+        headers: getHeaders(headers, false, accessToken),
+    });
+
+    if (!response.ok) {
+        if (response.status === 401 && auth && retryOnAuthFailure) {
+            const refreshed = await refreshAccessToken();
+            if (refreshed) {
+                return downloadRequest(path, {
+                    ...options,
+                    retryOnAuthFailure: false,
+                });
+            }
+        }
+        const payload = await parseResponse(response);
+        const error = new Error(payload.detail || payload.error || "Le téléchargement a échoué.");
+        error.payload = payload;
+        error.status = response.status;
+        throw error;
+    }
+
+    return {
+        blob: await response.blob(),
+        filename: extractFilename(response.headers.get("content-disposition")) || "export-operationnel.csv",
+    };
+}
+
+function extractFilename(contentDisposition) {
+    const match = /filename="?([^"]+)"?/i.exec(contentDisposition || "");
+    return match ? match[1] : "";
 }
 
 function withQuery(path, params = {}) {
@@ -514,8 +587,38 @@ async function getAdminOverview() {
     });
 }
 
+async function getSemanticNetwork() {
+    return doRequest("/semantic/network/", {
+        method: "GET",
+    });
+}
+
 async function getAdminSupervision() {
     return doRequest("/admin/supervision/", {
+        method: "GET",
+    });
+}
+
+async function downloadAdminOperationalExport(format = "csv", params = {}) {
+    const safeFormat = format === "json" ? "json" : "csv";
+    const result = await downloadRequest(withQuery("/admin/export/operational/", {
+        ...params,
+        export_format: safeFormat,
+        download: "1",
+    }), {
+        method: "GET",
+    });
+    if (safeFormat === "json" && result.filename.endsWith(".csv")) {
+        return { ...result, filename: result.filename.replace(/\.csv$/i, ".json") };
+    }
+    return result;
+}
+
+async function getAdminOperationalExport(params = {}) {
+    return doRequest(withQuery("/admin/export/operational/", {
+        ...params,
+        export_format: "json",
+    }), {
         method: "GET",
     });
 }
@@ -920,7 +1023,10 @@ window.AuthAPI = {
     deleteAuthMethod,
     deleteAccount,
     getAdminOverview,
+    getSemanticNetwork,
     getAdminSupervision,
+    getAdminOperationalExport,
+    downloadAdminOperationalExport,
     getAdminDevices,
     updateAdminDevice,
     scheduleAdminDeviceOta,

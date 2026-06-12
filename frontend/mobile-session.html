@@ -9,7 +9,7 @@
     <link rel="icon" href="/icons/pwa-icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icons/pwa-icon-192.png">
     <meta http-equiv="Cache-Control" content="no-store">
-    <title>Autorisation borne | M&eacute;tropole Verte</title>
+    <title>Acc&egrave;s mobile | M&eacute;tropole Verte</title>
     <link rel="stylesheet" href="/css/auth.css">
     <script type="module" src="/src/pages/mobile-session.js"></script>
 </head>
@@ -19,9 +19,16 @@
         <section id="contenu" class="mobile-session-shell" aria-labelledby="mobile-session-title">
             <header class="mobile-session-header">
                 <p class="eyebrow">M&eacute;tropole Verte</p>
-                <h1 id="mobile-session-title">Autoriser la borne</h1>
-                <p id="mobile-session-context" class="lead">Connexion &agrave; la borne en cours.</p>
+                <h1 id="mobile-session-title">Valider l&rsquo;acc&egrave;s</h1>
+                <p id="mobile-session-context" class="lead">Choisissez votre r&eacute;servation pour ouvrir l&rsquo;emplacement de recharge.</p>
             </header>
+
+            <section class="mobile-terminal-card" aria-label="Borne scann&eacute;e">
+                <span class="mobile-terminal-kicker">Borne scann&eacute;e</span>
+                <strong id="mobile-session-terminal-name">Connexion &agrave; la borne...</strong>
+                <span id="mobile-session-terminal-detail">Session temporaire</span>
+                <span id="mobile-session-countdown" class="session-pill">-</span>
+            </section>
 
             <div id="mobile-session-status" class="status" aria-live="polite"></div>
 
@@ -33,21 +40,28 @@
             <section id="mobile-session-reservations-panel" class="mobile-session-panel">
                 <div class="panel-heading">
                     <div>
-                        <p class="panel-title">R&eacute;servations disponibles</p>
-                        <p class="table-caption">Choisissez la r&eacute;servation &agrave; envoyer &agrave; cette borne.</p>
+                        <p class="panel-title">R&eacute;servation &agrave; utiliser</p>
+                        <p class="table-caption">L&rsquo;acc&egrave;s sera transmis uniquement &agrave; la borne scann&eacute;e.</p>
                     </div>
-                    <span id="mobile-session-countdown" class="session-pill">-</span>
                 </div>
                 <div id="mobile-session-reservations" class="mobile-reservation-list"></div>
             </section>
 
             <section id="mobile-session-authorized" class="mobile-session-panel success-panel" hidden>
-                <p id="mobile-session-authorized-title" class="panel-title">Autorisation envoy&eacute;e</p>
-                <p id="mobile-session-authorized-detail">La borne peut maintenant ouvrir le bo&icirc;tier.</p>
+                <p id="mobile-session-authorized-title" class="panel-title">Acc&egrave;s envoy&eacute;</p>
+                <p id="mobile-session-authorized-detail">La borne peut maintenant ouvrir l&rsquo;emplacement.</p>
                 <ol class="mobile-session-steps" aria-label="Progression de la session mobile">
-                    <li id="mobile-step-authorized" class="active">Autorisation confirm&eacute;e</li>
-                    <li id="mobile-step-consumed">Borne autoris&eacute;e</li>
+                    <li id="mobile-step-authorized" class="active">Acc&egrave;s valid&eacute;</li>
+                    <li id="mobile-step-consumed">Borne d&eacute;verrouill&eacute;e</li>
                 </ol>
+                <div class="mobile-next-actions">
+                    <p class="panel-title">Sur la borne</p>
+                    <ul>
+                        <li>ouvrez le bo&icirc;tier lorsque la serrure se d&eacute;verrouille ;</li>
+                        <li>branchez le c&acirc;ble ou activez le g&eacute;n&eacute;rateur du prototype ;</li>
+                        <li>la charge d&eacute;marre automatiquement d&egrave;s qu&rsquo;un courant minimum est d&eacute;tect&eacute;.</li>
+                    </ul>
+                </div>
                 <a class="btn btn-secondary full-width" href="/dashboard.html#sessions">Voir mes sessions</a>
             </section>
         </section>

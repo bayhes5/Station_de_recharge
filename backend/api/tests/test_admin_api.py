@@ -22,6 +22,7 @@ from api.models import (
     ProfilUtilisateur,
     Reservation,
     Session,
+    SessionTelemetry,
     Station,
     Technicien,
     TechnicienStation,
@@ -57,6 +58,80 @@ def test_admin_supervision_requires_staff(authenticated_client):
     response = authenticated_client.get(reverse("api-admin-supervision"))
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.django_db
+def test_admin_operational_export_supports_json_and_csv(admin_client, station, emplacements):
+    Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="1.4.0",
+        mac_address="slot-export",
+        slot_id="slot-export",
+        last_seen=timezone.now(),
+        status="idle",
+    )
+
+    json_response = admin_client.get(
+        reverse("api-admin-export-operational"),
+        {"export_format": "json", "station_id": str(station.id_station)},
+    )
+    csv_response = admin_client.get(
+        reverse("api-admin-export-operational"),
+        {"export_format": "csv", "station_id": str(station.id_station)},
+    )
+
+    assert json_response.status_code == status.HTTP_200_OK
+    assert json_response.data["summary"]["stations_total"] == 1
+    assert json_response.data["rows"][0]["station"] == "Station Centre"
+    assert csv_response.status_code == status.HTTP_200_OK
+    assert "text/csv" in csv_response["Content-Type"]
+    assert "slot-export" in csv_response.content.decode("utf-8")
+
+
+@pytest.mark.django_db
+def test_admin_export_previews_and_downloads_filtered_security_logs(admin_client, user):
+    JournalSecurite.objects.create(
+        utilisateur=user,
+        action="user:test:sms_access_code_sent:DEMO1",
+        ip="127.0.0.1",
+        statut="success",
+    )
+    JournalSecurite.objects.create(
+        utilisateur=user,
+        action="user:test:login_failed",
+        ip="127.0.0.2",
+        statut="failure",
+    )
+
+    preview_response = admin_client.get(
+        reverse("api-admin-export-operational"),
+        {
+            "dataset": "security_logs",
+            "query": "sms_access",
+            "log_status": "success",
+            "export_format": "json",
+        },
+    )
+    csv_response = admin_client.get(
+        reverse("api-admin-export-operational"),
+        {
+            "dataset": "security_logs",
+            "query": "sms_access",
+            "log_status": "success",
+            "export_format": "csv",
+            "download": "1",
+        },
+    )
+
+    assert preview_response.status_code == status.HTTP_200_OK
+    assert preview_response.data["metadata"]["dataset"] == "security_logs"
+    assert preview_response.data["summary"]["total_matches"] == 1
+    assert preview_response.data["rows"][0]["action"] == "user:test:sms_access_code_sent:DEMO1"
+    assert csv_response.status_code == status.HTTP_200_OK
+    assert "journaux-securite-archives.csv" in csv_response["Content-Disposition"]
+    assert "sms_access_code_sent" in csv_response.content.decode("utf-8")
+    assert JournalSecurite.objects.filter(action__contains="export:security_logs").exists()
 
 
 @pytest.mark.django_db
@@ -125,6 +200,57 @@ def test_admin_supervision_returns_devices_alerts_and_measurements(admin_client,
 
 
 @pytest.mark.django_db
+def test_admin_sessions_include_latest_session_telemetry(admin_client, user, emplacements):
+    """Expose the latest electrical sample so the admin session view refreshes live."""
+    type_auth = TypeAuth.objects.create(libelle="CODE", factor_level=2)
+    auth_method = Authentification.objects.create(
+        utilisateur=user,
+        type_auth=type_auth,
+        hash_valeur=hash_secret("SESSION1"),
+        display_value="****ION1",
+        expiration=timezone.now() + timedelta(hours=1),
+    )
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="SESSION1",
+        authentification=auth_method,
+        auth_choice="code",
+        date_debut=timezone.now() - timedelta(minutes=10),
+        date_fin=timezone.now() + timedelta(minutes=20),
+        statut="confirmee",
+    )
+    session = Session.objects.create(
+        reservation=reservation,
+        emplacement=emplacements[0],
+        start_time=timezone.now() - timedelta(minutes=5),
+    )
+    SessionTelemetry.objects.create(
+        session=session,
+        courant=1.2,
+        tension=12.0,
+        energie_kwh=0.01,
+        timestamp=timezone.now() - timedelta(minutes=2),
+    )
+    latest = SessionTelemetry.objects.create(
+        session=session,
+        courant=1.8,
+        tension=12.1,
+        energie_kwh=0.02,
+        timestamp=timezone.now(),
+    )
+
+    response = admin_client.get(reverse("api-admin-sessions"))
+
+    assert response.status_code == status.HTTP_200_OK
+    telemetry = response.data["active"][0]["latest_telemetry"]
+    assert telemetry["courant"] == latest.courant
+    assert telemetry["tension"] == latest.tension
+    assert telemetry["energie_kwh"] == latest.energie_kwh
+    assert telemetry["puissance_w"] == pytest.approx(latest.courant * latest.tension)
+
+
+@pytest.mark.django_db
 def test_admin_supervision_resolves_alert_location_from_sensor_data(admin_client, emplacements):
     device = Device.objects.create(
         emplacement=emplacements[0],
@@ -139,7 +265,7 @@ def test_admin_supervision_resolves_alert_location_from_sensor_data(admin_client
     Alerte.objects.create(
         data=data,
         type="overcurrent",
-        message="Surconsommation detectee",
+        message="Surconsommation détectée",
         niveau_severite="haute",
         status="nouvelle",
     )
@@ -569,6 +695,45 @@ def test_technician_can_acknowledge_and_resolve_scoped_alert(api_client, user, s
 
 
 @pytest.mark.django_db
+def test_observer_technician_can_read_but_not_process_alert(api_client, user, station, emplacements):
+    technicien = Technicien.objects.create(
+        utilisateur=user,
+        nom="Tech Lecture",
+        email="tech-lecture@example.com",
+        telephone="",
+    )
+    TechnicienStation.objects.create(technicien=technicien, station=station, role="observateur")
+    device = Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="1.0.0",
+        mac_address="slot-observer",
+        status="charging",
+    )
+    capteur = Capteur.objects.create(device=device, type="temperature", unite="C")
+    data = CapteurData.objects.create(capteur=capteur, valeur=65)
+    alert = Alerte.objects.create(
+        data=data,
+        type="overheat",
+        message="Température élevée",
+        niveau_severite="critique",
+        status=AlertStatus.ACTIVE,
+    )
+    api_client.force_authenticate(user=user)
+
+    supervision_response = api_client.get(reverse("api-technician-supervision"))
+    acknowledge_response = api_client.post(
+        reverse("api-technician-alert-acknowledge", kwargs={"alert_id": alert.id_alerte})
+    )
+
+    assert supervision_response.status_code == status.HTTP_200_OK
+    assert supervision_response.data["alerts"][0]["type"] == "overheat"
+    assert acknowledge_response.status_code == status.HTTP_403_FORBIDDEN
+    alert.refresh_from_db()
+    assert alert.status == AlertStatus.ACTIVE
+
+
+@pytest.mark.django_db
 def test_technician_cannot_manage_alert_outside_assigned_station(api_client, user, station, emplacements):
     technicien = Technicien.objects.create(
         utilisateur=user,
@@ -759,7 +924,7 @@ def test_admin_can_mark_phone_number_as_verified(admin_client, user):
 
 
 @pytest.mark.django_db
-def test_admin_can_delete_user(admin_client):
+def test_admin_can_anonymize_user(admin_client):
     user = get_user_model().objects.create_user(
         pseudo="delete-me",
         email="delete-me@example.com",
@@ -769,7 +934,21 @@ def test_admin_can_delete_user(admin_client):
     response = admin_client.delete(reverse("api-admin-user-detail", kwargs={"user_id": user.id_user}))
 
     assert response.status_code == status.HTTP_204_NO_CONTENT
-    assert not get_user_model().objects.filter(id_user=user.id_user).exists()
+    assert get_user_model().objects.filter(id_user=user.id_user).exists()
+    user.refresh_from_db()
+    assert user.is_active is False
+    assert user.email.endswith("@anonymized.invalid")
+
+    list_response = admin_client.get(reverse("api-admin-users"))
+    assert list_response.status_code == status.HTTP_200_OK
+    assert not any(str(item["id_user"]) == str(user.id_user) for item in list_response.data["results"])
+
+    detail_response = admin_client.get(reverse("api-admin-user-detail", kwargs={"user_id": user.id_user}))
+    assert detail_response.status_code == status.HTTP_200_OK
+    assert detail_response.data["pseudo"] == "Compte supprimé"
+    assert detail_response.data["email"] == ""
+    assert detail_response.data["nom"] == "Compte supprimé"
+    assert detail_response.data["is_deleted"] is True
 
 
 @pytest.mark.django_db
@@ -860,6 +1039,67 @@ def test_admin_can_regenerate_and_revoke_temporary_access(admin_client, admin_us
         utilisateur=user,
         action__contains=f"admin:{admin_user.pseudo}:temporary_access_revoked",
     ).exists()
+
+
+@pytest.mark.django_db
+def test_admin_archived_reservation_access_is_not_active(admin_client, user, emplacements):
+    type_auth = TypeAuth.objects.create(libelle="QR", factor_level=2)
+    auth_method = Authentification.objects.create(
+        utilisateur=user,
+        type_auth=type_auth,
+        hash_valeur=hash_secret("archived-qr-secret"),
+        display_value="QR-demo",
+        expiration=timezone.now() + timedelta(days=1),
+        is_active=True,
+    )
+    Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="ARCHQR1",
+        authentification=auth_method,
+        auth_choice="qr",
+        date_debut=timezone.now() - timedelta(hours=2),
+        date_fin=timezone.now() - timedelta(hours=1),
+        statut="terminee",
+    )
+
+    response = admin_client.get(reverse("api-admin-reservations"))
+
+    assert response.status_code == status.HTTP_200_OK
+    archived = next(item for item in response.data["archived"] if item["reference_code"] == "ARCHQR1")
+    assert archived["auth_is_active"] is False
+    assert archived["can_cancel"] is False
+
+
+@pytest.mark.django_db
+def test_admin_started_reservation_stays_operational_until_slot_end(admin_client, user, emplacements):
+    type_auth = TypeAuth.objects.create(libelle="QR", factor_level=2)
+    auth_method = Authentification.objects.create(
+        utilisateur=user,
+        type_auth=type_auth,
+        hash_valeur=hash_secret("started-qr-secret"),
+        display_value="QR-started",
+        expiration=timezone.now() + timedelta(days=1),
+        is_active=True,
+    )
+    Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="STARTQR1",
+        authentification=auth_method,
+        auth_choice="qr",
+        date_debut=timezone.now() - timedelta(minutes=15),
+        date_fin=timezone.now() + timedelta(minutes=45),
+        statut="active",
+    )
+
+    response = admin_client.get(reverse("api-admin-reservations"))
+
+    assert response.status_code == status.HTTP_200_OK
+    assert not any(item["reference_code"] == "STARTQR1" for item in response.data["archived"])
+    operational = next(item for item in response.data["upcoming"] if item["reference_code"] == "STARTQR1")
+    assert operational["auth_is_active"] is True
+    assert operational["can_cancel"] is False
 
 
 @pytest.mark.django_db

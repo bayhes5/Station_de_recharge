@@ -4,7 +4,14 @@ from django.conf import settings
 from django.urls import reverse
 from rest_framework import status
 
-from api.models import ProfilUtilisateur
+from api.models import (
+    Authentification,
+    JournalSecurite,
+    ProfilUtilisateur,
+    SecurityLogStatus,
+    TypeAuth,
+    UserStatus,
+)
 
 
 @pytest.mark.django_db
@@ -126,8 +133,39 @@ def test_change_password_updates_password(authenticated_client, user):
 
 
 @pytest.mark.django_db
-def test_delete_profile_deletes_account(authenticated_client, user):
+def test_delete_profile_anonymizes_account(authenticated_client, user):
+    ProfilUtilisateur.objects.create(utilisateur=user, nom="User Name", telephone="0600000000")
+    type_auth = TypeAuth.objects.create(libelle="RFID", factor_level=1)
+    Authentification.objects.create(
+        utilisateur=user,
+        type_auth=type_auth,
+        hash_valeur="rfid-hash",
+        display_value="Badge ABCD",
+        metadata={"uid": "04A3BC"},
+    )
+    JournalSecurite.objects.create(
+        utilisateur=user,
+        action="login",
+        ip="192.168.1.50",
+        statut=SecurityLogStatus.SUCCESS,
+    )
+
     response = authenticated_client.delete(reverse("api-profile"))
 
     assert response.status_code == status.HTTP_200_OK
-    assert not get_user_model().objects.filter(id_user=user.id_user).exists()
+    assert get_user_model().objects.filter(id_user=user.id_user).exists()
+    user.refresh_from_db()
+    user.profil.refresh_from_db()
+    auth_method = user.authentifications.get()
+    security_log = user.journaux_securite.get()
+
+    assert user.is_active is False
+    assert user.statut == UserStatus.ARCHIVED
+    assert user.email.endswith("@anonymized.invalid")
+    assert not user.has_usable_password()
+    assert user.profil.nom == ""
+    assert user.profil.telephone == ""
+    assert auth_method.is_active is False
+    assert auth_method.display_value == ""
+    assert auth_method.metadata["anonymized"] is True
+    assert security_log.ip == "0.0.0.0"

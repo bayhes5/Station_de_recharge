@@ -18,6 +18,34 @@ function createStatusBadge(label, variant = "") {
     return badge;
 }
 
+function formatStationStatus(status) {
+    const labels = {
+        active: "Déclarée active",
+        maintenance: "Maintenance",
+        inactive: "Déclarée inactive",
+    };
+    return labels[status] || formatValue(status);
+}
+
+function formatEmplacementStatus(status) {
+    const labels = {
+        disponible: "Déclaré disponible",
+        reserve: "Réservé",
+        occupe: "Occupé",
+        maintenance: "Maintenance",
+    };
+    return labels[status] || formatValue(status);
+}
+
+function formatLockState(lockState) {
+    const labels = {
+        verrouille: "Verrouillée",
+        deverrouille: "Déverrouillée",
+        bloque: "Bloquée",
+    };
+    return labels[lockState] || formatValue(lockState);
+}
+
 function createActionLink(label, href, variant = "") {
     const link = document.createElement("a");
     link.className = `table-action${variant ? ` ${variant}` : ""}`;
@@ -72,7 +100,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     function renderStationSummary() {
         title.textContent = station.nom;
         lead.textContent = station.localisation_text || "Bornes, emplacements et état opérationnel de la station.";
-        document.getElementById("station-statut").textContent = formatValue(station.statut);
+        document.getElementById("station-statut").textContent = formatStationStatus(station.statut);
         document.getElementById("station-bornes-count").textContent = bornes.length;
         document.getElementById("station-emplacements-count").textContent = emplacements.length;
         document.getElementById("station-location").textContent = formatValue(station.localisation_text);
@@ -95,11 +123,11 @@ document.addEventListener("DOMContentLoaded", async () => {
         head.className = "list-item-head";
         head.appendChild(createTextElement("strong", `Emplacement ${emplacement.numero}`));
         head.appendChild(createStatusBadge(
-            emplacement.statut || "-",
-            emplacement.statut === "disponible" ? "success" : "warning",
+            formatEmplacementStatus(emplacement.statut),
+            emplacement.statut === "maintenance" ? "warning" : "",
         ));
 
-        const lock = createTextElement("p", `Serrure : ${formatValue(emplacement.lock_state)}`);
+        const lock = createTextElement("p", `Serrure : ${formatLockState(emplacement.lock_state)}`);
 
         const actions = document.createElement("div");
         actions.className = "table-actions";
@@ -130,7 +158,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             const head = document.createElement("div");
             head.className = "slot-card-head";
             head.appendChild(createTextElement("strong", borne.nom || `Borne ${borne.numero}`));
-            head.appendChild(createStatusBadge(borne.statut || "-", borne.statut === "active" ? "success" : "warning"));
+            head.appendChild(createStatusBadge(formatStationStatus(borne.statut), borne.statut === "maintenance" ? "warning" : ""));
 
             const meta = document.createElement("dl");
             meta.className = "station-borne-meta";

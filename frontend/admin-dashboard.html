@@ -13,7 +13,7 @@
     <link rel="stylesheet" href="/css/auth.css">
     <script type="module" src="/src/pages/admin-dashboard.js"></script>
 </head>
-<body>
+<body class="admin-interface">
     <a class="skip-link" href="#contenu">Aller au contenu</a>
     <main class="page admin-page">
         <section id="contenu" class="dashboard-card admin-shell app-shell" aria-labelledby="admin-title">
@@ -40,6 +40,7 @@
                 <button class="tab-button" type="button" role="tab" aria-selected="false" data-admin-tab="reservations">R&eacute;servations</button>
                 <button class="tab-button" type="button" role="tab" aria-selected="false" data-admin-tab="sessions">Sessions</button>
                 <button class="tab-button" type="button" role="tab" aria-selected="false" data-admin-tab="operations">Op&eacute;rations</button>
+                <button class="tab-button" type="button" role="tab" aria-selected="false" data-admin-tab="exports">Exports</button>
             </nav>
 
             <section role="tabpanel" data-admin-panel="overview">
@@ -60,7 +61,7 @@
                                 <span id="stat-emplacements" class="value">-</span>
                             </div>
                             <div class="kpi">
-                                <span class="label">R&eacute;servations &agrave; venir</span>
+                                <span class="label">R&eacute;servations op&eacute;rationnelles</span>
                                 <span id="stat-reservations-upcoming" class="value">-</span>
                             </div>
                             <div class="kpi">
@@ -199,8 +200,22 @@
                 <section class="dashboard-panel table-panel admin-table-panel">
                     <div class="panel-heading table-toolbar">
                         <div>
+                            <p class="panel-title">R&eacute;servations en cours</p>
+                            <p class="table-caption">Cr&eacute;neaux commenc&eacute;s et non termin&eacute;s. La charge peut &ecirc;tre arr&ecirc;t&eacute;e, mais le cr&eacute;neau reste bloqu&eacute; jusqu&rsquo;&agrave; son heure de fin.</p>
+                        </div>
+                        <label class="search-field">
+                            <span>Rechercher</span>
+                            <input type="search" data-admin-search="ongoingReservations" placeholder="Pseudo, code, station..." autocomplete="off">
+                        </label>
+                    </div>
+                    <div id="admin-ongoing-reservations" class="table-host"></div>
+                </section>
+
+                <section class="dashboard-panel table-panel admin-table-panel">
+                    <div class="panel-heading table-toolbar">
+                        <div>
                             <p class="panel-title">R&eacute;servations &agrave; venir</p>
-                            <p class="table-caption">R&eacute;servations confirm&eacute;es ou en attente, annulables avant le d&eacute;but.</p>
+                            <p class="table-caption">Cr&eacute;neaux confirm&eacute;s dont l&rsquo;heure de d&eacute;but n&rsquo;est pas encore atteinte.</p>
                         </div>
                         <label class="search-field">
                             <span>Rechercher</span>
@@ -214,7 +229,7 @@
                     <div class="panel-heading table-toolbar">
                         <div>
                             <p class="panel-title">R&eacute;servations archiv&eacute;es</p>
-                            <p class="table-caption">R&eacute;servations pass&eacute;es ou annul&eacute;es.</p>
+                            <p class="table-caption">Cr&eacute;neaux termin&eacute;s ou r&eacute;servations annul&eacute;es.</p>
                         </div>
                         <label class="search-field">
                             <span>Rechercher</span>
@@ -256,6 +271,12 @@
             </section>
 
             <section class="admin-data-stack" role="tabpanel" data-admin-panel="operations" hidden>
+                <nav class="sub-tab-bar" aria-label="Navigation opérations">
+                    <button class="sub-tab-button active" type="button" aria-selected="true" data-operations-subtab="technicians">Techniciens</button>
+                    <button class="sub-tab-button" type="button" aria-selected="false" data-operations-subtab="maintenances">Maintenances</button>
+                </nav>
+
+                <div class="operations-subpanel" data-operations-panel="technicians">
                 <section class="dashboard-panel table-panel admin-table-panel">
                     <div class="panel-heading table-toolbar">
                         <div>
@@ -273,23 +294,9 @@
                     <div id="technicians-list" class="table-host"></div>
                 </section>
 
-                <section class="dashboard-panel table-panel admin-table-panel">
-                    <div class="panel-heading table-toolbar">
-                        <div>
-                            <p class="panel-title">Périmètres techniciens</p>
-                            <p class="table-caption">Vue de contr&ocirc;le des stations autoris&eacute;es. Les affectations se modifient depuis la fiche technicien.</p>
-                        </div>
-                        <div class="table-toolbar-actions">
-                            <label class="search-field">
-                                <span>Rechercher</span>
-                                <input type="search" data-admin-search="technicianAssignments" placeholder="Technicien, station, rôle..." autocomplete="off">
-                            </label>
-                            <a class="btn btn-secondary compact" href="/admin-form.html?resource=technician-station">Affectation avanc&eacute;e</a>
-                        </div>
-                    </div>
-                    <div id="technician-assignments-list" class="table-host"></div>
-                </section>
+                </div>
 
+                <div class="operations-subpanel" data-operations-panel="maintenances" hidden>
                 <section class="dashboard-panel table-panel admin-table-panel">
                     <div class="panel-heading table-toolbar">
                         <div>
@@ -305,6 +312,68 @@
                         </div>
                     </div>
                     <div id="maintenances-list" class="table-host"></div>
+                </section>
+                </div>
+            </section>
+
+            <section class="admin-data-stack export-workspace" role="tabpanel" data-admin-panel="exports" hidden>
+                <section class="dashboard-panel export-panel">
+                    <div class="panel-heading table-toolbar">
+                        <div>
+                            <p class="panel-title">Exports et archives</p>
+                            <p class="table-caption">Filtrer et exporter les donn&eacute;es utiles aux audits et aux analyses d'exploitation.</p>
+                        </div>
+                    </div>
+                    <div class="export-filter-grid">
+                        <label class="search-field">
+                            <span>Donn&eacute;es</span>
+                            <select id="admin-export-dataset">
+                                <option value="operational">Instantan&eacute; op&eacute;rationnel</option>
+                                <option value="security_logs">Journaux de s&eacute;curit&eacute; archiv&eacute;s</option>
+                            </select>
+                        </label>
+                        <label class="search-field">
+                            <span>Station</span>
+                            <select id="admin-export-station">
+                                <option value="">Toutes les stations</option>
+                            </select>
+                        </label>
+                        <label class="search-field">
+                            <span>Date de d&eacute;but</span>
+                            <input id="admin-export-date-from" type="date">
+                        </label>
+                        <label class="search-field">
+                            <span>Date de fin</span>
+                            <input id="admin-export-date-to" type="date">
+                        </label>
+                        <label class="search-field">
+                            <span>Statut du journal</span>
+                            <select id="admin-export-log-status">
+                                <option value="">Tous les statuts</option>
+                                <option value="success">Succ&egrave;s</option>
+                                <option value="failure">&Eacute;chec</option>
+                            </select>
+                        </label>
+                        <label class="search-field export-query-field">
+                            <span>Recherche</span>
+                            <input id="admin-export-query" type="search" placeholder="Utilisateur, action, IP..." autocomplete="off">
+                        </label>
+                    </div>
+                    <div class="export-actions" aria-label="Actions d'export">
+                        <button id="admin-export-json" class="btn btn-secondary" type="button">Exporter JSON</button>
+                        <button id="admin-export-csv" class="btn btn-primary" type="button">Exporter CSV</button>
+                    </div>
+                </section>
+
+                <section class="dashboard-panel export-results-panel">
+                    <div class="panel-heading table-toolbar">
+                        <div>
+                            <p class="panel-title">R&eacute;sultats</p>
+                            <p class="table-caption">Aper&ccedil;u des donn&eacute;es correspondant aux filtres s&eacute;lectionn&eacute;s.</p>
+                        </div>
+                    </div>
+                    <div id="admin-export-summary" class="export-summary" aria-live="polite"></div>
+                    <div id="admin-export-preview-table" class="table-host export-preview-table"></div>
                 </section>
             </section>
         </section>

@@ -36,8 +36,10 @@ def test_build_telemetry_payload_contains_expected_sensor_fields():
     assert payload["cable"] is True
     assert payload["lock"] is True
     assert payload["intrusion"] is False
-    assert payload["current"] > 0
-    assert payload["voltage"] > 0
+    assert 1.0 <= payload["current"] <= 1.3
+    assert 11.9 <= payload["voltage"] <= 12.1
+    assert 24.0 <= payload["temperature"] <= 28.0
+    assert 45.0 <= payload["humidity"] <= 50.0
     assert payload["power"] == pytest.approx(payload["current"] * payload["voltage"], abs=0.05)
     assert payload["timestamp"].endswith("Z")
 
@@ -49,7 +51,7 @@ def test_build_telemetry_payload_contains_expected_sensor_fields():
         ("cable_removed", {"cable": False}),
         ("lock_unlocked", {"lock": False}),
         ("overheat", {"temperature": 64.0}),
-        ("overcurrent", {"current": 3.4}),
+        ("overcurrent", {"current": 4.4}),
         ("fault", {"state": "error"}),
     ],
 )

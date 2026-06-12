@@ -1,6 +1,8 @@
 from django.urls import path
 
+from .admin_exports import admin_operational_export
 from .health_views import health_live, health_ready
+from .semantic_views import semantic_graph, semantic_network, semantic_sparql
 from .views import (
     admin_borne_detail,
     admin_bornes,
@@ -56,6 +58,7 @@ from .views import (
     technician_resolve_alert,
     technician_supervision,
     terminal_authenticate,
+    terminal_config,
     terminal_consume_mobile_session,
     terminal_consume_mobile_session_from_body,
     terminal_create_mobile_session,
@@ -95,6 +98,7 @@ urlpatterns = [
     path("reservations/<uuid:reservation_id>/send-access-code/", send_reservation_access_code, name="api-reservation-send-access-code"),
     path("reservations/availability/", reservation_availability, name="api-reservation-availability"),
     path("terminal/authenticate/", terminal_authenticate, name="api-terminal-authenticate"),
+    path("terminal/config/", terminal_config, name="api-terminal-config"),
     path("terminal/link-rfid/", terminal_link_rfid, name="api-terminal-link-rfid"),
     path("terminal/mobile-sessions/", terminal_create_mobile_session, name="api-terminal-mobile-session-create"),
     path("terminal/mobile-sessions/status/", terminal_mobile_session_status_from_body, name="api-terminal-mobile-session-status-body"),
@@ -124,6 +128,7 @@ urlpatterns = [
     ),
     path("admin/overview/", admin_overview, name="api-admin-overview"),
     path("admin/supervision/", admin_supervision, name="api-admin-supervision"),
+    path("admin/export/operational/", admin_operational_export, name="api-admin-export-operational"),
     path("admin/reservations/", admin_reservations, name="api-admin-reservations"),
     path("admin/reservations/<uuid:reservation_id>/cancel/", admin_cancel_reservation, name="api-admin-reservation-cancel"),
     path(
@@ -185,4 +190,7 @@ urlpatterns = [
         admin_device_schedule_ota,
         name="api-admin-device-schedule-ota",
     ),
+    path("semantic/graph/", semantic_graph, name="api-semantic-graph"),
+    path("semantic/network/", semantic_network, name="api-semantic-network"),
+    path("semantic/sparql/", semantic_sparql, name="api-semantic-sparql"),
 ]

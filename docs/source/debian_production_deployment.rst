@@ -3,14 +3,17 @@ Installation sur serveur Debian
 
 Cette procédure décrit l'installation de la partie backend sur un serveur
 Debian dédié. Elle vise un serveur d'intégration ou une production académique
-maîtrisée : API Django, base TimescaleDB/PostgreSQL, Redis, Celery, Mosquitto,
-Grafana, Mailpit et reverse proxy Nginx.
+maîtrisée : API Django, base TimescaleDB/PostgreSQL, Redis, Celery, Grafana,
+Mailpit et reverse proxy Nginx. Le broker Mosquitto de terrain est porté par le
+Raspberry de la borne.
 
 La procédure utilise ``docker-compose.prod.yml``. Ce profil production sépare le
 mode développement du mode serveur : le backend est lancé en ASGI avec Daphne,
 le frontend est buildé puis servi par Nginx, les fichiers statiques Django sont
 collectés dans un volume dédié, et les ports internes ne sont pas publiés
-directement sur le réseau.
+directement sur le réseau. En architecture terrain, le broker Mosquitto de la
+borne tourne sur le Raspberry physique ; le service Docker ``mqtt`` du fichier
+production est conservé uniquement pour la simulation ou un banc de test local.
 
 Architecture cible
 ------------------
@@ -24,7 +27,7 @@ Le serveur Debian héberge les services suivants :
      - Rôle
      - Exposition attendue
    * - ``reverse-proxy``
-     - Entrée HTTPS, routage vers l'API, le frontend, Grafana et le kiosque
+     - Entrée HTTPS, routage vers l'API, le frontend et Grafana
      - Ports ``80`` et ``443``
    * - ``backend``
      - API Django, admin, logique métier, endpoints kiosk/mobile
@@ -39,10 +42,10 @@ Le serveur Debian héberge les services suivants :
      - Tâches asynchrones, alertes, contrôles périodiques
      - Interne uniquement
    * - ``mqtt``
-     - Broker Mosquitto pour ESP32, Raspberry et bridge backend
-     - LAN uniquement, port ``1883`` en test ou ``8883`` avec TLS
+     - Broker Mosquitto de simulation si aucun Raspberry n'est disponible
+     - Profil ``simulation`` uniquement
    * - ``mqtt-bridge``
-     - Ingestion des télémétries MQTT vers la base
+     - Ingestion des télémétries depuis le broker Raspberry vers la base
      - Interne uniquement
    * - ``grafana``
      - Supervision technique
@@ -50,6 +53,22 @@ Le serveur Debian héberge les services suivants :
    * - ``mailpit``
      - SMTP et boîte de réception de test
      - Local ou tunnel SSH uniquement
+
+Le kiosque Raspberry et le broker Mosquitto de terrain ne sont pas lancés sur le
+serveur Debian en production. Ils tournent sur le Raspberry physique raccordé à
+l'écran tactile, au lecteur RFID, au réseau de la borne et aux ESP32. Les
+services Docker ``raspberry`` et ``mqtt`` de ``docker-compose.prod.yml`` sont
+réservés à la simulation avec le profil ``simulation``.
+
+Pour tester ponctuellement le kiosque dans la stack serveur, utiliser :
+
+.. code-block:: bash
+
+   docker compose -f docker-compose.prod.yml --profile simulation up -d mqtt raspberry
+
+Ce mode ne remplace pas le déploiement terrain : en exploitation réelle, le
+Raspberry lance ``raspberry/app/main.py`` localement, héberge Mosquitto et joint
+l'API serveur via ``BACKEND_API_BASE_URL``.
 
 Pré-requis
 ----------
@@ -61,13 +80,15 @@ Prévoir :
 * une adresse IP fixe ou une réservation DHCP ;
 * un nom DNS si le serveur doit être joint par un domaine ;
 * les ports ``80`` et ``443`` ouverts vers le serveur ;
-* le port ``1883`` ou ``8883`` ouvert uniquement depuis le réseau local des
-  ESP32/Raspberry selon la configuration MQTT ;
+* une route réseau entre le serveur Debian et le Raspberry qui héberge Mosquitto ;
+* le port ``1883`` ou ``8883`` ouvert sur le Raspberry uniquement depuis le
+  réseau local des ESP32 et du serveur selon la configuration MQTT ;
 * au moins 4 Go de RAM pour un confort correct avec Grafana, Django, Celery et
   TimescaleDB.
 
 Ne pas exposer directement sur Internet les ports ``5432``, ``6379``, ``8000``,
-``3000``, ``5173``, ``8025`` ou ``1025``.
+``3000``, ``5173``, ``8025`` ou ``1025``. Le port MQTT du Raspberry doit rester
+sur le réseau terrain.
 
 Installation système
 --------------------
@@ -179,7 +200,7 @@ Adapter les variables suivantes avant le premier démarrage :
    GRAFANA_ADMIN_PASSWORD=<mot de passe fort>
    GRAFANA_ROOT_URL=https://station.example.com/grafana/
 
-   MQTT_HOST=mqtt
+   MQTT_HOST=<ip-du-raspberry>
    MQTT_PORT=1883
    MQTT_USERNAME=station_backend
    MQTT_PASSWORD=<mot de passe station_backend>
@@ -195,8 +216,8 @@ Adapter les variables suivantes avant le premier démarrage :
    CSRF_COOKIE_SECURE=True
    JWT_REFRESH_COOKIE_SECURE=True
    SECURE_HSTS_SECONDS=31536000
-   SECURE_HSTS_INCLUDE_SUBDOMAINS=True
-   SECURE_HSTS_PRELOAD=True
+   SECURE_HSTS_INCLUDE_SUBDOMAINS=False
+   SECURE_HSTS_PRELOAD=False
 
    TELEMETRY_RETENTION_DAYS=90
    CELERY_BEAT_TELEMETRY_RETENTION_SECONDS=86400
@@ -205,22 +226,29 @@ Adapter les variables suivantes avant le premier démarrage :
    ADMIN_PASSWORD=<mot de passe admin fort>
 
 Si le serveur est utilisé uniquement en réseau local sans domaine, remplacer
-``station.example.com`` par l'adresse IP fixe du serveur. Dans ce cas, HTTPS
-fonctionnera avec un certificat autosigné, mais les navigateurs afficheront un
-avertissement tant que le certificat n'est pas approuvé.
+``station.example.com`` par l'adresse IP fixe du serveur. La solution retenue
+pour le projet est une CA locale Smallstep nommée ``Metropole Verte`` : le
+certificat serveur est signé par cette CA et la racine est installée sur les
+postes qui doivent faire confiance à l'application.
 
 Les options ``SECURE_HSTS_SECONDS``, ``SECURE_HSTS_INCLUDE_SUBDOMAINS`` et
 ``SECURE_HSTS_PRELOAD`` ne doivent être activées qu'après validation du
 certificat et des sous-domaines de production. Une politique HSTS préchargée
 est volontairement difficile à annuler côté navigateurs.
-Le profil Nginx production contient également l'en-tête HSTS ; pour une
-démonstration LAN avec certificat autosigné, utilisez plutôt le profil de
-développement ou retirez temporairement cet en-tête.
+Dans le contexte LAN du projet, ``SECURE_HSTS_SECONDS=31536000`` est activé,
+mais ``includeSubDomains`` et ``preload`` restent désactivés : il n'y a pas de
+domaine public ni de sous-domaines maîtrisés à précharger dans les navigateurs.
+Le profil Nginx production applique donc aussi l'en-tête HSTS sous la forme
+``Strict-Transport-Security: max-age=31536000``.
 
-``MQTT_PUBLISHED_HOST`` vaut ``127.0.0.1`` par défaut dans le profil production :
-Mosquitto n'est donc pas joignable depuis les ESP32 tant que cette variable n'est
-pas changée. Pour une station sur le LAN, utiliser l'adresse IP du serveur ou
-``0.0.0.0``, puis limiter l'accès avec UFW.
+En production terrain, ``MQTT_HOST`` doit pointer vers l'adresse IP du Raspberry
+sur le réseau local de la borne, car c'est lui qui héberge Mosquitto. Le backend
+et ``mqtt-bridge`` se connectent donc au broker Raspberry pour ingérer les
+télémétries et les ACK.
+
+``MQTT_PUBLISHED_HOST`` ne concerne que le broker Docker de simulation. Il vaut
+``127.0.0.1`` par défaut afin de ne pas exposer Mosquitto par erreur si le
+profil ``simulation`` est utilisé sur le serveur.
 
 Configuration TLS
 -----------------
@@ -231,6 +259,10 @@ La configuration Nginx actuelle attend deux fichiers :
 
    nginx/certs/localhost.crt
    nginx/certs/localhost.key
+
+La terminaison HTTPS Nginx est volontairement limitée à ``TLSv1.3`` dans les
+configurations du dépôt. TLS 1.2 n'est pas activé pour le point d'entrée web de
+production ; les clients trop anciens doivent donc être exclus ou mis à jour.
 
 Pour une démonstration locale ou LAN, générer un certificat autosigné :
 
@@ -285,90 +317,131 @@ Initialiser la CA locale sur une machine d'administration protégée :
 
    step ca init \
      --name "Metropole Verte" \
-     --dns station-ca.local \
-     --address ":9001" \
-     --provisioner admin
+     --dns 192.168.10.10 \
+     --dns localhost \
+     --address ":9000" \
+     --provisioner metropole-verte-admin
 
 Lancer ensuite ``step-ca`` via un service ``systemd`` ou un conteneur dédié, et
 ne pas exposer le port de la CA à Internet. La racine doit rester protégée ; en
 production réelle, l'approche recommandée est de garder la racine hors ligne et
 de laisser l'intermédiaire signer les certificats courants.
 
+Configuration appliquée sur le serveur Debian du projet :
+
+.. code-block:: text
+
+   Nom CA      : Metropole Verte
+   URL CA      : https://192.168.10.10:9000
+   Provisioner : metropole-verte-admin
+   Service     : step-ca.service
+   Racine      : /etc/step-ca/certs/root_ca.crt
+   Fingerprint : e05fa0ebed4ccad08462cb261ef6ce4a0c025d07dbd5d17399832022bbc65325
+
+Le certificat HTTPS Nginx est signé par l'intermédiaire Smallstep et contient
+les SAN réellement utilisés dans le prototype :
+
+.. code-block:: text
+
+   DNS:localhost
+   DNS:SRV-Station
+   IP:192.168.10.10
+   IP:127.0.0.1
+
+Cette liste est essentielle : si le navigateur ouvre ``https://192.168.10.10``,
+le certificat doit contenir l'IP ``192.168.10.10`` dans ses SAN, sinon la
+connexion TLS est rejetée même si la racine CA est installée.
+
 Sur chaque machine qui doit émettre ou renouveler des certificats, établir la
 confiance vers la CA :
 
 .. code-block:: bash
 
-   step certificate fingerprint $(step path)/certs/root_ca.crt
-   step ca bootstrap --ca-url https://station-ca.local:9001 --fingerprint <fingerprint>
+   step certificate fingerprint /etc/step-ca/certs/root_ca.crt
+   step ca bootstrap \
+     --ca-url https://192.168.10.10:9000 \
+     --fingerprint e05fa0ebed4ccad08462cb261ef6ce4a0c025d07dbd5d17399832022bbc65325
 
 Générer le certificat Nginx. Les noms et IP utilisés par les navigateurs doivent
 être présents dans les SAN du certificat :
 
 .. code-block:: bash
 
-   step ca certificate station.local \
+   step ca certificate 192.168.10.10 \
      nginx/certs/localhost.crt \
      nginx/certs/localhost.key \
-     --san station.local \
-     --san 192.168.1.50
+     --san 192.168.10.10 \
+     --san 127.0.0.1 \
+     --san localhost \
+     --san SRV-Station \
+     --not-after 720h
    chmod 600 nginx/certs/localhost.key
 
-Générer les certificats Mosquitto dans le dossier prévu pour la production :
+La durée ``720h`` correspond à 30 jours. Elle oblige à tester le renouvellement,
+limite l'impact d'une fuite de clé, et reste assez longue pour une soutenance ou
+une démonstration sans renouvellement quotidien.
+
+Générer les certificats Mosquitto sur le Raspberry, car c'est lui qui héberge le
+broker de terrain :
 
 .. code-block:: bash
 
-   mkdir -p mosquitto/certs
-   step ca certificate mqtt.station.local \
-     mosquitto/certs/mqtt.crt \
-     mosquitto/certs/mqtt.key \
+   sudo mkdir -p /etc/station/mqtt-certs
+   sudo chown "$USER":"$USER" /etc/station/mqtt-certs
+   step ca certificate raspberry-mqtt.station.local \
+     /etc/station/mqtt-certs/mqtt.crt \
+     /etc/station/mqtt-certs/mqtt.key \
      --san mqtt.station.local \
-     --san 192.168.1.50
-   step ca root mosquitto/certs/root_ca.crt
-   chmod 600 mosquitto/certs/mqtt.key
+     --san <ip-du-raspberry>
+   step ca root /etc/station/mqtt-certs/metropole-verte-root-ca.crt
+   chmod 600 /etc/station/mqtt-certs/mqtt.key
 
-Pour activer MQTT TLS dans la stack, il faut ensuite adapter
-``mosquitto/config/mosquitto.secure.conf`` avec un listener ``8883`` :
+Pour activer MQTT TLS sur le Raspberry, adapter la configuration Mosquitto avec
+un listener ``8883`` :
 
 .. code-block:: text
 
    listener 8883 0.0.0.0
    protocol mqtt
    allow_anonymous false
-   password_file /mosquitto/config/passwords
-   acl_file /mosquitto/config/acl
-   cafile /etc/station/mqtt-certs/root_ca.crt
+   password_file /etc/mosquitto/passwords
+   acl_file /etc/mosquitto/aclfile
+   cafile /etc/station/mqtt-certs/metropole-verte-root-ca.crt
    certfile /etc/station/mqtt-certs/mqtt.crt
    keyfile /etc/station/mqtt-certs/mqtt.key
 
-Les services backend, ``mqtt-bridge`` et Raspberry montent
-``./mosquitto/certs`` dans ``/etc/station/mqtt-certs`` dans le profil
-``docker-compose.prod.yml``. Configurer alors :
+Le dépôt fournit un modèle prêt à adapter dans
+``raspberry/mosquitto/station.tls.conf``. Il ne doit remplacer la configuration
+1883 actuelle qu'après validation du backend, du kiosk Raspberry et des ESP32 en
+TLS.
+
+Le serveur Debian doit seulement faire confiance à la racine utilisée par le
+broker Raspberry. Copier ``metropole-verte-root-ca.crt`` dans un chemin monté
+par le conteneur backend, puis configurer :
 
 .. code-block:: text
 
    MQTT_PORT=8883
    MQTT_TLS_ENABLED=True
-   MQTT_TLS_CA_CERT=/etc/station/mqtt-certs/root_ca.crt
-   MQTT_PUBLISHED_HOST=192.168.1.50
+   MQTT_TLS_CA_CERT=/etc/station/mqtt-certs/metropole-verte-root-ca.crt
 
 Les ESP32 doivent aussi vérifier le certificat du broker : embarquer la racine
-``root_ca.crt`` dans le firmware ou la stocker dans le système de fichiers de
-l'ESP32 si l'implémentation TLS utilisée le permet.
+``metropole-verte-root-ca.crt`` dans le firmware ou la stocker dans le système
+de fichiers de l'ESP32 si l'implémentation TLS utilisée le permet.
 
 Distribuer la racine de confiance
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 La racine Smallstep doit être installée sur chaque client :
 
-* Windows : importer ``root_ca.crt`` dans les autorités de certification racines
-  de confiance ;
+* Windows : importer ``metropole-verte-root-ca.crt`` dans les autorités de
+  certification racines de confiance ;
 * Android : installer le certificat CA pour les tests de navigation locale ;
 * Raspberry/Debian : copier le certificat dans
   ``/usr/local/share/ca-certificates/station-root-ca.crt`` puis lancer
   ``sudo update-ca-certificates`` ;
-* conteneurs backend/Raspberry : monter ``mosquitto/certs/root_ca.crt`` et
-  renseigner ``MQTT_TLS_CA_CERT`` ;
+* conteneurs backend : monter ``metropole-verte-root-ca.crt`` et renseigner
+  ``MQTT_TLS_CA_CERT`` ;
 * ESP32 : embarquer explicitement la racine dans le code ou dans LittleFS.
 
 Renouvellement
@@ -389,22 +462,24 @@ Avant d'automatiser, tester un renouvellement manuel :
 
 .. code-block:: bash
 
+   # Sur le serveur Debian
    cd /opt/station
    step ca renew --force nginx/certs/localhost.crt nginx/certs/localhost.key
-   step ca renew --force mosquitto/certs/mqtt.crt mosquitto/certs/mqtt.key
    docker compose -f docker-compose.prod.yml exec -T reverse-proxy nginx -s reload
-   docker compose -f docker-compose.prod.yml restart mqtt
+
+   # Sur le Raspberry
+   step ca renew --force /etc/station/mqtt-certs/mqtt.crt /etc/station/mqtt-certs/mqtt.key
+   sudo systemctl restart mosquitto
 
 Vérifier ensuite :
 
 .. code-block:: bash
 
    step certificate inspect nginx/certs/localhost.crt --short
-   step certificate inspect mosquitto/certs/mqtt.crt --short
+   step certificate inspect /etc/station/mqtt-certs/mqtt.crt --short
 
-Créer ensuite un service systemd pour le certificat Nginx. Remplacer
-``station`` par l'utilisateur Linux qui possède ``/opt/station`` et qui peut
-exécuter ``docker compose`` :
+Créer ensuite un service systemd pour le certificat Nginx. Sur le serveur du
+projet, l'utilisateur Linux est ``btsciel`` et possède ``/opt/station`` :
 
 .. code-block:: bash
 
@@ -416,11 +491,10 @@ exécuter ``docker compose`` :
 
    [Service]
    Type=simple
-   User=station
-   Group=station
+   User=btsciel
+   Group=btsciel
    WorkingDirectory=/opt/station
-   Environment=STEPPATH=/home/station/.step
-   ExecStart=/bin/sh -lc 'exec step ca renew --daemon --expires-in 168h --exec "docker compose -f docker-compose.prod.yml exec -T reverse-proxy nginx -s reload" nginx/certs/localhost.crt nginx/certs/localhost.key'
+   ExecStart=/usr/bin/step ca renew --daemon --expires-in 168h --ca-url https://127.0.0.1:9000 --root /etc/step-ca/certs/root_ca.crt --exec "/usr/bin/docker compose -f /opt/station/docker-compose.prod.yml exec -T reverse-proxy nginx -s reload" /opt/station/nginx/certs/localhost.crt /opt/station/nginx/certs/localhost.key
    Restart=always
    RestartSec=30
 
@@ -428,23 +502,26 @@ exécuter ``docker compose`` :
    WantedBy=multi-user.target
    EOF
 
-Créer un second service pour Mosquitto :
+Créer un second service sur le Raspberry pour Mosquitto. Le profil Smallstep
+doit être initialisé pour ``root`` sur le Raspberry, car le service renouvelle
+des certificats dans ``/etc`` et redémarre Mosquitto :
 
 .. code-block:: bash
+
+   sudo STEPPATH=/root/.step step ca bootstrap --ca-url https://station-ca.local:9001 --fingerprint <fingerprint>
 
    sudo tee /etc/systemd/system/metropole-verte-mqtt-cert-renew.service > /dev/null <<'EOF'
    [Unit]
    Description=Renouvellement du certificat MQTT Mosquitto Metropole Verte
-   After=network-online.target docker.service
+   After=network-online.target mosquitto.service
    Wants=network-online.target
 
    [Service]
    Type=simple
-   User=station
-   Group=station
-   WorkingDirectory=/opt/station
-   Environment=STEPPATH=/home/station/.step
-   ExecStart=/bin/sh -lc 'exec step ca renew --daemon --expires-in 168h --exec "docker compose -f docker-compose.prod.yml restart mqtt" mosquitto/certs/mqtt.crt mosquitto/certs/mqtt.key'
+   User=root
+   Group=root
+   Environment=STEPPATH=/root/.step
+   ExecStart=/bin/sh -lc 'exec step ca renew --daemon --expires-in 168h --exec "systemctl restart mosquitto" /etc/station/mqtt-certs/mqtt.crt /etc/station/mqtt-certs/mqtt.key'
    Restart=always
    RestartSec=30
 
@@ -473,10 +550,11 @@ Avec ``--expires-in 168h``, le renouvellement est demandé lorsqu'il reste moins
 de sept jours de validité. Ce seuil est lisible pour l'exploitation et laisse le
 temps de corriger un problème avant expiration. Après renouvellement :
 
-* Nginx est rechargé sans redémarrer toute la stack ;
-* Mosquitto est redémarré pour relire le certificat et la clé ;
-* ``mqtt-bridge`` et le Raspberry doivent se reconnecter automatiquement au
-  broker. Si ce n'est pas le cas, redémarrer ``mqtt-bridge`` et ``raspberry``.
+* Nginx est rechargé sans redémarrer toute la stack serveur ;
+* Mosquitto est redémarré sur le Raspberry pour relire le certificat et la clé ;
+* ``mqtt-bridge``, le kiosk Raspberry et les ESP32 doivent se reconnecter
+  automatiquement au broker. Si ce n'est pas le cas, redémarrer le service
+  concerné.
 
 Points de vigilance :
 
@@ -516,17 +594,59 @@ Configurer UFW pour n'exposer que les ports nécessaires :
    sudo ufw allow OpenSSH
    sudo ufw allow 80/tcp
    sudo ufw allow 443/tcp
-   sudo ufw allow from 192.168.1.0/24 to any port 1883 proto tcp
-   sudo ufw allow from 192.168.1.0/24 to any port 8883 proto tcp
    sudo ufw enable
    sudo ufw status numbered
 
-Adapter ``192.168.1.0/24`` au réseau réel des ESP32 et du Raspberry. Le port
-MQTT ne doit pas être ouvert à tout Internet. En production avec MQTT TLS,
-préférer ``8883`` et fermer ``1883`` dès que tous les clients utilisent TLS.
+Le serveur Debian n'a pas besoin d'exposer MQTT si le broker tourne sur le
+Raspberry. Ouvrir ``1883`` ou ``8883`` sur le Raspberry uniquement, en limitant
+l'accès au réseau local des ESP32 et du serveur. Le port MQTT ne doit pas être
+ouvert à tout Internet. En production avec MQTT TLS, préférer ``8883`` et fermer
+``1883`` dès que tous les clients utilisent TLS.
 
 Durcissement Linux
 ------------------
+
+Le durcissement doit être appliqué progressivement afin de ne pas couper l'accès
+SSH pendant l'installation. Le projet fournit un script d'installation des
+mesures de maintenance :
+
+.. code-block:: bash
+
+   cd /opt/station
+   chmod +x scripts/*.sh
+   sudo scripts/install-prod-maintenance.sh
+
+Ce premier passage installe et configure :
+
+* ``unattended-upgrades`` pour les mises à jour de sécurité automatiques ;
+* ``fail2ban`` pour protéger SSH ;
+* ``logrotate`` pour le journal de sauvegarde ;
+* une tâche cron quotidienne ``/etc/cron.d/station-backup`` ;
+* une rotation ``/etc/logrotate.d/station-backup``.
+
+Les protections pouvant verrouiller l'accès au serveur restent opt-in. Après
+avoir confirmé qu'une connexion SSH par clé fonctionne, appliquer le durcissement
+SSH :
+
+.. code-block:: bash
+
+   sudo APPLY_SSH_HARDENING=true scripts/install-prod-maintenance.sh
+
+Pour désactiver l'authentification SSH par mot de passe, uniquement après test
+d'une deuxième session SSH par clé :
+
+.. code-block:: bash
+
+   sudo APPLY_SSH_HARDENING=true DISABLE_SSH_PASSWORD_AUTH=true scripts/install-prod-maintenance.sh
+
+Pour activer UFW depuis le script :
+
+.. code-block:: bash
+
+   sudo APPLY_UFW=true scripts/install-prod-maintenance.sh
+
+Les commandes manuelles équivalentes restent utiles si l'on préfère appliquer
+chaque mesure séparément.
 
 Installer les outils de maintenance de base :
 
@@ -687,8 +807,10 @@ Remplacer ``station.example.com`` par le domaine ou l'IP du serveur :
    https://station.example.com/          Interface web
    https://station.example.com/api/      API REST
    https://station.example.com/admin/    Administration Django
-   https://station.example.com/kiosk/    Interface borne
    https://station.example.com/grafana/  Supervision Grafana
+
+L'interface borne s'ouvre sur le Raspberry physique, par exemple
+``http://localhost:9000`` depuis Chromium en mode kiosque sur l'écran tactile.
 
 Grafana utilise le compte configuré par ``GRAFANA_ADMIN_USER`` et
 ``GRAFANA_ADMIN_PASSWORD``. Changer le mot de passe après la première connexion
@@ -717,18 +839,29 @@ Pour une production réelle, remplacer Mailpit par un SMTP authentifié et mettr
 à jour ``EMAIL_HOST``, ``EMAIL_PORT``, ``EMAIL_USE_TLS``, ``EMAIL_HOST_USER`` et
 ``EMAIL_HOST_PASSWORD``.
 
-Configuration Raspberry et ESP32
---------------------------------
+Configuration serveur, Raspberry et ESP32
+-----------------------------------------
 
-Les Raspberry et ESP32 doivent joindre le serveur Debian par son IP fixe ou son
-nom DNS.
+Le serveur Debian doit joindre le broker Mosquitto du Raspberry. Dans ``.env``
+côté serveur :
 
-Pour le Raspberry :
+.. code-block:: text
+
+   MQTT_HOST=<ip-du-raspberry>
+   MQTT_PORT=1883
+   MQTT_USERNAME=station_backend
+   MQTT_PASSWORD=<mot de passe station_backend>
+   MQTT_TLS_ENABLED=False
+   MQTT_TLS_CA_CERT=
+   MQTT_ACK_REQUIRED=True
+
+Le Raspberry doit joindre le serveur Debian pour l'API, mais il parle à son
+broker Mosquitto local en ``localhost`` :
 
 .. code-block:: text
 
    BACKEND_API_BASE_URL=https://station.example.com/api
-   MQTT_HOST=192.168.1.50
+   MQTT_HOST=localhost
    MQTT_PORT=1883
    MQTT_USERNAME=raspberry_kiosk
    MQTT_PASSWORD=<mot de passe raspberry_kiosk>
@@ -743,7 +876,7 @@ Pour l'ESP32 :
 
    WIFI_SSID=<SSID du réseau>
    WIFI_PASSWORD=<mot de passe Wi-Fi>
-   MQTT_HOST=192.168.1.50
+   MQTT_HOST=<ip-du-raspberry>
    MQTT_PORT=1883
    MQTT_USER=esp32_station_demo_borne_1_slot1
    MQTT_PASSWORD=<mot de passe de l'emplacement ESP32>
@@ -753,39 +886,49 @@ en HTTP direct : ``mqtt-bridge`` consomme les topics MQTT et écrit en base.
 
 Si Mosquitto est passé en TLS avec smallstep, remplacer le port par ``8883``,
 mettre ``MQTT_TLS_ENABLED=True`` côté Raspberry/backend et distribuer
-``root_ca.crt`` aux clients. Côté ESP32, le firmware doit charger la racine CA
+``metropole-verte-root-ca.crt`` aux clients. Côté ESP32, le firmware doit charger la racine CA
 utilisée pour vérifier le certificat du broker.
 
 Test MQTT
 ---------
 
-Observer les messages MQTT depuis le serveur :
+Observer les messages MQTT depuis le serveur Debian, si ``mosquitto-clients`` est
+installé :
 
 .. code-block:: bash
 
-   docker compose -f docker-compose.prod.yml exec mqtt mosquitto_sub -h localhost -t 'station/#' -v -C 10 -W 20
+   mosquitto_sub -h <ip-du-raspberry> -t 'station/#' -v -C 10 -W 20
 
 Si des identifiants MQTT sont activés :
 
 .. code-block:: bash
 
-   docker compose -f docker-compose.prod.yml exec mqtt sh -c 'mosquitto_sub -h localhost \
-     -u "$MQTT_USERNAME" -P "$MQTT_PASSWORD" \
-     -t "station/#" -v -C 10 -W 20'
+   mosquitto_sub -h <ip-du-raspberry> \
+     -u station_backend -P '<mot-de-passe>' \
+     -t 'station/#' -v -C 10 -W 20
 
 Si MQTT TLS est activé :
 
 .. code-block:: bash
 
-   docker compose -f docker-compose.prod.yml exec mqtt sh -c 'mosquitto_sub -h localhost -p 8883 \
-     --cafile /etc/station/mqtt-certs/root_ca.crt \
-     -u "$MQTT_USERNAME" -P "$MQTT_PASSWORD" \
-     -t "station/#" -v -C 10 -W 20'
+   mosquitto_sub -h <ip-du-raspberry> -p 8883 \
+     --cafile /etc/station/mqtt-certs/metropole-verte-root-ca.crt \
+     -u station_backend -P '<mot-de-passe>' \
+     -t 'station/#' -v -C 10 -W 20
+
+Depuis le Raspberry, le même test peut viser ``localhost`` :
+
+.. code-block:: bash
+
+   mosquitto_sub -h localhost \
+     -u raspberry_kiosk -P '<mot-de-passe>' \
+     -t 'station/#' -v -C 10 -W 20
 
 Pour un réseau Wi-Fi ESP32, vérifier que :
 
-* l'ESP32 est sur le même réseau que le serveur ou qu'une route existe ;
-* le port ``1883`` ou ``8883`` est autorisé depuis ce réseau selon le mode MQTT ;
+* l'ESP32 est sur le même réseau que le Raspberry ou qu'une route existe ;
+* le serveur Debian peut joindre le Raspberry sur ``1883`` ou ``8883`` ;
+* le port ``1883`` ou ``8883`` est autorisé sur le Raspberry depuis ce réseau ;
 * le topic publié correspond au préfixe de la borne/emplacement ;
 * ``mqtt-bridge`` est ``healthy`` dans ``docker compose -f docker-compose.prod.yml ps``.
 
@@ -797,6 +940,10 @@ Les scripts opérationnels sont versionnés :
 * ``scripts/backup-prod.sh`` produit un dump SQL compressé avec checksum SHA-256 ;
 * ``scripts/restore-prod.sh`` restaure un dump et exige
   ``RESTORE_CONFIRM=YES`` pour éviter une restauration accidentelle.
+* ``scripts/test-prod-restore.sh`` restaure une sauvegarde dans une base
+  temporaire puis supprime cette base après vérification.
+* ``scripts/install-prod-maintenance.sh`` installe la tâche cron quotidienne de
+  sauvegarde et les premiers contrôles de durcissement système.
 
 Créer un dossier de sauvegarde :
 
@@ -811,6 +958,30 @@ Sauvegarder la base PostgreSQL/TimescaleDB :
 
    BACKUP_DIR=/opt/station/backups scripts/backup-prod.sh
 
+Sauvegarder aussi Grafana et la configuration non secrète :
+
+.. code-block:: bash
+
+   BACKUP_DIR=/opt/station/backups \
+   BACKUP_DOCKER_VOLUMES=true \
+   BACKUP_CONFIG=true \
+   scripts/backup-prod.sh
+
+Par défaut, l'archive de configuration exclut ``.env``, les clés privées TLS,
+les mots de passe Mosquitto et le dossier ``backups``. Si l'on veut conserver
+les secrets dans une sauvegarde chiffrée hors ligne, utiliser explicitement :
+
+.. code-block:: bash
+
+   BACKUP_INCLUDE_SECRETS=true scripts/backup-prod.sh
+
+Vérifier les checksums :
+
+.. code-block:: bash
+
+   cd /opt/station/backups
+   sha256sum -c *.sha256
+
 Tester une restauration dans une base de préproduction ou un serveur jetable :
 
 .. code-block:: bash
@@ -819,6 +990,17 @@ Tester une restauration dans une base de préproduction ou un serveur jetable :
 
 Ne jamais tester une restauration directement sur la production active sans
 fenêtre de maintenance, sauvegarde récente et validation manuelle.
+
+Pour vérifier une sauvegarde sans toucher à la base de production, restaurer dans
+une base temporaire du même conteneur PostgreSQL :
+
+.. code-block:: bash
+
+   cd /opt/station
+   scripts/test-prod-restore.sh /opt/station/backups/station_YYYYMMDDTHHMMSSZ.sql.gz
+
+Sans argument, le script utilise la dernière sauvegarde ``station_*.sql.gz`` du
+dossier ``BACKUP_DIR``.
 
 Lister les volumes Docker pour identifier le nom exact des volumes :
 
@@ -830,11 +1012,13 @@ Les volumes importants sont :
 
 * ``postgres_data`` pour la base ;
 * ``grafana_data`` pour Grafana ;
-* ``mqtt_data`` et ``mqtt_log`` pour Mosquitto ;
+* ``mqtt_data`` et ``mqtt_log`` uniquement si le broker Docker de simulation est utilisé ;
 * ``mailpit_data`` pour les emails capturés.
 
 Planifier au minimum une sauvegarde quotidienne de la base et une sauvegarde
-régulière des volumes Grafana/Mosquitto. Exemple de cron quotidien à 02:15 :
+régulière du volume Grafana. Si Mosquitto tourne sur le Raspberry, sa
+configuration, ses ACL, son fichier de mots de passe et ses certificats doivent
+être sauvegardés côté Raspberry. Exemple de cron quotidien à 02:15 :
 
 .. code-block:: text
 
@@ -856,8 +1040,95 @@ et prépare des politiques TimescaleDB conditionnelles. Ces politiques natives n
 s'appliquent que si ``capteur_data`` est convertie plus tard en hypertable, car
 le schéma Django actuel conserve une clé primaire UUID simple.
 
+Rétention RGPD applicative
+--------------------------
+
+Avant le transfert sur un serveur de production, activer explicitement la
+politique de rétention applicative dans ``.env`` :
+
+.. code-block:: text
+
+   PRIVACY_RETENTION_ENABLED=True
+   SESSION_TELEMETRY_RETENTION_DAYS=365
+   DEVICE_COMMAND_LOG_RETENTION_DAYS=365
+   SECURITY_LOG_RETENTION_DAYS=365
+   ALERT_RETENTION_DAYS=365
+   AUTH_METHOD_RETENTION_DAYS=90
+   USER_ANONYMIZATION_RETENTION_DAYS=1095
+   CELERY_BEAT_PRIVACY_RETENTION_SECONDS=86400
+
+La tâche planifiée ``api.apply_privacy_retention`` complète
+``api.prune_old_telemetry``. Elle supprime les anciennes télémétries de session,
+les anciens ACK/commandes ESP32, les journaux de sécurité périmés, les alertes
+résolues anciennes et les moyens d’accès inactifs ou expirés.
+
+La suppression de compte côté application est une anonymisation immédiate :
+
+* le compte devient inactif et ``archive`` ;
+* le nom, le téléphone et l’email sont retirés ;
+* les secrets RFID, QR et SMS sont désactivés ;
+* les réservations et sessions restent disponibles pour la traçabilité
+  opérationnelle sans identité personnelle.
+
+Exécution manuelle avant sauvegarde ou migration :
+
+.. code-block:: bash
+
+   docker compose -f docker-compose.prod.yml exec backend python manage.py apply_privacy_retention
+
+Vérification de la planification :
+
+.. code-block:: bash
+
+   docker compose -f docker-compose.prod.yml exec backend python manage.py shell -c "from django.conf import settings; print(settings.CELERY_BEAT_SCHEDULE['apply-privacy-retention'])"
+
+TimescaleDB en production
+-------------------------
+
+Le service ``db`` utilise une image TimescaleDB. Les migrations activent
+``timescaledb`` et ``pg_stat_statements`` lorsque ces extensions sont
+disponibles.
+
+Pour ne pas casser les clés primaires UUID du modèle Django, les tables
+applicatives ``capteur_data`` et ``session_telemetry`` restent des tables ORM
+classiques. La migration ``0033_timescale_timeseries_and_anonymized_views`` crée
+des hypertables miroir spécialisées :
+
+* ``capteur_data_timeseries`` ;
+* ``session_telemetry_timeseries``.
+
+Ces hypertables sont alimentées par backfill initial puis par triggers. Elles
+servent aux usages séries temporelles, supervision et exports sans modifier le
+chemin d’écriture applicatif.
+
+Vérifier l’état TimescaleDB :
+
+.. code-block:: bash
+
+   docker compose -f docker-compose.prod.yml exec db \
+     psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+     -c "SELECT hypertable_schema, hypertable_name FROM timescaledb_information.hypertables;"
+
+Politiques attendues :
+
+* compression après 7 jours ;
+* rétention de ``capteur_data_timeseries`` après 90 jours ;
+* rétention de ``session_telemetry_timeseries`` après 365 jours.
+
 Anonymisation PostgreSQL
 ------------------------
+
+La migration ``0033_timescale_timeseries_and_anonymized_views`` crée aussi des
+vues SQL anonymisées exploitables immédiatement :
+
+* ``utilisateur_anonyme`` ;
+* ``technicien_anonyme`` ;
+* ``journal_securite_anonyme`` ;
+* ``supervision_session_anonyme``.
+
+Ces vues masquent les identités par hash ou constantes anonymisées. Elles
+permettent de vérifier et d’exporter des statistiques sans exposer email,
+téléphone, nom ou adresse IP réelle.
 
 La migration ``0027_optional_postgresql_anonymizer`` active l'extension
 ``anon`` et ses ``SECURITY LABEL`` uniquement si PostgreSQL Anonymizer est
@@ -870,6 +1141,23 @@ Ne pas ajouter ``anon`` dans ``shared_preload_libraries`` tant que la bibliothè
 n'est pas présente dans l'image, sinon PostgreSQL peut refuser de démarrer. Une
 fois l'image validée, les règles de masquage versionnées couvrent les colonnes
 personnelles des comptes, profils, techniciens et journaux de sécurité.
+
+Vérifier l'état réel de ``anon`` sur le serveur :
+
+.. code-block:: bash
+
+   docker exec station_postgres_db \
+     psql -U station_user -d station \
+     -Atc "SELECT extname FROM pg_extension ORDER BY extname;"
+
+   docker exec station_postgres_db \
+     find /usr/share /usr/local/share -path '*/extension/anon.control' -print
+
+Si ``anon.control`` n'est pas retourné, l'extension n'est pas installable dans
+l'image courante. Dans ce cas, ne pas modifier le conteneur à la main : le
+changement serait perdu au prochain redéploiement. La solution durable consiste
+à créer ou sélectionner une image PostgreSQL qui contient à la fois TimescaleDB
+et PostgreSQL Anonymizer, puis à rejouer les migrations Django.
 
 Mise à jour applicative
 -----------------------
@@ -889,7 +1177,7 @@ Vérifier ensuite :
 .. code-block:: bash
 
    curl -k https://station.example.com/api/health/ready/
-   docker compose -f docker-compose.prod.yml exec mqtt-bridge python manage.py check_mqtt_bridge_health
+   docker compose -f docker-compose.prod.yml exec backend python manage.py check_mqtt_bridge_health
    docker compose -f docker-compose.prod.yml exec backend python manage.py check --deploy
 
 Service systemd
@@ -899,25 +1187,26 @@ Créer un service systemd pour relancer la stack au démarrage du serveur :
 
 .. code-block:: bash
 
-   sudo nano /etc/systemd/system/station.service
+   sudo nano /etc/systemd/system/station-prod.service
 
 Contenu :
 
 .. code-block:: ini
 
    [Unit]
-   Description=Station de recharge - Docker Compose
+   Description=Station de recharge - stack Docker Compose production
    Requires=docker.service
    After=docker.service network-online.target
    Wants=network-online.target
 
    [Service]
    Type=oneshot
-   RemainAfterExit=yes
    WorkingDirectory=/opt/station
-   ExecStart=/usr/bin/docker compose -f docker-compose.prod.yml up -d --build
-   ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml down
-   TimeoutStartSec=0
+   ExecStart=/usr/bin/docker compose -f docker-compose.prod.yml up -d
+   ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml stop
+   RemainAfterExit=yes
+   TimeoutStartSec=120
+   TimeoutStopSec=120
 
    [Install]
    WantedBy=multi-user.target
@@ -927,8 +1216,18 @@ Activer le service :
 .. code-block:: bash
 
    sudo systemctl daemon-reload
-   sudo systemctl enable --now station.service
-   sudo systemctl status station.service
+   sudo systemctl enable --now station-prod.service
+   sudo systemctl status station-prod.service
+
+Ce service ne remplace pas les politiques ``restart: unless-stopped`` des
+conteneurs. Il garantit surtout qu'après un redémarrage complet du serveur,
+``docker compose up -d`` est rejoué dans ``/opt/station``. Les conteneurs gardent
+ensuite leur propre politique de redémarrage.
+
+Le fichier de santé du bridge MQTT est partagé entre ``mqtt-bridge`` et
+``backend`` via le volume Docker ``mqtt_bridge_state``. Cela permet au backend
+d'exécuter ``check_mqtt_bridge_health`` même si le bridge tourne dans un autre
+conteneur.
 
 Commandes de diagnostic
 -----------------------

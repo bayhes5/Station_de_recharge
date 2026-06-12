@@ -9,6 +9,94 @@ Pour préparer les questions de soutenance du type "où ?", "comment ?", "avec q
 - [`NOTICE_TECHNIQUE_IMPLEMENTATION.md`](NOTICE_TECHNIQUE_IMPLEMENTATION.md)
 - [`NOTICE_SOUTENANCE_TECHNIQUE_DETAILLEE.md`](NOTICE_SOUTENANCE_TECHNIQUE_DETAILLEE.md)
 
+Couverture des notices :
+
+| Sujet | Explication fonctionnelle | Explication technique |
+| --- | --- | --- |
+| Authentification web, mots de passe, JWT | sections 3 et 4 | notice technique sections 1 à 5, notice soutenance sections 1 à 6 |
+| Réservation et disponibilité | section 5 | notice technique section 13, notice soutenance section 13 |
+| Moyens d'accès RFID, QR, mobile et SMS | section 6 | notice technique sections 6 à 12, notice soutenance sections 7 à 12 |
+| Kiosque Raspberry et mode tactile | sections 7 et 8 | docs `raspberry_kiosk.rst`, notice soutenance section 15 |
+| Session de charge, START/STOP et machine d'état | sections 9 et 10 | notice technique sections 14 à 16, notice soutenance sections 14, 16 et 22 |
+| Firmware ESP32, capteurs et calculs électriques | section 11 | notice technique sections 16 et 17, notice soutenance sections 17 et 18 |
+| MQTT, Redis, Celery et ingestion backend | sections 12 et 13 | notice technique sections 18 à 21 et 25, notice soutenance sections 19 à 23 |
+| Base, TimescaleDB, anonymisation et rétention | sections 14 et 22 | notice technique sections 24 et 31, docs `database_mcd.rst` |
+| Grafana, dashboard session et supervision temps réel | sections 15 et 16 | notice technique sections 24 et 29, notice soutenance sections 25 et 29 |
+| Alertes, notifications et techniciens | sections 17 et 18 | notice technique sections 22 et 23, notice soutenance sections 26 à 28 |
+| Mode dégradé Raspberry | section 19 | notice technique section 26, notice soutenance section 30 |
+| Performance applicative et supervision | section 27 | notice technique section 32, notice soutenance section 24 bis |
+| Production Linux, Nginx, Docker et sécurité HTTP | sections 25 et 26 | notice technique sections 27 et 30, notice soutenance sections 35 et 36 |
+| Gestion de projet, agile léger et DevOps | section 0 | notice technique section 0, notice soutenance section 0 |
+
+## 0. Gestion de projet et méthodologie
+
+Le projet a été organisé autour de trois périmètres clairement séparés :
+
+- partie web/backend : application, API, base de données, supervision, sécurité ;
+- partie Raspberry/kiosque : interface tactile, RFID, validation locale, commandes MQTT ;
+- partie ESP32 : capteurs, serrure, télémétrie, alertes locales et actionneurs.
+
+La méthode suivie est une méthode agile légère. L'équipe n'a pas mis en place un Scrum complet, mais a travaillé par itérations courtes :
+
+```text
+cadrer le besoin
+  -> découper une fonctionnalité
+  -> implémenter
+  -> tester
+  -> intégrer avec les autres parties
+  -> ajuster selon les retours terrain
+```
+
+Les outils utilisés ont été :
+
+- Teams pour les points de coordination, les décisions plus formelles et le suivi global ;
+- Discord pour les échanges rapides, les captures d'erreurs, les tests réseau et les manipulations matérielles en direct ;
+- GitHub pour le dépôt central, l'historique de commits, les branches, les pull requests, les merges et l'intégration continue ;
+- les notices et la documentation Sphinx pour stabiliser les contrats entre les parties.
+
+Le point clé de coordination a été la formalisation de contrats d'interface :
+
+```text
+Frontend / PWA
+  -> API REST Django
+
+Raspberry / kiosque
+  -> API terminal Django
+  -> MQTT cmd/ack/status
+
+ESP32
+  -> MQTT telemetry/status/ack/alert
+
+Backend / supervision
+  -> PostgreSQL/TimescaleDB
+  -> Grafana
+```
+
+Cette approche a permis à chaque candidat d'avancer sur son périmètre sans obliger les autres à connaître tous les détails internes. Par exemple, le Raspberry n'a pas besoin de connaître les tables SQL, et l'ESP32 n'a pas besoin de connaître Django : ils respectent les endpoints et les topics MQTT documentés.
+
+Le projet s'inspire également d'une démarche DevOps, avec prudence dans la formulation. Il ne s'agit pas d'une chaîne DevOps industrielle complète, mais plusieurs pratiques DevOps sont en place :
+
+- versionnement GitHub ;
+- branches, commits, pull requests et merge vers `main` ;
+- CI GitHub Actions ;
+- tests automatisés backend, frontend et Raspberry ;
+- Ruff pour la qualité Python ;
+- CodeQL pour l'analyse statique ;
+- SBOM/Grype pour l'inventaire et l'analyse des composants ;
+- Docker Compose pour rendre l'environnement reproductible ;
+- documentation de déploiement Debian ;
+- scripts de sauvegarde/restauration ;
+- supervision applicative avec Grafana et alertes.
+
+Pour une démarche DevOps totalement industrialisée, il resterait à ajouter :
+
+- un déploiement continu réel vers un serveur de production ;
+- un environnement de staging distinct ;
+- une gestion de secrets plus avancée ;
+- un rollback automatisé ;
+- des tests E2E automatisés sur matériel réel ;
+- une supervision système complète du serveur Linux.
+
 ## 1. Vue d'ensemble
 
 Le projet est construit autour de trois parties principales :
@@ -99,7 +187,7 @@ Technicien
   -> Maintenance
 ```
 
-La réservation est l'objet métier qui autorise l'accès. La session est l'objet opérationnel créé lorsque l'utilisateur démarre réellement une charge.
+La réservation est l'objet métier qui autorise l'accès à un créneau. La session est l'objet opérationnel ouvert à la borne après validation de l'accès ; elle permet de suivre l'ouverture, l'attente de branchement, la charge réelle, l'arrêt et les mesures associées. La charge électrique ne démarre qu'à l'état `charging`, après détection du câble/courant et commande `START`.
 
 ## 3. Frontend utilisateur et PWA
 
@@ -131,6 +219,27 @@ Le service worker et le manifeste PWA sont dans :
 - [`frontend/public/manifest.webmanifest`](frontend/public/manifest.webmanifest)
 
 La logique PWA permet d'utiliser la web app comme application mobile sans développer d'application native.
+
+L'expérience mobile n'est pas seulement une page desktop réduite. Les pages
+connectées utilisent une navigation basse sur smartphone pour accéder rapidement
+à l'accueil utilisateur, à la réservation et au profil. Le tableau de bord met
+en avant une carte "Prochaine action" : session active, réservation en cours ou
+réservation à venir. L'utilisateur n'a donc pas besoin de parcourir toutes les
+statistiques pour retrouver son prochain accès.
+
+Sur un navigateur compatible, `frontend/js/pwa.js` affiche un bouton
+"Installer l'application" lorsque l'événement `beforeinstallprompt` est fourni.
+Le service worker reste désactivé en développement local Vite, mais il peut
+s'enregistrer sur le serveur HTTPS, y compris si l'application est ouverte par
+l'adresse IP locale du serveur. Cela permet une démonstration PWA réaliste avec
+un certificat de confiance installé sur le téléphone.
+
+La session mobile de borne est une page dédiée. Après scan du QR affiché par le
+kiosque, elle affiche la borne scannée, les réservations compatibles et un
+bouton d'action orienté terrain : déverrouiller l'emplacement. Après validation,
+l'écran rappelle que la charge démarre automatiquement côté borne quand le câble
+est détecté. Dans le prototype actuel, tant que le capteur câble n'est pas câblé,
+cette preuve est remplacée par la détection d'un courant minimum sur le SEN0214.
 
 ## 4. Authentification web
 
@@ -213,6 +322,14 @@ La réservation stocke :
 - un code de référence lisible.
 
 Modèle : `Reservation` dans [`backend/api/models.py`](backend/api/models.py).
+
+Dans les tableaux utilisateur et administrateur, les réservations sont séparées pour éviter les ambiguïtés :
+
+- réservations en cours : le créneau a commencé et n'est pas terminé ;
+- réservations à venir : le créneau n'a pas encore commencé ;
+- réservations archivées : le créneau est terminé ou la réservation a été annulée.
+
+Une charge arrêtée avant la fin du créneau ne transforme pas automatiquement la réservation en archive : l'emplacement reste réservé jusqu'à la fin de la fenêtre payée, sauf annulation ou règle métier explicite.
 
 ## 6. Moyens d'accès
 
@@ -313,7 +430,7 @@ Téléphone
   -> POST /api/mobile-sessions/<token>/authorize/
   -> affiche "Autorisation confirmée"
   -> suit GET /api/mobile-sessions/<token>/
-  -> affiche "Session démarrée sur la borne" quand le kiosque a consommé l'autorisation
+  -> affiche "Borne autorisée" quand le kiosque a consommé l'autorisation
 
 Kiosque
   -> interroge le statut
@@ -385,6 +502,16 @@ Références :
 
 Le serveur Raspberry écoute sur le port `9000`.
 
+L'interface tactile est organisée pour une borne 1024x600 :
+
+- accueil centré sur le badge RFID, qui reste le geste principal ;
+- accès secondaires en bas d'écran : téléphone, code SMS, QR réservation,
+  association badge ;
+- écran `Recharger à l'emplacement X` uniquement après validation de l'accès ;
+- écran `Chargement en cours` pendant la session, avec un seul bouton d'arrêt ;
+- retour automatique à l'accueil après inactivité sur les écrans d'accès ;
+- aucun bouton de démarrage visible tant que l'utilisateur n'est pas authentifié.
+
 Routes locales importantes :
 
 ```text
@@ -437,7 +564,15 @@ Badge lu
   -> backend retrouve le badge
   -> backend retrouve la réservation active compatible
   -> backend crée ou retrouve la session
+  -> session = access_validated
+  -> kiosque publie UNLOCK
+  -> ESP32 ouvre la serrure par impulsion
+  -> session = waiting_plug après ACK UNLOCK
 ```
+
+Point important : le badge RFID ne démarre pas la charge électrique. Il valide
+l'accès et déverrouille automatiquement le boîtier. Le démarrage électrique
+est ensuite déclenché automatiquement quand l'ESP32 remonte `cable=true`.
 
 Flux QR de réservation :
 
@@ -506,7 +641,11 @@ Flux :
 ```text
 Backend valide l'accès
   -> Raspberry reçoit session + slot_id + mqtt_prefix
-  -> Raspberry publie START sur MQTT
+  -> Raspberry publie UNLOCK sur MQTT
+  -> ESP32 ouvre le boîtier par impulsion
+  -> utilisateur branche le câble ou active le générateur du prototype
+  -> ESP32 publie cable=true ou une mesure current récente
+  -> Raspberry publie START automatiquement
   -> ESP32 répond par ACK
   -> Raspberry affiche l'écran de charge
 ```
@@ -515,6 +654,21 @@ Topic de commande :
 
 ```text
 station/<mqtt_prefix>/<slot_id>/cmd
+```
+
+Payload UNLOCK :
+
+```json
+{
+  "command_id": "uuid",
+  "action": "UNLOCK",
+  "issued_at": "2026-05-25T10:00:00Z",
+  "session_id": "uuid-session",
+  "station": "Station Demo",
+  "borne": "Borne 1",
+  "emplacement": 1,
+  "source": "raspberry"
+}
 ```
 
 Payload START :
@@ -558,9 +712,17 @@ Le firmware ESP32 actuel couvre le prototype matériel disponible :
 - status et telemetry ;
 - capteurs porte, câble et relais de charge désactivés tant qu'ils ne sont pas câblés.
 
-La serrure est ouverte par impulsion de 5 secondes lors d'un `START`, `STOP` ou
-`UNLOCK`, puis le relais revient au repos. Le firmware envoie l'ACK `START`
-avant l'impulsion pour ne pas dépasser le timeout MQTT côté Raspberry.
+La serrure est ouverte lors d'un `UNLOCK` après authentification. Le firmware
+ouvre alors une fenêtre d'accès de 15 secondes (`LOCK_AUTO_RELOCK_SECONDS`) :
+si aucune charge ne démarre pendant ce délai, l'ESP32 reverrouille
+automatiquement l'emplacement. `START` reste séparé de l'ouverture et démarre
+uniquement la charge électrique après branchement ou détection du courant.
+Dans le prototype sans capteur câble, le kiosk considère une mesure SEN0214
+récente `current >= 0.1 A` comme preuve temporaire de branchement. Si un vrai
+capteur câble remonte explicitement `cable=false`, ce signal physique reste
+prioritaire.
+`STOP` coupe la charge et peut rouvrir le boîtier pour permettre le retrait du
+câble.
 
 Référence : [`esp32/emplacement1/main.py`](esp32/emplacement1/main.py)
 
@@ -682,7 +844,8 @@ Celery exécute :
 - `api.process_mqtt_message` pour traiter les messages MQTT ;
 - `api.scan_session_telemetry_gaps` pour détecter les sessions sans télémétrie ;
 - `api.notify_pending_alerts` pour envoyer les notifications d'alertes ;
-- `api.prune_old_telemetry` pour appliquer la rétention des mesures.
+- `api.prune_old_telemetry` pour appliquer la rétention des mesures brutes ;
+- `api.apply_privacy_retention` pour appliquer la rétention RGPD complète.
 
 Références :
 
@@ -715,8 +878,17 @@ Références :
 - `SessionTelemetry` : [`backend/api/models.py`](backend/api/models.py)
 - Activation TimescaleDB : [`backend/api/migrations/0015_enable_timescaledb_extension.py`](backend/api/migrations/0015_enable_timescaledb_extension.py)
 - Policies conditionnelles : [`backend/api/migrations/0026_pg_stat_statements_and_timescale_policies.py`](backend/api/migrations/0026_pg_stat_statements_and_timescale_policies.py)
+- Hypertables miroir et vues anonymisées : [`backend/api/migrations/0033_timescale_timeseries_and_anonymized_views.py`](backend/api/migrations/0033_timescale_timeseries_and_anonymized_views.py)
 
-TimescaleDB apporte surtout un intérêt pour les séries temporelles : télémétrie, capteurs et historique de session. Le projet reste compatible avec PostgreSQL classique si l'extension n'est pas disponible.
+TimescaleDB apporte surtout un intérêt pour les séries temporelles : télémétrie, capteurs et historique de session. En production, le projet utilise deux hypertables miroir, `capteur_data_timeseries` et `session_telemetry_timeseries`. Les tables Django restent les sources d’écriture, puis des triggers recopient les mesures dans les hypertables. Ce choix évite de casser l’ORM avec les contraintes TimescaleDB tout en permettant compression, rétention et requêtes Grafana efficaces.
+
+Les politiques TimescaleDB appliquées en production sont :
+
+- compression après 7 jours ;
+- rétention des mesures capteurs après 90 jours ;
+- rétention de la télémétrie de session après 365 jours.
+
+L’anonymisation SQL est également active via des vues dédiées : `utilisateur_anonyme`, `technicien_anonyme`, `journal_securite_anonyme` et `supervision_session_anonyme`. PostgreSQL Anonymizer (`anon`) reste optionnel : la migration `0027_optional_postgresql_anonymizer.py` l’active seulement si l’image PostgreSQL fournit l’extension.
 
 ## 15. Grafana
 
@@ -740,7 +912,16 @@ Références :
 - Provisioning dashboards : [`grafana/provisioning/dashboards/dashboards.yml`](grafana/provisioning/dashboards/dashboards.yml)
 - Dashboard global : [`grafana/dashboards/station-overview.json`](grafana/dashboards/station-overview.json)
 - Dashboard technique : [`grafana/dashboards/station-supervision.json`](grafana/dashboards/station-supervision.json)
+- Dashboard détail session : [`grafana/dashboards/session-detail.json`](grafana/dashboards/session-detail.json)
 - Alerting Grafana : [`grafana/provisioning/alerting/station-alerts.yml`](grafana/provisioning/alerting/station-alerts.yml)
+
+La supervision Grafana est volontairement découpée en trois niveaux :
+
+1. `station-overview.json` donne la vue d'accueil : état global, sessions en cours, alertes ouvertes et navigation vers les vues plus techniques.
+2. `station-supervision.json` donne la vue technique par station, borne et emplacement : séries capteurs, statut ESP32, télémétrie récente et historique opérationnel.
+3. `session-detail.json` donne la vue d'une session de charge précise : contexte utilisateur/réservation, emplacement concerné, courant, tension, puissance, énergie, commandes UNLOCK/START/STOP, ACK et alertes rattachées.
+
+Le point important est que la vue de session ne se contente pas de filtrer un emplacement. Elle part d'un `session_id` et lit `session_telemetry` pour éviter de mélanger plusieurs charges passées sur le même emplacement. Les mesures environnementales issues de `capteur_data` sont ensuite affichées seulement sur la fenêtre temporelle de cette session.
 
 Les dashboards exploitent notamment :
 
@@ -749,8 +930,18 @@ Les dashboards exploitent notamment :
 - `session_telemetry` pour les mesures liées à une session ;
 - `charging_session` pour l'état de charge ;
 - `alerte` pour les incidents ;
-- `device_command_log` pour les START/STOP et ACK ;
+- `device_command_log` pour les UNLOCK/START/STOP et ACK ;
 - `station`, `borne`, `emplacement` pour le contexte physique.
+
+Après un badge RFID accepté, l'administration doit donc pouvoir observer :
+
+- une session en `access_validated`, puis `waiting_plug` quand l'ESP32 confirme
+  `UNLOCK` ;
+- une ligne `DeviceCommandLog` avec `action=UNLOCK` et `status=unlocked` ;
+- le dernier ordre du device ESP32 dans `device.last_command_action` et
+  `device.last_command_status` ;
+- les messages `status` et `telemetry` suivants si l'ESP32 publie après
+  l'ouverture du boîtier.
 
 ## 16. Supervision applicative temps réel
 
@@ -805,6 +996,7 @@ Types d'alertes possibles :
 - énergie de session trop élevée ;
 - firmware non conforme ;
 - session active sans télémétrie ;
+- accès validé sans câble branché ;
 - session bloquée en arrêt.
 
 Références :
@@ -826,6 +1018,13 @@ nouvelle
 ```
 
 Une anomalie persistante met à jour l'alerte existante au lieu de créer des doublons. Une télémétrie revenue à la normale peut résoudre automatiquement certaines alertes.
+
+Le cas `waiting_plug` est traité séparément. Après validation de l'accès et ACK
+`UNLOCK`, le système attend que l'ESP32 remonte `cable=true` ou, pour le
+prototype actuel, un courant SEN0214 récent supérieur ou égal à `0.1 A`. Si cet
+état dure plus de `SESSION_WAITING_PLUG_STALE_MINUTES` minutes, `5` par défaut, le backend
+crée `session_waiting_plug_too_long`. Cette alerte évite de confondre une attente
+de branchement avec une vraie perte de télémétrie pendant une charge.
 
 ## 18. Techniciens et moindre privilège
 
@@ -891,6 +1090,27 @@ Références :
 - Reconciliation backend : `terminal_offline_events()` dans [`backend/api/views.py`](backend/api/views.py)
 
 Le cache offline ne doit pas créer de nouveaux secrets. Il ne valide que des droits déjà synchronisés, bornés à la station et à la borne locales.
+
+Durée et contenu du cache :
+
+- le cache ne garde pas les dernières réservations créées, mais les réservations
+  dont le créneau approche ;
+- par défaut, le backend exporte les réservations éligibles jusqu'à
+  `TERMINAL_OFFLINE_CACHE_HOURS=24` heures dans le futur ;
+- une réservation créée deux jours plus tôt peut donc être dans le cache si son
+  créneau est aujourd'hui ou dans les prochaines 24 heures ;
+- une réservation déjà terminée ou prévue au-delà de cette fenêtre n'est pas
+  conservée localement ;
+- les marges d'accès restent les mêmes qu'en ligne : 5 minutes avant le créneau
+  et aucune tolérance après la fin par défaut ;
+- le buffer technique de 5 minutes après le créneau sert uniquement au calcul de
+  disponibilité entre deux réservations, pas à prolonger le droit d'accès.
+
+Le mode dégradé peut donc fonctionner environ 24 heures sans serveur central,
+mais uniquement pour les droits déjà synchronisés. Il ne permet pas de créer une
+nouvelle réservation ni de générer un nouveau moyen d'accès. Une extension à 48
+heures serait possible pour un site isolé, mais elle augmenterait le risque lié
+à la conservation locale de droits d'accès.
 
 En production terrain, le broker Mosquitto doit idéalement être sur le Raspberry pour que Raspberry et ESP32 continuent de communiquer même si le backend central est indisponible.
 
@@ -959,6 +1179,20 @@ Références :
 
 Le mode développement accepte automatiquement les IP privées locales lorsque `DEV_AUTO_TRUST_PRIVATE_NETWORK=True`. En production, les hosts doivent être explicitement configurés.
 
+### Exports administrateur et journaux archivés
+
+L'onglet `Exports` du dashboard administrateur permet de filtrer puis de prévisualiser les données avant téléchargement. Deux jeux de données sont disponibles :
+
+- instantané opérationnel : station, borne, emplacement, état serrure, ESP32, firmware, télémétrie récente, sessions, réservations et alertes ;
+- journaux de sécurité archivés : date, utilisateur, action, statut et adresse IP.
+
+Les filtres principaux sont la période, la station pour l'instantané opérationnel, le statut du journal (`success` ou `failure`) et une recherche textuelle sur l'utilisateur, l'action ou l'adresse IP. Les exports réels en CSV ou JSON sont journalisés dans `JournalSecurite`, ce qui permet de tracer qui a extrait quelles données et quand. Pour éviter les extractions trop larges, l'API limite la prévisualisation/export à 1000 lignes par requête.
+
+Références :
+
+- Endpoint export : [`backend/api/admin_exports.py`](backend/api/admin_exports.py)
+- Interface admin : [`frontend/admin-dashboard.html`](frontend/admin-dashboard.html), [`frontend/js/admin-dashboard.js`](frontend/js/admin-dashboard.js)
+
 ## 22. Privacy by design
 
 Le projet limite l'exposition des données personnelles :
@@ -969,17 +1203,31 @@ Le projet limite l'exposition des données personnelles :
 - les consentements sont historisés ;
 - les numéros de téléphone peuvent être masqués ;
 - les logs sécurité ne stockent que les informations nécessaires ;
+- la suppression de compte anonymise le profil au lieu de supprimer brutalement l'historique technique ;
+- une tâche Celery purge les données au-delà des durées de rétention configurées ;
 - PostgreSQL Anonymizer est préparé de manière optionnelle.
 
 Références :
 
 - Consentements : `Consentement` dans [`backend/api/models.py`](backend/api/models.py)
 - Export compte : `export_account()` dans [`backend/api/views.py`](backend/api/views.py)
+- Suppression/anonymisation : `anonymize_user_account()` dans [`backend/api/services/retention.py`](backend/api/services/retention.py)
+- Rétention RGPD : `apply_privacy_retention()` dans [`backend/api/services/retention.py`](backend/api/services/retention.py)
 - Masquage téléphone : [`backend/api/services/sms.py`](backend/api/services/sms.py)
 - Anonymizer optionnel : [`backend/api/migrations/0027_optional_postgresql_anonymizer.py`](backend/api/migrations/0027_optional_postgresql_anonymizer.py)
 - Pages CGU/confidentialité : [`backend/api/page_views.py`](backend/api/page_views.py)
 
 L'extension PostgreSQL Anonymizer est activée uniquement si elle est disponible dans l'image PostgreSQL utilisée. Sinon la migration passe sans casser le déploiement.
+
+Durées par défaut :
+
+- mesures brutes capteurs : 90 jours ;
+- télémétrie de session : 365 jours ;
+- commandes/ACK ESP32 : 365 jours ;
+- journaux de sécurité : 365 jours ;
+- alertes résolues : 365 jours ;
+- secrets inactifs ou expirés : 90 jours ;
+- comptes archivés non anonymisés : 1095 jours.
 
 ## 23. Firmware et OTA
 
@@ -1048,8 +1296,13 @@ https://localhost/grafana/
   -> Grafana
 
 https://localhost/kiosk/
-  -> kiosque Raspberry
+  -> simulation kiosque en stack locale uniquement
 ```
+
+En production terrain, le kiosque n'est pas servi par le serveur Debian. Il tourne
+sur le Raspberry physique, généralement sur `http://localhost:9000` côté
+Raspberry. Le reverse proxy de production renvoie donc explicitement que le
+kiosque doit être exécuté localement sur la borne.
 
 Références :
 
@@ -1107,7 +1360,57 @@ Scripts d'exploitation :
 - génération SBOM : [`scripts/generate-sbom.ps1`](scripts/generate-sbom.ps1)
 - initialisation MQTT auth : [`scripts/init-mqtt-auth.ps1`](scripts/init-mqtt-auth.ps1)
 
-## 27. Tests automatisés
+## 27. Performance et scalabilité
+
+La performance a été traitée à plusieurs niveaux. L'objectif n'est pas de
+dimensionner un réseau national, mais d'éviter les blocages évidents et de rendre
+le prototype extensible.
+
+Base de données :
+
+- index sur les dates de réservation, les fenêtres de session, les timestamps de
+  télémétrie, les statuts de device, les alertes et les relations
+  station/borne/emplacement ;
+- contraintes `CHECK` et `UNIQUE` pour éviter de corriger en application des
+  incohérences qui peuvent être refusées directement en base ;
+- TimescaleDB disponible pour les séries temporelles et `pg_stat_statements`
+  préparé pour analyser les requêtes lentes en production ;
+- rétention des mesures brutes à 90 jours pour éviter une croissance illimitée.
+
+API Django :
+
+- `select_related()` et `prefetch_related()` sur les vues qui affichent des
+  objets liés, pour éviter le problème N+1 ;
+- pagination sur les listes d'administration ;
+- cache Redis du catalogue stations pendant 60 secondes ;
+- tests de performance de requêtes dans
+  [`backend/api/tests/test_query_performance.py`](backend/api/tests/test_query_performance.py).
+
+Traitements asynchrones :
+
+- Celery absorbe l'ingestion MQTT, les alertes, les notifications et les tâches
+  de rétention ;
+- le thread MQTT ne fait pas de traitement lourd : il délègue au worker ;
+- Redis sert de broker Celery, cache applicatif et couche Channels.
+
+Frontend et reverse proxy :
+
+- frontend Vite construit en assets statiques ;
+- Nginx sert les assets avec cache long sur `/assets/` et `/static/` ;
+- gzip activé côté Nginx production ;
+- `client_max_body_size`, timeouts et rate limiting Nginx pour éviter les abus
+  simples ;
+- logs Nginx avec temps de réponse upstream pour diagnostiquer les lenteurs.
+
+Limites connues :
+
+- il n'y a pas encore de test de charge massif ;
+- les hypertables TimescaleDB restent une évolution si le volume de télémétrie
+  devient important ;
+- la supervision Grafana dépend de la qualité des requêtes SQL et devra être
+  revue si le nombre de stations augmente fortement.
+
+## 28. Tests automatisés
 
 Le projet contient des tests sur les points critiques :
 
@@ -1141,6 +1444,7 @@ création réservation QR
   -> autorisation utilisateur
   -> consommation kiosque
   -> création session
+  -> ACK UNLOCK
   -> ACK START
   -> télémétrie uniquement sur l'emplacement réservé
   -> ACK STOP
@@ -1148,7 +1452,7 @@ création réservation QR
   -> données Grafana/Timescale exploitables
 ```
 
-## 28. Parcours complet nominal
+## 29. Parcours complet nominal
 
 Voici le scénario complet le plus représentatif :
 
@@ -1163,21 +1467,24 @@ Voici le scénario complet le plus représentatif :
 8. Le backend valide station, borne, emplacement, créneau et secret.
 9. Une Session est créée ou retrouvée.
 10. Le backend renvoie slot_id et mqtt_prefix au kiosque.
-11. Le Raspberry publie START vers l'ESP32.
-12. L'ESP32 répond par ACK.
-13. L'ESP32 publie status et telemetry.
-14. Le mqtt-bridge ingère les messages.
-15. Celery écrit les mesures en base.
-16. Grafana affiche la session, les mesures et l'état device.
-17. L'utilisateur arrête la charge.
-18. Le Raspberry publie STOP.
-19. L'ESP32 répond par ACK stopped.
-20. Le backend clôture la session.
+11. Le Raspberry publie UNLOCK vers l'ESP32.
+12. L'ESP32 ouvre le boîtier par impulsion et répond par ACK.
+13. L'utilisateur branche le câble ou active le générateur de charge du prototype.
+14. L'ESP32 publie `cable=true`, ou une mesure `current >= 0.1 A` récente tant
+    que le capteur câble n'est pas câblé, puis le Raspberry publie START vers l'ESP32.
+15. L'ESP32 répond par ACK, publie status et telemetry.
+16. Le mqtt-bridge ingère les messages.
+17. Celery écrit les mesures en base.
+18. Grafana affiche la session, les mesures et l'état device.
+19. L'utilisateur arrête la charge.
+20. Le Raspberry publie STOP.
+21. L'ESP32 répond par ACK stopped.
+22. Le backend clôture la session.
 ```
 
 Référence de test : [`backend/api/tests/test_end_to_end_charge_flow.py`](backend/api/tests/test_end_to_end_charge_flow.py)
 
-## 29. Règle d'or du projet
+## 30. Règle d'or du projet
 
 Le backend est l'autorité métier.
 

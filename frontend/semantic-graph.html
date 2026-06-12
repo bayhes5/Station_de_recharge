@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Visualisation du graphe métier sémantique Métropole Verte.">
+    <meta name="theme-color" content="#1f8f55">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icons/pwa-icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icons/pwa-icon-192.png">
+    <meta http-equiv="Cache-Control" content="no-store">
+    <title>Graphe métier | Métropole Verte</title>
+    <link rel="stylesheet" href="/css/auth.css">
+    <script type="module" src="/src/pages/semantic-graph.js"></script>
+</head>
+<body>
+    <a class="skip-link" href="#contenu">Aller au contenu</a>
+    <main class="page admin-page semantic-page">
+        <section id="contenu" class="dashboard-card admin-shell app-shell semantic-shell" aria-labelledby="semantic-title">
+            <header class="page-header admin-header">
+                <div>
+                    <p class="eyebrow">Métropole Verte</p>
+                    <h1 id="semantic-title">Graphe métier</h1>
+                    <p class="lead">Vue relationnelle des stations, bornes, emplacements, contrôleurs, capteurs, sessions, alertes et techniciens.</p>
+                </div>
+                <nav class="header-actions" aria-label="Navigation principale" data-app-nav></nav>
+            </header>
+
+            <div id="semantic-status" class="status" aria-live="polite"></div>
+
+            <section class="dashboard-panel semantic-toolbar" aria-label="Filtres du graphe">
+                <label class="search-field">
+                    <span>Station</span>
+                    <select id="semantic-station-filter">
+                        <option value="">Toutes les stations</option>
+                    </select>
+                </label>
+                <label class="search-field">
+                    <span>Recherche</span>
+                    <input id="semantic-search" type="search" placeholder="Station, ESP32, capteur, alerte..." autocomplete="off">
+                </label>
+                <div class="semantic-toolbar-actions">
+                    <button id="semantic-refresh" class="btn btn-primary compact" type="button">Actualiser</button>
+                    <a class="btn btn-secondary compact" href="/admin-dashboard.html">Retour administration</a>
+                </div>
+            </section>
+
+            <section class="semantic-layout">
+                <section class="dashboard-panel semantic-graph-panel" aria-label="Graphe visuel">
+                    <div class="semantic-graph-heading">
+                        <div class="semantic-legend" id="semantic-legend"></div>
+                        <div class="semantic-zoom-controls" aria-label="Zoom du graphe">
+                            <button id="semantic-fit" class="btn btn-secondary compact" type="button">Vue complète</button>
+                            <button id="semantic-zoom-out" class="btn btn-secondary compact" type="button" aria-label="Réduire le zoom">-</button>
+                            <span id="semantic-zoom-level" class="semantic-zoom-level" aria-live="polite">100 %</span>
+                            <button id="semantic-zoom-in" class="btn btn-secondary compact" type="button" aria-label="Agrandir le zoom">+</button>
+                        </div>
+                    </div>
+                    <div id="semantic-graph" class="semantic-graph" aria-live="polite"></div>
+                </section>
+
+                <aside class="dashboard-panel semantic-details" aria-labelledby="semantic-details-title">
+                    <p class="panel-title" id="semantic-details-title">Détail</p>
+                    <div id="semantic-details-content" class="semantic-details-content">
+                        Sélectionnez un élément du graphe.
+                    </div>
+                </aside>
+            </section>
+        </section>
+    </main>
+</body>
+</html>

@@ -34,15 +34,21 @@ Configuration typique sur une vraie borne :
 ```python
 MQTT_HOST = "192.168.1.10"  # IP du Raspberry Pi sur le Wi-Fi local
 MQTT_PORT = 1883
-MQTT_USER = "esp32_slot1"
+MQTT_USER = "esp32_station_demo_borne_1_slot1"
 MQTT_PASSWORD = "mot-de-passe-mqtt"
 MQTT_BASE_TOPIC = "station"
+MQTT_TOPIC_PREFIX = "station-demo/borne-1"
 SLOT_ID = "slot1"
-CLIENT_ID = "esp32-slot1"
+CLIENT_ID = "esp32-station-demo-borne-1-slot1"
 ```
 
 Depuis un ESP32, `localhost` ne doit jamais être utilisé : il désignerait
 l'ESP32 lui-même, pas le Raspberry ni le PC de développement.
+
+Pour la migration du broker vers le Raspberry, remplacer l'ancienne IP du PC
+Docker par l'IP Wi-Fi du Raspberry. Lors du dernier test du projet, le Raspberry
+était joignable en `172.20.10.14`, mais cette valeur peut changer selon le
+hotspot.
 
 ## Capteurs du prototype physique
 
@@ -68,10 +74,11 @@ CHARGE_RELAY_PIN = 22
 ```
 
 La serrure actuellement testée utilise un relais actif-bas sur `GPIO26`.
-L'impulsion d'ouverture dure `5` secondes, puis le relais revient au repos afin
-de ne pas alimenter la serrure en continu. La tension réelle n'est pas encore
-mesurée : le prototype publie une tension fixe configurée à `12 V` pour estimer
-la puissance et l'énergie.
+La fenêtre d'ouverture dure `15` secondes, puis le relais revient au repos si
+la charge n'a pas démarré. Le relais revient aussi au repos dès que l'état passe
+en `charging`, afin que la serrure reste fermée pendant la charge. La tension
+réelle n'est pas encore mesurée : le prototype publie une tension fixe configurée
+à `12 V` pour estimer la puissance et l'énergie.
 
 L'ESP32 démarre serrure fermée. Après authentification à la borne, le Raspberry
 envoie `UNLOCK` pour ouvrir le boîtier. Le `START` est envoyé seulement ensuite,
@@ -234,7 +241,7 @@ Pour préparer MQTT TLS avec la CA locale `Metropole Verte`, convertir la racine
 Smallstep en DER puis la copier dans LittleFS :
 
 ```powershell
-openssl x509 -in mosquitto\certs\root_ca.crt -outform DER -out certs\metropole-verte-root-ca.der
+openssl x509 -in metropole-verte-root-ca.crt -outform DER -out certs\metropole-verte-root-ca.der
 
 .\scripts\deploy-esp32-micropython.ps1 `
   -Port COM5 `

@@ -86,7 +86,7 @@ groups:
                 JOIN capteur c ON c.id_capteur = cd.id_capteur
                 WHERE c.type = 'temperature'
                   AND cd.timestamp >= NOW() - INTERVAL '5 minutes'
-                  AND cd.valeur >= 60;
+                  AND cd.valeur >= 28;
               refId: A
           - refId: B
             datasourceUid: __expr__
@@ -145,7 +145,7 @@ groups:
                 JOIN capteur c ON c.id_capteur = cd.id_capteur
                 WHERE c.type = 'current'
                   AND cd.timestamp >= NOW() - INTERVAL '5 minutes'
-                  AND cd.valeur >= 3.0;
+                  AND cd.valeur >= 6.0;
               refId: A
           - refId: B
             datasourceUid: __expr__

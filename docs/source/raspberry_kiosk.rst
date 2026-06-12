@@ -66,7 +66,8 @@ Le parcours nominal est le suivant :
 3. aucune action de charge n'est visible avant la validation de l'accès ;
 4. après validation, l'écran ``Recharger à l'emplacement X`` affiche
    l'emplacement attribué et demande de brancher le câble ;
-5. dès que le câble est détecté par l'ESP32, le Raspberry publie
+5. dès que le câble est détecté par l'ESP32, ou provisoirement dès qu'un courant
+   SEN0214 récent est mesuré en l'absence de capteur câble, le Raspberry publie
    automatiquement ``START`` ;
 6. pendant la charge, l'écran ``Chargement en cours`` affiche l'emplacement actif
    et le bouton ``Arrêter la charge`` ;
@@ -93,6 +94,11 @@ modifiée avec le paramètre ``idle_timeout`` dans l'URL ou avec
 charge active ne revient pas automatiquement à l'accueil afin de laisser
 l'utilisateur arrêter explicitement la charge.
 
+Après une authentification acceptée, l'écran d'attente de branchement est plus
+court : il revient à l'accueil au bout de ``30`` secondes si aucun courant ou
+capteur de câble ne déclenche le démarrage automatique. Cette durée est alignée
+avec le reverrouillage automatique de l'ESP32.
+
 Variables d'environnement
 -------------------------
 
@@ -106,8 +112,7 @@ Les variables minimales pour tester sur un Raspberry physique sont :
    export MQTT_BASE_TOPIC=station
    export MQTT_ACK_REQUIRED=true
    export TERMINAL_API_SECRET=<même-secret-que-le-backend>
-   export TERMINAL_STATION_ID=<id-station>
-   export TERMINAL_BORNE_ID=<id-borne>
+   export TERMINAL_CODE=station-demo-borne-1
    export CHARGE_STATE_DB_PATH=charge_state.sqlite3
    export RFID_READER_BACKEND=acr122u
 
@@ -121,6 +126,108 @@ le kiosque, tandis que les ESP32 utilisent l'adresse IP Wi-Fi du Raspberry. En
 développement, si le backend et Mosquitto tournent sur le PC dans Docker,
 ``<ip-backend>`` correspond à l'adresse du PC sur le réseau Wi-Fi local et
 ``MQTT_HOST`` peut pointer vers cette même adresse.
+
+Broker MQTT local Raspberry
+---------------------------
+
+Pour le mode dégradé, le broker MQTT doit être disponible localement sur la
+borne. L'architecture cible devient :
+
+.. code-block:: text
+
+   ESP32 -> Mosquitto Raspberry -> bridge MQTT backend -> base -> Grafana
+   Raspberry kiosk -> Mosquitto Raspberry -> ESP32
+
+Le Raspberry peut alors continuer à parler aux ESP32 si le backend central est
+momentanément indisponible. Le backend reste la source de vérité pour les droits,
+les réservations et l'historique consolidé, mais le bus MQTT physique reste local
+à la station.
+
+Les fichiers dédiés au broker Raspberry sont versionnés dans :
+
+* ``raspberry/mosquitto/station.conf`` ;
+* ``raspberry/mosquitto/aclfile`` ;
+* ``raspberry/scripts/install-mosquitto-broker.sh``.
+
+Installation sur le Raspberry :
+
+.. code-block:: bash
+
+   cd ~/Station_de_recharge/raspberry
+   chmod +x scripts/install-mosquitto-broker.sh
+   ./scripts/install-mosquitto-broker.sh
+
+Le script installe ``mosquitto`` et ``mosquitto-clients``, copie la configuration
+dans ``/etc/mosquitto/``, crée le fichier de mots de passe puis redémarre le
+service systemd ``mosquitto``.
+
+La configuration active du prototype utilise MQTT authentifié sur ``1883``. La
+configuration ``raspberry/mosquitto/station.tls.conf`` prépare la bascule TLS
+sur ``8883`` avec un certificat signé par la CA locale ``Metropole Verte``.
+Elle ne doit remplacer ``station.conf`` qu'après validation de trois points :
+
+* le backend et ``mqtt-bridge`` savent joindre le broker en TLS ;
+* le kiosk Raspberry utilise ``MQTT_TLS_ENABLED=true`` et la racine CA ;
+* les ESP32 embarquent la racine CA et vérifient le certificat du broker.
+
+Le script ``raspberry/scripts/restart-kiosk.sh`` relaie les variables
+``MQTT_TLS_ENABLED`` et ``MQTT_TLS_CA_CERT``. La bascule Raspberry se fait donc
+par environnement : ``MQTT_PORT=8883``, ``MQTT_TLS_ENABLED=true`` et chemin de
+la racine CA installée localement.
+
+Comptes MQTT prévus :
+
+.. list-table::
+   :header-rows: 1
+
+   * - Compte
+     - Rôle
+   * - ``station_backend``
+     - bridge MQTT backend, ingestion télémétrie
+   * - ``raspberry_kiosk``
+     - commandes physiques et lecture ACK/status
+   * - ``esp32_station_demo_borne_1_slot1``
+     - ESP32 de l'emplacement 1
+   * - ``esp32_station_demo_borne_1_slot2``
+     - ESP32 de l'emplacement 2 si câblé
+   * - ``esp32_station_demo_borne_1_slot3``
+     - ESP32 de l'emplacement 3 si câblé
+
+Après migration, le kiosk Raspberry utilise :
+
+.. code-block:: bash
+
+   export MQTT_HOST=localhost
+   export MQTT_PORT=1883
+   export MQTT_BASE_TOPIC=station
+   export MQTT_USERNAME=raspberry_kiosk
+   export MQTT_PASSWORD=<mot-de-passe-raspberry>
+   export MQTT_ACK_REQUIRED=true
+
+Le backend ou le conteneur ``mqtt-bridge`` doit pointer vers l'adresse Wi-Fi du
+Raspberry :
+
+.. code-block:: text
+
+   MQTT_HOST=<ip-wifi-raspberry>
+   MQTT_PORT=1883
+   MQTT_BASE_TOPIC=station
+   MQTT_USERNAME=station_backend
+   MQTT_PASSWORD=<mot-de-passe-backend>
+   MQTT_ACK_REQUIRED=True
+
+L'ESP32 ``slot1`` doit être flashé avec :
+
+.. code-block:: python
+
+   MQTT_HOST = "<ip-wifi-raspberry>"
+   MQTT_USER = "esp32_station_demo_borne_1_slot1"
+   MQTT_PASSWORD = "<mot-de-passe-esp32-slot1>"
+   MQTT_TOPIC_PREFIX = "station-demo/borne-1"
+   SLOT_ID = "slot1"
+
+``localhost`` ne doit jamais être utilisé dans le firmware ESP32 : il désignerait
+l'ESP32 lui-même.
 
 Procédure complète d'installation locale
 ----------------------------------------
@@ -280,6 +387,7 @@ En développement local avec le backend et Mosquitto sur le PC :
 
    export BACKEND_API_BASE_URL=http://<ip-pc>:8000/api
    export TERMINAL_API_SECRET=dev-terminal-secret
+   export TERMINAL_CODE=station-demo-borne-1
    export TERMINAL_STATION_ID=
    export TERMINAL_BORNE_ID=
 
@@ -291,6 +399,18 @@ En développement local avec le backend et Mosquitto sur le PC :
    export RFID_READER_BACKEND=acr122u
    export RFID_DEBOUNCE_SECONDS=2
 
+``TERMINAL_CODE`` est l'identifiant stable de provisioning de la borne. Au
+démarrage, le Raspberry appelle ``/api/terminal/config/`` avec ce code et le
+secret terminal. Le backend renvoie les UUID courants de station et de borne, le
+nom lisible de la borne, le préfixe MQTT et les emplacements associés. Le
+Raspberry met cette réponse en cache dans ``terminal_config.json`` afin de
+redémarrer avec la dernière identité connue si le backend est momentanément
+indisponible.
+
+.. code-block:: bash
+
+   cd /home/btsciel/raspberry/app
+   source .venv/bin/activate
    python main.py
 
 Le serveur doit afficher :
@@ -367,6 +487,10 @@ Vérifications attendues :
   ``waiting_plug`` ;
 * ``START`` est publié automatiquement sur MQTT lorsque l'utilisateur a branché
   le câble et que le capteur remonte ``cable=true`` ;
+* tant que le capteur câble n'est pas câblé, le kiosk accepte aussi une mesure
+  ``current`` récente supérieure ou égale à ``0.1 A`` comme preuve de
+  branchement prototype. Si un vrai capteur câble remonte explicitement
+  ``cable=false``, ce signal physique reste prioritaire et bloque le démarrage.
 * ``STOP`` clôture la session lorsque l'utilisateur arrête.
 
 Si un autre badge est présenté, le backend peut répondre ``401``. Ce comportement
@@ -468,16 +592,17 @@ Le parcours nominal avec badge RFID est le suivant :
 6. l'ESP32 acquitte la commande et ouvre le boîtier par impulsion ;
 7. le backend ingère l'ACK ``UNLOCK`` et la supervision affiche le dernier ordre
    ``UNLOCK`` / ``unlocked`` ;
-8. l'utilisateur branche le câble ;
-9. le Raspberry détecte ``cable=true`` dans la télémétrie de l'emplacement et
-   publie ``START`` automatiquement ;
+8. l'utilisateur branche le câble ou active le générateur de charge du prototype ;
+9. le Raspberry détecte ``cable=true`` dans la télémétrie de l'emplacement, ou
+   une mesure ``current >= 0.1 A`` reçue depuis moins de 15 secondes si le
+   capteur câble n'est pas disponible, puis publie ``START`` automatiquement ;
 10. l'ESP32 vérifie le câble et le boîtier, puis démarre le relais de charge.
 
-Si le capteur câble n'est pas encore câblé, l'ESP32 doit soit publier une vraie
-télémétrie ``cable=true`` depuis le capteur, soit activer explicitement
-``SIMULATE_CABLE_PRESENT_FOR_AUTO_START`` pour un essai de banc. Sans ce signal,
-le kiosk reste volontairement sur l'écran de branchement et ne démarre pas la
-charge.
+Si le capteur câble n'est pas encore câblé, le kiosk peut fonctionner avec le
+SEN0214 : une mesure de courant récente supérieure ou égale à ``0.1 A`` est
+interprétée comme branchement prototype et déclenche ``START``. Cette règle est
+temporaire. Dès que le capteur câble réel est câblé, ``cable=false`` doit rester
+prioritaire et empêcher le démarrage.
 
 Le même principe s'applique aux accès par QR ou code : la validation précède
 toujours la commande physique.
@@ -527,18 +652,18 @@ vérifier localement si l'API devient indisponible.
 
 Le backend transmet aussi les marges de validation temporelle :
 ``start_grace_minutes`` et ``end_grace_minutes``. Le cache local les applique
-pour garder le même comportement qu'en ligne : arrivée légèrement anticipée et
-courte tolérance après la fin du créneau. Par défaut, l'arrivée anticipée est
-limitée à 5 minutes et la tolérance de fin à 10 minutes. En mode dégradé, le
-cache refuse aussi une ouverture anticipée si l'emplacement est encore couvert
-par le créneau précédent.
+pour garder le même comportement qu'en ligne. Par défaut, l'arrivée anticipée
+est limitée à 5 minutes et la tolérance de fin vaut 0 minute : une nouvelle
+authentification après la fin du créneau est refusée. En mode dégradé, le cache
+refuse aussi une ouverture anticipée si l'emplacement est encore couvert par le
+créneau précédent ou par son buffer technique de rotation.
 
 Règles de sécurité :
 
 * le cache ne crée aucun nouveau droit ;
 * les secrets restent stockés sous forme de hash ;
-* la portée est limitée à la station déclarée par ``TERMINAL_STATION_ID`` et,
-  sur une installation réelle, à la borne déclarée par ``TERMINAL_BORNE_ID`` ;
+* la portée est limitée à la station et à la borne résolues depuis
+  ``TERMINAL_CODE`` par ``/api/terminal/config/`` ;
 * les événements offline sont rejoués au backend dès que la communication
   revient ;
 * en cas d'ambiguïté ou de cache expiré, l'accès doit être refusé.

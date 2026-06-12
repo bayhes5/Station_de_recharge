@@ -184,9 +184,12 @@ courants et permet de modifier les notifications optionnelles. Lorsqu’un choix
 change, l’API ajoute une nouvelle ligne datée dans ``consentement`` au lieu
 d’écraser l’historique existant.
 
-Les mécanismes PostgreSQL avancés du MCD, comme l’extension ``anon``, les
-``SECURITY LABEL`` et les vues SQL d'export, ne sont pas encore actives. Le
-projet gère pour l’instant l’export et la suppression côté API Django.
+Les mécanismes PostgreSQL avancés sont appliqués progressivement. Les vues SQL
+anonymisées sont actives en production, et l’extension ``anon`` reste
+optionnelle : elle est activée automatiquement par migration uniquement si
+l’image PostgreSQL fournit PostgreSQL Anonymizer. L’export et la suppression de
+compte restent pilotés par l’API Django pour garder un comportement identique
+entre développement, tests et production.
 
 Stations, bornes et emplacements
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -197,6 +200,12 @@ Le modèle Django ajoute ``latitude`` et ``longitude`` sur ``Station`` afin de
 supporter la carte de réservation. ``Borne`` représente une armoire ou un
 kiosque physique rattaché à une station. ``Emplacement`` garde le numéro, l’état
 métier et l’état de cadenas.
+
+``Borne`` possède aussi ``terminal_code``. Ce code est l'identifiant stable
+configuré sur le Raspberry ; il ne change pas quand la base de développement est
+réinitialisée. Au démarrage, le kiosk appelle ``/api/terminal/config/`` avec ce
+code et le secret terminal pour récupérer les UUID courants de station et de
+borne. Cela évite de déployer des UUID en dur sur le Raspberry.
 
 La hiérarchie métier est donc : station, borne, emplacement. Une contrainte
 d’unicité empêche deux emplacements d’une même borne de porter le même numéro.
@@ -235,9 +244,12 @@ converties en ``1.0`` ou ``0.0`` pour rester compatibles avec ``valeur`` de type
 flottant. L'API ajoute ensuite une valeur d'affichage lisible dans la supervision
 administrateur.
 
-Le MCD cible propose des hypertables TimescaleDB pour ``capteur_data``. Elles ne
-sont pas encore activées : la table reste une table Django standard afin de
-garder la solution simple et portable.
+Le MCD cible propose des hypertables TimescaleDB pour les séries temporelles.
+En production, les tables Django restent les sources applicatives et la migration
+``0033_timescale_timeseries_and_anonymized_views`` crée des hypertables miroir
+pour ``capteur_data`` et ``session_telemetry``. L’application conserve ainsi ses
+clés UUID, ses relations ORM et ses tests SQLite, tandis que TimescaleDB prend en
+charge la compression, la rétention et les requêtes Grafana sur les mesures.
 
 Réservations
 ~~~~~~~~~~~~
@@ -336,6 +348,12 @@ l'API Django. Dans l'interface d'administration, ce périmètre est intégré à
 fiche du technicien afin que l'identité, le compte lié et les stations
 autorisées soient contrôlés dans un seul écran.
 
+Le champ ``role`` de ``TechnicienStation`` distingue trois niveaux :
+``referent`` pour le responsable local, ``intervenant`` pour un technicien qui
+peut prendre en charge et résoudre les alertes, et ``observateur`` pour un accès
+lecture seule. Le backend applique cette différence : un observateur voit la
+supervision de ses stations, mais ne peut pas modifier le workflow d'une alerte.
+
 Performance et TimescaleDB
 --------------------------
 
@@ -344,13 +362,26 @@ migration active l'extension ``timescaledb`` quand elle est disponible sur le
 serveur PostgreSQL. Sur SQLite ou sur un PostgreSQL sans extension installée, la
 migration reste sans effet pour préserver la portabilité du projet.
 
-Dans l’état actuel, le projet utilise TimescaleDB comme un PostgreSQL compatible.
-Les tables ``capteur_data`` et ``session_telemetry`` ne sont pas encore des
-hypertables. Ce choix est volontaire : elles possèdent aujourd'hui une clé
-primaire UUID simple, alors qu'une hypertable TimescaleDB impose que les
-contraintes uniques incluent la colonne temporelle de partitionnement. Le passage
-en hypertables doit donc être traité comme une refonte de schéma ciblée, pas
-comme une simple commande SQL ajoutée en fin de migration.
+En production, le projet utilise TimescaleDB sans casser le modèle Django. Les
+tables applicatives ``capteur_data`` et ``session_telemetry`` restent des tables
+Django classiques, avec leurs clés primaires UUID et leurs contraintes ORM. La
+migration ``0033_timescale_timeseries_and_anonymized_views`` crée en complément
+deux hypertables miroir :
+
+* ``capteur_data_timeseries`` ;
+* ``session_telemetry_timeseries``.
+
+Ces hypertables sont alimentées par backfill puis par triggers ``AFTER INSERT OR
+UPDATE`` sur les tables Django. Ce choix évite de supprimer les clés primaires
+ou les relations existantes : l’application continue d’écrire dans son modèle
+normal, tandis que TimescaleDB dispose de tables spécialisées pour les séries
+temporelles, Grafana, la compression et la rétention.
+
+Les hypertables ont une clé primaire composite qui inclut le timestamp, comme
+l’exige TimescaleDB :
+
+* ``(id_data, timestamp)`` pour ``capteur_data_timeseries`` ;
+* ``(id_telemetry, timestamp)`` pour ``session_telemetry_timeseries``.
 
 Les index déjà présents couvrent les requêtes les plus importantes :
 
@@ -396,11 +427,15 @@ Ces index ne changent pas le modèle fonctionnel. Ils rendent les parcours
 critiques plus prévisibles lorsque le volume augmente : supervision temps réel,
 historique d'exploitation, diagnostic terrain et tableaux de bord.
 
-Les optimisations du MCD cible, comme ``create_hypertable``, compression,
-retention et vues matérialisées, restent pertinentes pour une phase production
-ou une simulation à volume élevé. Elles nécessitent toutefois de revoir la clé
-primaire des tables de télémétrie ou d'introduire des tables spécialisées pour
-les séries temporelles.
+Les politiques TimescaleDB actives sur les hypertables miroir sont :
+
+* compression après 7 jours ;
+* rétention de ``capteur_data_timeseries`` après 90 jours ;
+* rétention de ``session_telemetry_timeseries`` après 365 jours.
+
+Cette approche garde le meilleur compromis pour le projet : simplicité de l’ORM,
+compatibilité Django, et exploitation TimescaleDB réelle pour les données
+temporelles.
 
 Sécurité base de données
 ------------------------
@@ -432,16 +467,82 @@ Le projet implémente déjà une partie de ce besoin côté API :
 
 * profil séparé du compte ;
 * export de compte via endpoint authentifié ;
-* suppression depuis le profil ;
+* anonymisation depuis le profil ;
 * journalisation des actions sensibles ;
 * conservation possible d’événements techniques sans lien personnel direct.
 
-Les vues SQL et l’anonymisation PostgreSQL sont traitées progressivement. La vue
+Les vues SQL et l’anonymisation PostgreSQL sont traitées en deux niveaux. La vue
 ``session_anonyme`` est toujours disponible sur PostgreSQL. La migration
-``0027_optional_postgresql_anonymizer`` active aussi l’extension ``anon`` et ses
-``SECURITY LABEL`` quand le serveur PostgreSQL fournit PostgreSQL Anonymizer.
-Cette migration est volontairement optionnelle : elle ne casse pas SQLite, ni une
-image TimescaleDB qui ne contient pas encore l’extension système.
+``0033_timescale_timeseries_and_anonymized_views`` ajoute aussi des vues
+anonymisées dédiées :
+
+* ``utilisateur_anonyme`` ;
+* ``technicien_anonyme`` ;
+* ``journal_securite_anonyme`` ;
+* ``supervision_session_anonyme``.
+
+Ces vues exposent des hashes ou des constantes anonymisées au lieu des emails,
+noms, téléphones et adresses IP réelles. Elles sont adaptées aux exports
+statistiques, à la supervision et aux démonstrations sans divulguer d’identité.
+
+La migration ``0027_optional_postgresql_anonymizer`` active en plus l’extension
+``anon`` et ses ``SECURITY LABEL`` quand le serveur PostgreSQL fournit
+PostgreSQL Anonymizer. Cette migration est volontairement optionnelle : elle ne
+casse pas SQLite, ni l’image TimescaleDB de production actuelle qui ne contient
+pas encore l’extension système ``anon``.
+
+Politique applicative de rétention
+----------------------------------
+
+La protection des données ne dépend pas uniquement d’une extension PostgreSQL.
+Le backend applique aussi une politique applicative versionnée dans
+``api.services.retention`` :
+
+* ``DELETE /api/me/profile/`` ne détruit plus brutalement le compte. Le compte
+  est désactivé, marqué ``archive`` et anonymisé avec un email technique
+  ``@anonymized.invalid`` ;
+* le profil utilisateur perd le nom et le téléphone ;
+* les moyens d’accès RFID, QR et code SMS sont désactivés et leurs métadonnées
+  sont vidées ;
+* les journaux de sécurité liés au compte conservent l’événement, mais l’adresse
+  IP est remplacée par ``0.0.0.0`` ;
+* les réservations, sessions et mesures techniques restent disponibles pour la
+  supervision et les statistiques, sans identité exploitable.
+
+La tâche Celery ``api.apply_privacy_retention`` applique ensuite les fenêtres de
+rétention configurables :
+
+.. list-table::
+   :header-rows: 1
+
+   * - Donnée
+     - Variable
+     - Valeur par défaut
+   * - Mesures brutes ``CapteurData``
+     - ``TELEMETRY_RETENTION_DAYS``
+     - 90 jours
+   * - Télémétrie de session
+     - ``SESSION_TELEMETRY_RETENTION_DAYS``
+     - 365 jours
+   * - Commandes et ACK ESP32
+     - ``DEVICE_COMMAND_LOG_RETENTION_DAYS``
+     - 365 jours
+   * - Journaux de sécurité
+     - ``SECURITY_LOG_RETENTION_DAYS``
+     - 365 jours
+   * - Alertes résolues
+     - ``ALERT_RETENTION_DAYS``
+     - 365 jours
+   * - Secrets inactifs ou expirés
+     - ``AUTH_METHOD_RETENTION_DAYS``
+     - 90 jours
+   * - Comptes archivés non anonymisés
+     - ``USER_ANONYMIZATION_RETENTION_DAYS``
+     - 1095 jours
+
+La commande d’exploitation ``python manage.py apply_privacy_retention`` permet de
+lancer la même politique manuellement avant une sauvegarde, un transfert de base
+ou une mise en production.
 
 Vue ``session_anonyme``
 ------------------------
@@ -484,9 +585,11 @@ colonnes personnelles suivantes :
 
 L’objectif n’est pas de masquer les données dans l’application de production,
 mais de permettre des exports, jeux de tests ou accès SQL restreints sans
-exposer directement les données personnelles. L’installation de l’extension
-reste une décision d’infrastructure : l’image TimescaleDB standard du projet ne
-garantit pas sa présence.
+exposer directement les données personnelles. En production actuelle,
+l’anonymisation opérationnelle repose sur les vues SQL anonymisées et sur le
+service Django de rétention. L’installation de l’extension ``anon`` reste une
+décision d’infrastructure : l’image ``timescale/timescaledb`` utilisée pour les
+hypertables ne fournit pas PostgreSQL Anonymizer par défaut.
 
 Synthèse
 --------
@@ -509,7 +612,8 @@ La trajectoire reste progressive :
 2. ajouter les optimisations SQL lorsqu’elles répondent à un usage mesuré ou
    clairement identifié ;
 3. enrichir les vues SQL pour les exports ou statistiques ;
-4. activer les hypertables TimescaleDB quand le volume de télémétrie augmente ;
-5. activer l’image PostgreSQL/TimescaleDB incluant ``anon`` lorsque des dumps
+4. exploiter les hypertables miroir TimescaleDB déjà actives pour Grafana,
+   compression et rétention ;
+5. activer une image PostgreSQL/TimescaleDB incluant ``anon`` lorsque des dumps
    anonymisés ou des rôles SQL masqués deviennent nécessaires ;
 6. envisager RLS, compression et rétention native pour une version durcie.

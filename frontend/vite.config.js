@@ -15,6 +15,7 @@ const pageNames = [
   "admin-dashboard",
   "admin-station",
   "admin-form",
+  "semantic-graph",
   "technician-dashboard",
 ];
 

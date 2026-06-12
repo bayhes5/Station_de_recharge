@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 import uuid
@@ -15,6 +16,11 @@ from mqtt_contract import REJECTED_ACK_STATUSES
 from mqtt_contract import ack_confirms_command
 from mqtt_contract import ack_status
 from mqtt_contract import validate_command_payload
+
+
+ACK_TEXT_FIELD_RE = re.compile(
+    r'"(command_id|action|status|state|message|session_id)"\s*:\s*"([^"\r\n}]*)'
+)
 
 
 @dataclass(frozen=True)
@@ -77,7 +83,14 @@ def _decode_ack(raw_payload: bytes) -> dict[str, Any]:
     try:
         decoded = json.loads(text)
     except json.JSONDecodeError:
-        return {"raw": text}
+        # Some MicroPython MQTT stacks can publish a truncated final field when
+        # memory is tight. Keep the strict JSON path above, but recover the
+        # command_id/action/status fields so the kiosk can still validate that
+        # the ACK corresponds to the command it just sent.
+        recovered = {"raw": text}
+        for key, value in ACK_TEXT_FIELD_RE.findall(text):
+            recovered[key] = value
+        return recovered
     return decoded if isinstance(decoded, dict) else {"raw": decoded}
 
 

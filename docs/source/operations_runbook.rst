@@ -336,26 +336,49 @@ Tester la chaîne HTTPS depuis le serveur :
 
 .. code-block:: bash
 
-   step ca root /tmp/station-root-ca.crt
-   curl --cacert /tmp/station-root-ca.crt https://station.local/api/health/live/
+   sudo cp /etc/step-ca/certs/root_ca.crt \
+     /usr/local/share/ca-certificates/metropole-verte-root-ca.crt
+   sudo update-ca-certificates
+   curl https://192.168.10.10/api/health/ready/
 
-Tester MQTT TLS depuis le conteneur Mosquitto :
+Contrôler l'en-tête HSTS de production :
 
 .. code-block:: bash
 
-   docker compose -f docker-compose.prod.yml exec mqtt sh -c 'mosquitto_sub -h localhost -p 8883 \
-     --cafile /etc/station/mqtt-certs/root_ca.crt \
-     -u "$MQTT_USERNAME" -P "$MQTT_PASSWORD" \
-     -t "station/#" -C 1 -W 10'
+   curl -k -I https://192.168.10.10/ | grep Strict-Transport-Security
+
+La valeur attendue dans le prototype est ``max-age=31536000``. Les options
+``includeSubDomains`` et ``preload`` sont volontairement absentes : l'application
+fonctionne sur une IP LAN et une CA privée, pas sur un domaine public
+préchargeable dans les navigateurs.
+
+Tester MQTT TLS depuis le Raspberry lorsque le broker a été migré sur ``8883`` :
+
+.. code-block:: bash
+
+   mosquitto_sub -h localhost -p 8883 \
+     --cafile /etc/station/mqtt-certs/metropole-verte-root-ca.crt \
+     -u raspberry_kiosk -P <mot-de-passe-raspberry> \
+     -t "station/#" -C 1 -W 10
+
+Depuis le serveur Debian, le même contrôle doit viser l'IP du Raspberry :
+
+.. code-block:: bash
+
+   mosquitto_sub -h 192.168.10.1 -p 8883 \
+     --cafile /etc/step-ca/certs/root_ca.crt \
+     -u station_backend -P <mot-de-passe-backend> \
+     -t "station/#" -C 1 -W 10
 
 Vérifier le renouvellement automatique :
 
 .. code-block:: bash
 
    systemctl status metropole-verte-nginx-cert-renew.service
-   systemctl status metropole-verte-mqtt-cert-renew.service
    journalctl -u metropole-verte-nginx-cert-renew.service --since "24 hours ago"
-   journalctl -u metropole-verte-mqtt-cert-renew.service --since "24 hours ago"
+
+Le service ``metropole-verte-mqtt-cert-renew.service`` n'est à installer sur le
+Raspberry qu'après activation effective de MQTT TLS sur ``8883``.
 
 Forcer un renouvellement de validation hors heure de service :
 
@@ -364,8 +387,13 @@ Forcer un renouvellement de validation hors heure de service :
    cd /opt/station
    step ca renew --force nginx/certs/localhost.crt nginx/certs/localhost.key
    docker compose -f docker-compose.prod.yml exec -T reverse-proxy nginx -s reload
-   step ca renew --force mosquitto/certs/mqtt.crt mosquitto/certs/mqtt.key
-   docker compose -f docker-compose.prod.yml restart mqtt
+
+Sur le Raspberry, seulement si MQTT TLS est activé :
+
+.. code-block:: bash
+
+   step ca renew --force /etc/station/mqtt-certs/mqtt.crt /etc/station/mqtt-certs/mqtt.key
+   sudo systemctl restart mosquitto
 
 Points de diagnostic fréquents :
 
@@ -533,6 +561,15 @@ ne reçoit plus de mesure depuis ``SESSION_TELEMETRY_STALE_MINUTES`` minutes,
 tant que l'utilisateur n'a pas branché le câble, le backend ne doit pas confondre
 attente de branchement et perte de télémétrie en charge.
 
+Si une session reste en ``access_validated`` plus longtemps que
+``SESSION_ACCESS_VALIDATED_STALE_MINUTES`` minutes, ``2`` par défaut, le backend
+crée ``session_access_validated_too_long`` et clôture automatiquement la session.
+Cette règle couvre RFID, code SMS et session mobile : elle libère l'emplacement
+si l'authentification a réussi mais que le kiosque ou l'ESP32 ne confirme jamais
+l'ouverture/le passage en attente de branchement. Le contrôle d'occupation du
+kiosque applique aussi ce nettoyage avant de refuser une nouvelle réservation ;
+ainsi une ancienne tentative interrompue ne bloque pas durablement les accès.
+
 Si une session reste en ``waiting_plug`` plus longtemps que
 ``SESSION_WAITING_PLUG_STALE_MINUTES`` minutes, ``5`` par défaut, le backend
 crée ``session_waiting_plug_too_long``. Cette alerte signale un accès validé
@@ -552,6 +589,41 @@ remonte une version différente. Elle se résout lorsque la version remontée
 redevient conforme. Elle ne doit pas déclencher d'email technicien par défaut :
 seul l'administrateur ou le responsable technique décide de planifier et
 appliquer une mise à jour firmware.
+
+Nettoyer un emplacement de démonstration
+-----------------------------------------
+
+Lors des essais avec un seul ESP32, un emplacement peut rester bloqué par une
+session interrompue ou par des réservations futures créées pour une démo. La
+commande suivante permet de remettre l'emplacement prototype dans un état
+testable sans supprimer l'historique :
+
+.. code-block:: bash
+
+   docker compose exec backend python manage.py reset_demo_slot_state
+
+Sans option, la commande est en ``dry-run`` : elle affiche les sessions ouvertes
+à clôturer et les réservations courantes/futures à annuler. Pour appliquer le
+nettoyage sur ``Station Demo / Borne 1 / emplacement 1`` :
+
+.. code-block:: bash
+
+   docker compose exec backend python manage.py reset_demo_slot_state --apply
+
+La commande clôture les sessions ouvertes, marque les réservations associées
+comme terminées, annule les réservations non clôturées qui bloquent encore le
+créneau, remet l'emplacement en ``disponible`` et la serrure en ``verrouille``.
+Pour conserver les réservations futures et ne nettoyer que les essais en cours :
+
+.. code-block:: bash
+
+   docker compose exec backend python manage.py reset_demo_slot_state --keep-future --apply
+
+Pour réinitialiser les trois emplacements de la borne de démonstration :
+
+.. code-block:: bash
+
+   docker compose exec backend python manage.py reset_demo_slot_state --all-emplacements --apply
 
 Politique firmware et OTA
 -------------------------
@@ -579,9 +651,16 @@ version attendue.
 SMS de production
 -----------------
 
-En développement, ``SMS_BACKEND=console`` suffit : aucun SMS réel n'est envoyé
-et le backend journalise seulement une tentative d'envoi. En production, choisir
-un fournisseur explicite :
+En développement, deux modes sont possibles :
+
+* ``SMS_BACKEND=console`` : aucun SMS réel n'est envoyé et le backend journalise
+  seulement une tentative d'envoi ;
+* ``SMS_BACKEND=email`` : le contenu du code SMS temporaire est envoyé par e-mail
+  vers la boîte Mailpit de démonstration. Ce mode permet de tester le parcours
+  complet sans compte Twilio ni Brevo. Il reste volontairement considéré comme
+  un mode de démonstration, pas comme un canal de production.
+
+En production, choisir un fournisseur explicite :
 
 .. list-table::
    :header-rows: 1
@@ -595,8 +674,17 @@ un fournisseur explicite :
 
 Le backend ``ovh`` n'est pas activé dans le profil durci : l'API REST OVH impose
 une signature historique en SHA-1, ce qui crée une alerte CodeQL bloquante. Pour
-ce projet, utiliser ``console`` en démonstration locale et ``brevo`` ou
-``twilio`` pour une démonstration avec envoi réel.
+ce projet, utiliser ``console`` ou ``email`` en démonstration locale et ``brevo``
+ou ``twilio`` pour une démonstration avec envoi réel.
+
+Test local via Mailpit :
+
+1. configurer ``SMS_BACKEND=email`` ;
+2. vérifier que ``EMAIL_HOST=mailpit`` et ``EMAIL_PORT=1025`` ;
+3. créer une réservation avec le mode ``Code SMS temporaire`` ;
+4. cliquer sur ``Recevoir le code SMS`` ;
+5. ouvrir Mailpit via le tunnel SSH et lire l'e-mail reçu par le compte
+   utilisateur.
 
 Réglages recommandés avant ouverture du service :
 

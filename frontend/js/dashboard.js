@@ -37,7 +37,7 @@ function renderSessionCard(session) {
     const emplacement = document.createElement("p");
     emplacement.textContent = `Emplacement ${session.emplacement || "-"}`;
     const start = document.createElement("p");
-    start.textContent = `Début : ${formatDateTime(session.start_time)}`;
+    start.textContent = `Accès validé : ${formatDateTime(session.start_time)}`;
     const end = document.createElement("p");
     end.textContent = `Fin : ${formatDateTime(session.end_time)}`;
 
@@ -323,6 +323,16 @@ document.addEventListener("DOMContentLoaded", async () => {
             });
         }
 
+        const ongoingReservations = document.getElementById("ongoing-reservations");
+        if (!result.ongoing_reservations?.length) {
+            renderEmpty(ongoingReservations, "Aucune réservation en cours.");
+        } else {
+            ongoingReservations.innerHTML = "";
+            result.ongoing_reservations.forEach((reservation) => {
+                ongoingReservations.appendChild(renderReservationCard(reservation, cancelUserReservation, showReservationAccess));
+            });
+        }
+
         const upcomingReservations = document.getElementById("upcoming-reservations");
         if (!result.upcoming_reservations?.length) {
             renderEmpty(upcomingReservations, "Aucune réservation à venir.");
@@ -342,6 +352,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 recentReservations.appendChild(renderReservationCard(reservation, null, showReservationAccess));
             });
         }
+
     }
 
     const session = await window.AuthAPI.ensureSession();

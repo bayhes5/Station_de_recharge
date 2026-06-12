@@ -154,7 +154,7 @@ def station_deployment_checks(app_configs, **kwargs):
         )
 
     sms_backend = _setting_text("SMS_BACKEND", "console").lower()
-    if sms_backend in {"console", "disabled"}:
+    if sms_backend in {"console", "disabled", "email"}:
         messages.append(
             Warning(
                 "SMS_BACKEND should use a production provider such as twilio or brevo.",
@@ -193,6 +193,14 @@ def station_deployment_checks(app_configs, **kwargs):
             Warning(
                 "EXPECTED_ESP32_FIRMWARE_VERSION should define the default approved ESP32 firmware.",
                 id="api.W008",
+            )
+        )
+
+    if getattr(settings, "SEMANTIC_DEV_ENDPOINTS_ENABLED", False):
+        messages.append(
+            Error(
+                "SEMANTIC_DEV_ENDPOINTS_ENABLED must stay disabled in production.",
+                id="api.E015",
             )
         )
 

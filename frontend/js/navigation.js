@@ -49,12 +49,57 @@ function navButtonClass(item, activeId) {
 function createLink(item, activeId) {
     const link = document.createElement("a");
     link.className = navButtonClass(item, activeId);
+    link.dataset.navId = item.id;
     link.href = item.href;
     link.textContent = item.label;
     if (item.id === activeId) {
         link.setAttribute("aria-current", "page");
     }
     return link;
+}
+
+function mobileLabel(item) {
+    const labels = {
+        admin: "Admin",
+        dashboard: "Accueil",
+        profile: "Profil",
+        reservation: "Réserver",
+        technician: "Tech",
+    };
+    return labels[item.id] || item.label;
+}
+
+function createMobileLink(item, activeId) {
+    const link = document.createElement("a");
+    link.className = "mobile-nav-link";
+    link.dataset.navId = item.id;
+    link.href = item.href;
+    link.textContent = mobileLabel(item);
+    if (item.id === activeId) {
+        link.classList.add("is-active");
+        link.setAttribute("aria-current", "page");
+    }
+    return link;
+}
+
+function renderMobileNavigation(entries, activeId) {
+    const visibleEntries = entries
+        .filter((entry) => ["admin", "technician", "dashboard", "reservation", "profile"].includes(entry.id))
+        .slice(0, 4);
+    if (!visibleEntries.length) return;
+
+    let mobileNav = document.querySelector("[data-mobile-app-nav]");
+    if (!mobileNav) {
+        mobileNav = document.createElement("nav");
+        mobileNav.className = "mobile-app-nav";
+        mobileNav.dataset.mobileAppNav = "true";
+        mobileNav.setAttribute("aria-label", "Navigation mobile");
+        document.body.appendChild(mobileNav);
+    }
+
+    mobileNav.replaceChildren();
+    visibleEntries.forEach((entry) => mobileNav.appendChild(createMobileLink(entry, activeId)));
+    document.body.classList.add("has-mobile-nav");
 }
 
 function renderAppNavigation(session, options = {}) {
@@ -79,11 +124,14 @@ function renderAppNavigation(session, options = {}) {
     if (logout) {
         const button = document.createElement("button");
         button.className = "btn btn-secondary";
+        button.dataset.navAction = "logout";
         button.type = "button";
         button.textContent = "Se déconnecter";
         button.addEventListener("click", () => window.AuthAPI.logout());
         nav.appendChild(button);
     }
+
+    renderMobileNavigation(entries, active);
 }
 
 window.AppNavigation = {

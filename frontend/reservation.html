@@ -45,7 +45,7 @@
                         <span>Rechercher</span>
                         <input id="station-search" type="search" placeholder="Nom, ville, adresse..." autocomplete="off">
                     </label>
-                    <div id="station-map" class="station-map" role="listbox" aria-label="Carte des stations">
+                    <div id="station-map" class="station-map" role="listbox" aria-label="Carte des stations" data-map-provider="leaflet">
                         <span class="map-placeholder">Chargement de la carte...</span>
                     </div>
                     <div id="station-results" class="station-results" aria-label="Stations disponibles"></div>
@@ -63,7 +63,7 @@
                         <div class="form-grid">
                             <div class="field">
                                 <label for="reservation-start">D&eacute;but de r&eacute;servation</label>
-                                <input id="reservation-start" name="date_debut" type="datetime-local" step="1800" required>
+                                <input id="reservation-start" name="date_debut" type="datetime-local" step="300" required>
                             </div>
                             <div class="field">
                                 <label for="reservation-duration">Dur&eacute;e de recharge</label>
@@ -85,7 +85,7 @@
                             </div>
                         </div>
                         <p class="helper">
-                            La r&eacute;servation garantit un emplacement libre pendant la dur&eacute;e choisie. Une courte tol&eacute;rance d&apos;acc&egrave;s peut s&apos;appliquer &agrave; la borne, sans prolonger la dur&eacute;e r&eacute;serv&eacute;e. Dur&eacute;e par d&eacute;faut : 1 heure.
+                            La r&eacute;servation garantit un emplacement pendant la dur&eacute;e choisie. Un buffer technique de 5 minutes est ajout&eacute; apr&egrave;s chaque cr&eacute;neau pour pr&eacute;parer l&rsquo;emplacement suivant. Dur&eacute;e par d&eacute;faut : 1 heure.
                         </p>
                         <button class="btn btn-primary" type="submit">Cr&eacute;er la r&eacute;servation</button>
                     </form>

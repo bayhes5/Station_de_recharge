@@ -1,0 +1,16 @@
+PREFIX station: <https://station-recharge.local/ontology#>
+
+SELECT ?slot ?session ?state
+WHERE {
+  ?slot station:hasChargingSession ?session .
+  ?session station:chargeState ?state .
+
+  FILTER (?state IN ("access_validated", "waiting_plug", "charging"))
+
+  FILTER NOT EXISTS {
+    ?slot station:hostsDevice ?device .
+    ?device station:hasSensor ?sensor .
+    ?sensor station:latestTelemetryAt ?lastTelemetryAt .
+  }
+}
+ORDER BY ?slot

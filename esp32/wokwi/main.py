@@ -30,7 +30,7 @@ CHARGE_PIN = 22
 CURRENT_ADC_PIN = 34
 TEMPERATURE_ADC_PIN = 35
 
-MAX_CURRENT_A = 3.0
+MAX_CURRENT_A = 4.0
 MAX_TEMPERATURE_C = 50.0
 TELEMETRY_INTERVAL_SECONDS = 2
 
@@ -258,7 +258,7 @@ def update_state(client):
             stop_session(client, "intrusion")
         elif not cable:
             stop_session(client, "cable_removed")
-        elif current > MAX_CURRENT_A:
+        elif current >= MAX_CURRENT_A:
             stop_session(client, "overcurrent")
         elif temperature > MAX_TEMPERATURE_C:
             stop_session(client, "overheat")

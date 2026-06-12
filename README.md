@@ -81,8 +81,13 @@ https://localhost/grafana/d/station-supervision/station-supervision-technique?or
                          -> dashboard Grafana de supervision
 https://localhost/grafana/d/session-detail/session-detail-charge?orgId=1&from=now-6h&to=now&refresh=5s
                          -> détail Grafana d'une session de charge
-https://localhost/kiosk/    -> kiosque Raspberry
+https://localhost/kiosk/    -> simulation du kiosque Raspberry
 ```
+
+En production, le kiosque n'est pas servi par le serveur Debian : il tourne sur
+le Raspberry physique connecté à l'écran tactile, au lecteur RFID et au réseau
+local de la borne. La route `/kiosk/` de la stack locale reste utile pour les
+tests et les démonstrations sans matériel.
 
 Le reverse proxy redirige `http://localhost` vers `https://localhost`. Le
 certificat livré est auto-signé pour le développement local ; le navigateur peut

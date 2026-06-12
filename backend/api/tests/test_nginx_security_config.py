@@ -20,6 +20,8 @@ def test_nginx_security_headers_are_versioned():
     """Ensure the reverse proxy keeps baseline browser security headers."""
     config = _read_station_conf()
 
+    assert "ssl_protocols TLSv1.3;" in config
+    assert "ssl_protocols TLSv1.2" not in config
     assert 'add_header X-Frame-Options "SAMEORIGIN" always;' in config
     assert 'add_header X-Content-Type-Options "nosniff" always;' in config
     assert 'add_header Referrer-Policy "strict-origin-when-cross-origin" always;' in config
@@ -63,8 +65,10 @@ def test_prod_nginx_serves_static_assets_with_cache_and_limits_auth():
     config = NGINX_PROD_STATION_CONF.read_text(encoding="utf-8")
 
     assert "client_max_body_size 10m;" in config
+    assert "ssl_protocols TLSv1.3;" in config
+    assert "ssl_protocols TLSv1.2" not in config
     assert "ssl_session_tickets off;" in config
-    assert 'add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;' in config
+    assert 'add_header Strict-Transport-Security "max-age=31536000" always;' in config
     assert "location = /api/login/" in config
     assert "limit_req zone=auth_limit" in config
     assert "location /assets/" in config

@@ -25,7 +25,7 @@ DHT_PIN = 15
 ADC_CURRENT_PIN = 34
 LOCK_PIN = 26
 LOCK_RELAY_ACTIVE_LOW = True
-LOCK_UNLOCK_PULSE_SECONDS = 5
+LOCK_AUTO_RELOCK_SECONDS = 30
 ```
 
 ## Paramètres à modifier avant flash
@@ -34,6 +34,8 @@ LOCK_UNLOCK_PULSE_SECONDS = 5
 WIFI_SSID = "WIFI_SSID"
 WIFI_PASSWORD = "WIFI_PASSWORD"
 MQTT_HOST = "192.168.1.10"
+MQTT_USER = "esp32_station_demo_borne_1_slot1"
+MQTT_PASSWORD = "mot-de-passe-mqtt"
 MQTT_TOPIC_PREFIX = "station-demo/borne-1"
 SLOT_ID = "slot1"
 MQTT_TLS_ENABLED = False
@@ -43,8 +45,13 @@ MQTT_TLS_SERVER_HOSTNAME = ""
 
 `MQTT_HOST` doit être l'adresse IP de la machine qui exécute Mosquitto :
 
-- PC de développement avec Docker ;
-- ou Raspberry Pi en borne réelle.
+- PC de développement avec Docker pour les anciens tests ;
+- Raspberry Pi en borne réelle et pour le mode dégradé.
+
+Depuis la migration MQTT, la valeur recommandée est l'adresse Wi-Fi du
+Raspberry. Sur le hotspot de test, elle était `172.20.10.14`. Si le réseau
+change, relever la nouvelle IP avec `hostname -I` sur le Raspberry et reflasher
+l'ESP32 avec cette valeur.
 
 Avec la configuration de démonstration actuelle, l'ESP32 publie sur :
 
@@ -93,9 +100,21 @@ Le test physique reçu utilise un relais sur `GPIO26`. Le relais est actif à l'
 - `0` : relais actif, serrure alimentée, ouverture ;
 - `1` : relais au repos, serrure non alimentée, fermeture.
 
-Le firmware garde donc la serrure au repos au démarrage. La commande `UNLOCK` est envoyée par le kiosk juste après validation de l'authentification à la borne. Elle déclenche une impulsion d'ouverture de `5` secondes, puis remet le relais au repos pour éviter d'alimenter la serrure en continu.
+Le firmware garde donc la serrure au repos au démarrage. La commande `UNLOCK` est envoyée par le kiosk juste après validation de l'authentification à la borne. Elle ouvre une fenêtre de déverrouillage de `30` secondes, puis reverrouille automatiquement si la charge n'est pas passée à l'état `charging`. Cette temporisation est non bloquante : l'ESP32 continue à lire MQTT et à publier la télémétrie pendant la fenêtre d'accès.
 
 La commande MQTT `START` ne sert plus à ouvrir le boîtier. Elle démarre uniquement la charge électrique après ouverture du boîtier et détection du câble. Quand les capteurs de porte et de câble seront câblés, le Raspberry déclenchera `START` automatiquement dès que la télémétrie indique `cable=true`, et l'ESP32 devra accepter la charge seulement si le boîtier est refermé et si le capteur Hall confirme la présence du câble.
+
+Les voyants locaux suivent cette convention :
+
+- vert fixe : accès validé, boîtier ouvert, attente du branchement ;
+- vert clignotant : charge réellement en cours (`state=charging`) ;
+- jaune : seuil d'alerte modérée atteint, entre `5 A` et `6 A` ;
+- rouge et buzzer : seuil critique atteint, à partir de `6 A`.
+
+Pour la démonstration, la plage `5 A <= current < 6 A` sert à visualiser
+l'avertissement jaune. À partir de `6 A`, le seuil critique publie une alerte
+`overcurrent`, passe la sortie locale en rouge/buzzer et arrête la charge par
+sécurité. Les alertes jaune et rouge sont prioritaires sur le clignotement vert.
 
 La séquence cible est donc :
 
@@ -154,7 +173,7 @@ Le prototype reste en MQTT `1883` par défaut. Pour tester MQTT TLS :
 Conversion et copie :
 
 ```powershell
-openssl x509 -in mosquitto\certs\root_ca.crt -outform DER -out certs\metropole-verte-root-ca.der
+openssl x509 -in metropole-verte-root-ca.crt -outform DER -out certs\metropole-verte-root-ca.der
 
 .\scripts\deploy-esp32-micropython.ps1 `
   -Port COM5 `

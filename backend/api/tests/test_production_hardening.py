@@ -6,9 +6,28 @@ import yaml
 from django.test import override_settings
 from django.utils import timezone
 
-from api.models import Capteur, CapteurData, Device, DeviceStatus, DeviceType
-from api.services.retention import prune_old_telemetry
-from api.tasks import prune_old_telemetry_task
+from api.models import (
+    Alerte,
+    AlertSeverity,
+    AlertStatus,
+    Authentification,
+    Capteur,
+    CapteurData,
+    ChargeSessionState,
+    Device,
+    DeviceCommandLog,
+    DeviceStatus,
+    DeviceType,
+    JournalSecurite,
+    Reservation,
+    ReservationStatus,
+    SecurityLogStatus,
+    Session,
+    SessionTelemetry,
+    TypeAuth,
+)
+from api.services.retention import apply_privacy_retention, prune_old_telemetry
+from api.tasks import apply_privacy_retention_task, prune_old_telemetry_task
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -132,9 +151,152 @@ def test_prune_old_telemetry_task_reports_policy_result():
     }
 
 
+@pytest.mark.django_db
+def test_apply_privacy_retention_prunes_operational_history(emplacements, user):
+    """Apply the broader RGPD retention window to technical history."""
+    now = timezone.now()
+    device = Device.objects.create(
+        emplacement=emplacements[0],
+        type_device=DeviceType.ESP32,
+        firmware_version="prototype",
+        mac_address="aa:bb:cc:dd:ee:02",
+        status=DeviceStatus.ONLINE,
+    )
+    capteur = Capteur.objects.create(device=device, type="temperature", unite="C")
+    old_data = CapteurData.objects.create(capteur=capteur, valeur=18, timestamp=now - timedelta(days=91))
+    recent_data = CapteurData.objects.create(capteur=capteur, valeur=19, timestamp=now - timedelta(days=1))
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        date_debut=now - timedelta(days=500),
+        date_fin=now - timedelta(days=500, hours=-1),
+        statut=ReservationStatus.COMPLETED,
+    )
+    session = Session.objects.create(
+        reservation=reservation,
+        emplacement=emplacements[0],
+        start_time=now - timedelta(days=500),
+        end_time=now - timedelta(days=500, hours=-1),
+        charge_state=ChargeSessionState.STOPPED,
+    )
+    old_session_data = SessionTelemetry.objects.create(
+        session=session,
+        courant=1,
+        tension=12,
+        energie_kwh=0.1,
+        timestamp=now - timedelta(days=370),
+    )
+    recent_session_data = SessionTelemetry.objects.create(
+        session=session,
+        courant=1,
+        tension=12,
+        energie_kwh=0.2,
+        timestamp=now - timedelta(days=10),
+    )
+    old_command = DeviceCommandLog.objects.create(device=device, session=session, timestamp=now - timedelta(days=370))
+    recent_command = DeviceCommandLog.objects.create(device=device, session=session, timestamp=now - timedelta(days=10))
+    old_log = JournalSecurite.objects.create(
+        utilisateur=user,
+        action="old-login",
+        ip="192.168.1.10",
+        statut=SecurityLogStatus.SUCCESS,
+        date_action=now - timedelta(days=370),
+    )
+    recent_log = JournalSecurite.objects.create(
+        utilisateur=user,
+        action="recent-login",
+        ip="192.168.1.11",
+        statut=SecurityLogStatus.SUCCESS,
+        date_action=now - timedelta(days=10),
+    )
+    old_alert = Alerte.objects.create(
+        session=session,
+        type="overheat",
+        message="Ancienne alerte resolue",
+        niveau_severite=AlertSeverity.HIGH,
+        status=AlertStatus.RESOLVED,
+        timestamp=now - timedelta(days=370),
+        first_seen=now - timedelta(days=370),
+        last_seen=now - timedelta(days=370),
+        resolved_at=now - timedelta(days=370),
+    )
+    recent_alert = Alerte.objects.create(
+        session=session,
+        type="overheat",
+        message="Alerte recente resolue",
+        niveau_severite=AlertSeverity.HIGH,
+        status=AlertStatus.RESOLVED,
+        timestamp=now - timedelta(days=10),
+        first_seen=now - timedelta(days=10),
+        last_seen=now - timedelta(days=10),
+        resolved_at=now - timedelta(days=10),
+    )
+    type_auth = TypeAuth.objects.create(libelle="CODE", factor_level=2)
+    old_auth = Authentification.objects.create(
+        utilisateur=user,
+        type_auth=type_auth,
+        hash_valeur="old-code",
+        is_active=False,
+        created_at=now - timedelta(days=100),
+    )
+    recent_auth = Authentification.objects.create(
+        utilisateur=user,
+        type_auth=type_auth,
+        hash_valeur="recent-code",
+        is_active=False,
+        created_at=now - timedelta(days=10),
+    )
+
+    with override_settings(
+        TELEMETRY_RETENTION_DAYS=90,
+        PRIVACY_RETENTION_ENABLED=True,
+        SESSION_TELEMETRY_RETENTION_DAYS=365,
+        DEVICE_COMMAND_LOG_RETENTION_DAYS=365,
+        SECURITY_LOG_RETENTION_DAYS=365,
+        ALERT_RETENTION_DAYS=365,
+        AUTH_METHOD_RETENTION_DAYS=90,
+        USER_ANONYMIZATION_RETENTION_DAYS=1095,
+    ):
+        result = apply_privacy_retention(now=now)
+
+    assert result.enabled is True
+    assert result.deleted["capteur_data"] == 1
+    assert result.deleted["session_telemetry"] == 1
+    assert result.deleted["device_command_log"] == 1
+    assert result.deleted["security_log"] == 1
+    assert result.deleted["resolved_alert"] == 1
+    assert result.deleted["auth_method"] == 1
+    assert not CapteurData.objects.filter(id_data=old_data.id_data).exists()
+    assert CapteurData.objects.filter(id_data=recent_data.id_data).exists()
+    assert not SessionTelemetry.objects.filter(id_telemetry=old_session_data.id_telemetry).exists()
+    assert SessionTelemetry.objects.filter(id_telemetry=recent_session_data.id_telemetry).exists()
+    assert not DeviceCommandLog.objects.filter(id_command=old_command.id_command).exists()
+    assert DeviceCommandLog.objects.filter(id_command=recent_command.id_command).exists()
+    assert not JournalSecurite.objects.filter(id_log=old_log.id_log).exists()
+    assert JournalSecurite.objects.filter(id_log=recent_log.id_log).exists()
+    assert not Alerte.objects.filter(id_alerte=old_alert.id_alerte).exists()
+    assert Alerte.objects.filter(id_alerte=recent_alert.id_alerte).exists()
+    assert not Authentification.objects.filter(id_auth=old_auth.id_auth).exists()
+    assert Authentification.objects.filter(id_auth=recent_auth.id_auth).exists()
+
+
+def test_apply_privacy_retention_task_reports_policy_result():
+    """Expose full privacy retention runs through Celery Beat."""
+    with override_settings(PRIVACY_RETENTION_ENABLED=False):
+        result = apply_privacy_retention_task()
+
+    assert result == {
+        "enabled": False,
+        "cutoffs": {},
+        "deleted": {},
+        "anonymized_users": 0,
+    }
+
+
 def test_celery_beat_runs_telemetry_retention_policy():
     """Ensure the retention task is scheduled in production."""
     from django.conf import settings
 
     schedule = settings.CELERY_BEAT_SCHEDULE
     assert schedule["prune-old-telemetry"]["task"] == "api.prune_old_telemetry"
+    assert schedule["apply-privacy-retention"]["task"] == "api.apply_privacy_retention"

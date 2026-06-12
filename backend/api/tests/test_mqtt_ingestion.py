@@ -252,6 +252,51 @@ def test_process_mqtt_status_accepts_canonical_charge_states(emplacements, state
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "initial_state",
+    [ChargeSessionState.ACCESS_VALIDATED, ChargeSessionState.WAITING_PLUG],
+)
+def test_process_mqtt_idle_does_not_stop_session_before_charge(user, emplacements, initial_state):
+    """Ignore prototype idle reports while the user has not started charging yet."""
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="IDLEWAIT",
+        auth_choice="rfid",
+        date_debut=timezone.now() - timedelta(minutes=5),
+        date_fin=timezone.now() + timedelta(minutes=25),
+        statut="active",
+    )
+    session = Session.objects.create(
+        reservation=reservation,
+        emplacement=emplacements[0],
+        start_time=timezone.now() - timedelta(minutes=2),
+        charge_state=initial_state,
+    )
+    Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="demo",
+        mac_address="slot1",
+        status="online",
+    )
+
+    process_mqtt_message(
+        "station/slot1/status",
+        json.dumps(
+            {
+                "state": "idle",
+                "session_id": str(session.id_session),
+            }
+        ),
+    )
+
+    session.refresh_from_db()
+    assert session.end_time is None
+    assert session.charge_state == initial_state
+
+
+@pytest.mark.django_db
 def test_process_mqtt_status_maps_charging_started(emplacements):
     """Reflect the ESP32 charging state as soon as it reports charge start."""
     Device.objects.create(
@@ -406,6 +451,58 @@ def test_process_mqtt_unlock_ack_marks_session_waiting_plug(user, emplacements):
     assert result["command_status"] == "unlocked"
     assert device.last_command_action == "UNLOCK"
     assert DeviceCommandLog.objects.get().session == session
+    session.refresh_from_db()
+    assert session.charge_state == ChargeSessionState.WAITING_PLUG
+
+
+@pytest.mark.django_db
+def test_process_mqtt_recovers_truncated_unlock_ack(user, emplacements):
+    """Recover essential fields when MicroPython truncates the final ACK field."""
+    reservation = Reservation.objects.create(
+        utilisateur=user,
+        emplacement=emplacements[0],
+        reference_code="UNLOCK2",
+        auth_choice="rfid",
+        date_debut=timezone.now() - timedelta(minutes=10),
+        date_fin=timezone.now() + timedelta(minutes=20),
+        statut="active",
+    )
+    session = Session.objects.create(
+        reservation=reservation,
+        emplacement=emplacements[0],
+        start_time=timezone.now() - timedelta(minutes=5),
+        charge_state=ChargeSessionState.ACCESS_VALIDATED,
+    )
+    Device.objects.create(
+        emplacement=emplacements[0],
+        type_device="ESP32",
+        firmware_version="demo",
+        mac_address="slot1",
+        status="offline",
+    )
+
+    payload = (
+        '{"message": "Boitier deverrouille.", '
+        f'"session_id": "{session.id_session}", '
+        '"status": "unlocked", '
+        '"state": "waiting_plug", '
+        '"slot_id": "slot1", '
+        '"command_id": "cmd-unlock-truncated", '
+        '"source": "esp32", '
+        '"action": "UNLOC'
+    )
+
+    result = process_mqtt_message("station/slot1/ack", payload)
+
+    device = Device.objects.get(mac_address="slot1")
+    command_log = DeviceCommandLog.objects.get()
+    assert result["message_type"] == "ack"
+    assert result["command_action"] == "UNLOCK"
+    assert result["command_status"] == "unlocked"
+    assert result["command_id"] == "cmd-unlock-truncated"
+    assert device.last_command_action == "UNLOCK"
+    assert device.last_command_status == "unlocked"
+    assert command_log.session == session
     session.refresh_from_db()
     assert session.charge_state == ChargeSessionState.WAITING_PLUG
 
@@ -896,13 +993,13 @@ def test_send_alert_notifications_command_processes_pending_alerts(emplacements)
     capteur = device.capteurs.create(type="current", unite="A")
     data = CapteurData.objects.create(
         capteur=capteur,
-        valeur=3.5,
+        valeur=4.5,
         timestamp=timezone.now() - timedelta(minutes=3),
     )
     Alerte.objects.create(
         data=data,
         type="overcurrent",
-        message="Surconsommation detectee: 3.50 A.",
+        message="Surconsommation détectée : 4.50 A, seuil 4.00 A.",
         niveau_severite="haute",
         status="active",
         timestamp=timezone.now() - timedelta(minutes=3),
@@ -939,13 +1036,13 @@ def test_notify_pending_alerts_respects_policy_delay(emplacements):
     capteur = device.capteurs.create(type="current", unite="A")
     data = CapteurData.objects.create(
         capteur=capteur,
-        valeur=3.5,
+        valeur=4.5,
         timestamp=timezone.now(),
     )
     Alerte.objects.create(
         data=data,
         type="overcurrent",
-        message="Surconsommation detectee: 3.50 A.",
+        message="Surconsommation détectée : 4.50 A, seuil 4.00 A.",
         niveau_severite="haute",
         status="active",
         timestamp=timezone.now(),
@@ -1071,8 +1168,8 @@ def test_process_mqtt_message_preserves_taken_in_charge_alert_status(emplacement
         ({"state": "charging", "door": True, "cable": False}, "cable_removed"),
         ({"state": "charging", "door": True, "cable": True, "intrusion": True}, "intrusion"),
         ({"state": "charging", "door": True, "cable": True, "lock": False}, "lock_unlocked"),
-        ({"state": "charging", "door": True, "cable": True, "temperature": 60}, "overheat"),
-        ({"state": "charging", "door": True, "cable": True, "current": 3.0}, "overcurrent"),
+        ({"state": "charging", "door": True, "cable": True, "temperature": 28}, "overheat"),
+        ({"state": "charging", "door": True, "cable": True, "current": 6.0}, "overcurrent"),
         ({"state": "error", "door": True, "cable": True}, "state_error"),
     ],
 )

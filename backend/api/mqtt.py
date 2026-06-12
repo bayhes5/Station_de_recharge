@@ -58,6 +58,29 @@ def _start_bridge_heartbeat(connected_event: threading.Event) -> threading.Threa
     return thread
 
 
+def _connect_with_retry(client) -> None:
+    """Connect to the configured broker, waiting if the field broker is not ready yet."""
+    retry_seconds = max(float(settings.MQTT_BRIDGE_CONNECT_RETRY_SECONDS), 1.0)
+    while True:
+        try:
+            client.connect(settings.MQTT_HOST, settings.MQTT_PORT, settings.MQTT_KEEPALIVE)
+            return
+        except OSError as exc:
+            logger.warning(
+                "Bridge MQTT: impossible de joindre %s:%s (%s). Nouvelle tentative dans %.1fs.",
+                settings.MQTT_HOST,
+                settings.MQTT_PORT,
+                exc,
+                retry_seconds,
+            )
+            print(
+                "MQTT bridge waiting for "
+                f"{settings.MQTT_HOST}:{settings.MQTT_PORT}; retry in {retry_seconds:.1f}s",
+                flush=True,
+            )
+            time.sleep(retry_seconds)
+
+
 def run_mqtt_bridge():
     """Subscribe to ESP32 MQTT supervision topics and enqueue backend ingestion."""
     try:
@@ -100,5 +123,5 @@ def run_mqtt_bridge():
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect
     client.on_message = on_message
-    client.connect(settings.MQTT_HOST, settings.MQTT_PORT, settings.MQTT_KEEPALIVE)
+    _connect_with_retry(client)
     client.loop_forever()

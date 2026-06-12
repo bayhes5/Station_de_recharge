@@ -617,8 +617,10 @@ Les conditions de résolution automatique sont :
   charge ;
 * ``lock_unlocked`` : ``lock`` repasse à ``true`` ou l'emplacement n'est plus en
   charge ;
-* ``overheat`` : la température repasse sous ``60 C`` ;
-* ``overcurrent`` : le courant repasse sous ``3.0 A`` ;
+* ``overheat`` : la température repasse sous
+  ``OVERHEAT_ALERT_TEMPERATURE_C`` ;
+* ``overcurrent`` : le courant repasse sous
+  ``OVERCURRENT_ALERT_CURRENT_A`` ;
 * ``state_error`` : l'état n'est plus ``error``, ``emergency`` ou ``fault``.
 * ``charge_without_session`` : l'ESP32 ne remonte plus un état de charge ou la
   télémétrie porte de nouveau un ``session_id`` ouvert côté backend.
@@ -671,6 +673,15 @@ L'état ``waiting_plug`` est volontairement exclu de cette règle : après
 validation d'accès, l'utilisateur peut encore être en train d'ouvrir le boîtier
 et de brancher le câble. L'alerte est résolue automatiquement dès que la
 télémétrie revient ou lorsque la session se termine.
+
+Le même mécanisme protège les trois modes d'accès, RFID, code SMS et session
+mobile. Après une authentification réussie, la session passe en
+``access_validated``. Si aucune confirmation terrain n'arrive dans le délai
+``SESSION_ACCESS_VALIDATED_STALE_MINUTES`` (``2`` minutes par défaut), le
+backend crée ``session_access_validated_too_long`` et clôture automatiquement la
+session pour libérer l'emplacement. Cette clôture évite qu'un badge, un code SMS
+ou une validation mobile interrompue bloque durablement les réservations
+suivantes.
 
 Le même scan vérifie les sessions restées trop longtemps en ``waiting_plug``.
 Ce cas signifie que l'accès a été validé, que le boîtier a été ouvert, mais que
@@ -730,6 +741,11 @@ Grafana reste réservé aux profils d'exploitation ayant besoin d'une vue global
 ou d'une analyse détaillée des séries temporelles. Ce découpage applique le
 principe du moindre privilège : un technicien terrain voit ses stations, pas
 tout le réseau.
+
+Le rôle ``observateur`` est réservé aux profils lecture seule : consultation de
+la supervision et des alertes du périmètre, sans action de prise en charge ni de
+résolution. Les rôles ``intervenant`` et ``referent`` peuvent traiter les
+alertes de leurs stations.
 
 Grafana
 -------

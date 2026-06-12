@@ -89,8 +89,9 @@ Déroulement
       ``access_validated``.
    7. Le Raspberry publie ``UNLOCK`` sur ``station/<slot_id>/cmd``.
    8. L'ESP32 acquitte la commande et ouvre le boîtier par impulsion.
-   9. L'utilisateur branche le câble.
-   10. L'ESP32 publie ``cable=true`` ; le Raspberry publie automatiquement
+   9. L'utilisateur branche le câble ou active le générateur du prototype.
+   10. L'ESP32 publie ``cable=true`` ou, tant que le capteur câble n'est pas
+       câblé, une mesure ``current >= 0.1 A`` récente ; le Raspberry publie automatiquement
        ``START`` et le backend passe la session à
        ``waiting_plug`` ou ``charging`` selon l'ACK et la télémétrie.
 
@@ -180,9 +181,9 @@ Déroulement
    6. Django vérifie la réservation, le hash du code SMS, la station, la borne et
       la fenêtre temporelle.
    7. Si la validation réussit, le Raspberry publie ``UNLOCK`` vers l'ESP32.
-   8. L'utilisateur branche le câble.
-   9. L'ESP32 publie ``cable=true`` et le Raspberry publie automatiquement
-      ``START`` vers l'ESP32.
+   8. L'utilisateur branche le câble ou active le générateur du prototype.
+   9. L'ESP32 publie ``cable=true`` ou une mesure de courant récente ; le
+      Raspberry publie automatiquement ``START`` vers l'ESP32.
 
 Résultat attendu
    La charge démarre uniquement après validation serveur. Le bouton ou la touche
@@ -219,14 +220,15 @@ Déroulement
       et la révocation du badge.
    6. Django crée ou retrouve la session de charge.
    7. Le Raspberry publie ``UNLOCK`` vers l'ESP32 pour ouvrir le boîtier.
-   8. L'utilisateur branche le câble.
-   9. L'ESP32 publie ``cable=true`` et le Raspberry publie automatiquement
-      ``START`` vers l'ESP32.
+   8. L'utilisateur branche le câble ou active le générateur du prototype.
+   9. L'ESP32 publie ``cable=true`` ou une mesure de courant récente ; le
+      Raspberry publie automatiquement ``START`` vers l'ESP32.
 
 Résultat attendu
    L'utilisateur n'a normalement rien à saisir pour s'authentifier. Le badge est
    le parcours le plus rapide, mais le démarrage électrique reste conditionné
-   à la détection du câble après ouverture du boîtier.
+   à la détection du câble, ou temporairement du courant SEN0214, après
+   ouverture du boîtier.
 
 Cas d'erreur
    Un badge inconnu est refusé. Un badge révoqué est refusé. Si plusieurs
@@ -303,7 +305,8 @@ Déroulement
    5. Si le cache valide l'accès, le Raspberry enregistre un événement offline et
       publie ``UNLOCK`` vers l'ESP32.
    6. Le ``START`` est publié ensuite automatiquement lorsque le câble est
-      détecté.
+      détecté, ou temporairement lorsque le courant SEN0214 indique un
+      branchement prototype.
    7. Quand le backend revient, le Raspberry resynchronise les événements offline.
 
 Résultat attendu

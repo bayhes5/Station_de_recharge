@@ -18,6 +18,21 @@ function optionLabel(item, fallback = "-") {
     return item || fallback;
 }
 
+function cleanDisplayText(value) {
+    if (value === null || value === undefined || value === "") return value;
+    return String(value)
+        .replaceAll("\u00c3\u00a9", "é")
+        .replaceAll("\u00c3\u00a8", "è")
+        .replaceAll("\u00c3\u00aa", "ê")
+        .replaceAll("\u00c3\u00b4", "ô")
+        .replaceAll("\u00c3\u00a2", "â")
+        .replaceAll("\u00c3\u00a0", "à")
+        .replaceAll("\u00c3\u00a7", "ç")
+        .replaceAll("\u00c3\u2030", "É")
+        .replaceAll("\u00e2\u20ac\u2122", "’")
+        .replaceAll("\u00e2\u20ac\u201c", "–");
+}
+
 const USER_STATUS_OPTIONS = [
     { value: "actif", label: "Actif" },
     { value: "suspendu", label: "Suspendu" },
@@ -97,7 +112,6 @@ document.addEventListener("DOMContentLoaded", async () => {
                 { name: "nom", label: "Nom", type: "text" },
                 { name: "statut", label: "Statut", type: "select", defaultValue: "actif", options: USER_STATUS_OPTIONS },
                 { name: "password", label: "Mot de passe", type: "password", createOnly: true, requiredOnCreate: true },
-                { name: "is_active", label: "Actif", type: "checkbox", defaultValue: true },
                 { name: "is_staff", label: "Staff", type: "checkbox" },
                 { name: "is_superuser", label: "Super-administrateur", type: "checkbox" },
             ],
@@ -610,6 +624,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             let value = item[field.name];
             if (field.name === "date_planifiee" || field.name === "date_realisee") {
                 value = toLocalInputValue(value);
+            } else if (["text", "textarea"].includes(field.type)) {
+                value = cleanDisplayText(value);
             }
 
             if (field.type === "checkbox") {

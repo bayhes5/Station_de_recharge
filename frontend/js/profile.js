@@ -262,7 +262,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         const preview = history
             .filter((entry) => entry.auth_source === "generated")
             .slice(0, 3);
-        renderAuthHistory(authHistoryPreview, preview);
+        if (authHistoryPreview) {
+            renderAuthHistory(authHistoryPreview, preview);
+        }
     }
 
     async function loadConsents() {
@@ -423,7 +425,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     deleteBtn.addEventListener("click", async () => {
         const confirmed = await window.AuthAPI.confirmAction(
-            "Cette action supprime votre compte et les données associées. Continuer ?",
+            "Cette action désactive votre compte et anonymise vos données personnelles. Continuer ?",
             {
                 title: "Supprimer le compte",
                 confirmLabel: "Supprimer mon compte",

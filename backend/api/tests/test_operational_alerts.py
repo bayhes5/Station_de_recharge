@@ -120,6 +120,40 @@ def test_scan_session_telemetry_gaps_creates_alert_for_stuck_stopping_session(us
 @pytest.mark.django_db
 @override_settings(
     SESSION_TELEMETRY_STALE_MINUTES=2,
+    SESSION_ACCESS_VALIDATED_STALE_MINUTES=2,
+)
+def test_scan_session_telemetry_gaps_closes_stale_access_validated_session(
+    user,
+    emplacements,
+):
+    """Free a bay when authentication succeeded but the field never acknowledged."""
+    session = create_active_session(
+        user,
+        emplacements[0],
+        start_delta=timedelta(minutes=4),
+    )
+    session.charge_state = ChargeSessionState.ACCESS_VALIDATED
+    session.charge_state_updated_at = timezone.now() - timedelta(minutes=3)
+    session.save(update_fields=["charge_state", "charge_state_updated_at"])
+
+    result = scan_session_telemetry_gaps()
+
+    session.refresh_from_db()
+    session.reservation.refresh_from_db()
+    assert result.created == 1
+    assert result.closed == 1
+    assert session.end_time is not None
+    assert session.charge_state == ChargeSessionState.STOPPED
+    assert session.reservation.statut == "terminee"
+    assert Alerte.objects.filter(type="session_without_telemetry").count() == 0
+    alert = Alerte.objects.get(type="session_access_validated_too_long")
+    assert alert.session == session
+    assert "automatiquement" in alert.message
+
+
+@pytest.mark.django_db
+@override_settings(
+    SESSION_TELEMETRY_STALE_MINUTES=2,
     SESSION_WAITING_PLUG_STALE_MINUTES=5,
 )
 def test_scan_session_telemetry_gaps_creates_alert_for_waiting_plug_timeout(
@@ -138,7 +172,13 @@ def test_scan_session_telemetry_gaps_creates_alert_for_waiting_plug_timeout(
 
     result = scan_session_telemetry_gaps()
 
+    session.refresh_from_db()
+    session.reservation.refresh_from_db()
     assert result.created == 1
+    assert result.closed == 1
+    assert session.end_time is not None
+    assert session.charge_state == ChargeSessionState.STOPPED
+    assert session.reservation.statut == "terminee"
     assert Alerte.objects.filter(type="session_without_telemetry").count() == 0
     alert = Alerte.objects.get(type="session_waiting_plug_too_long")
     assert alert.session == session
@@ -149,11 +189,11 @@ def test_scan_session_telemetry_gaps_creates_alert_for_waiting_plug_timeout(
 
 @pytest.mark.django_db
 @override_settings(SESSION_WAITING_PLUG_STALE_MINUTES=5)
-def test_scan_session_telemetry_gaps_resolves_waiting_plug_alert_when_charge_starts(
+def test_scan_session_telemetry_gaps_resolves_waiting_plug_alert_after_auto_close(
     user,
     emplacements,
 ):
-    """Resolve the waiting-plug alert when the session leaves the plug-in state."""
+    """Resolve the waiting-plug alert after the stale pre-charge session is closed."""
     session = create_active_session(
         user,
         emplacements[0],
@@ -164,10 +204,8 @@ def test_scan_session_telemetry_gaps_resolves_waiting_plug_alert_when_charge_sta
     session.save(update_fields=["charge_state", "charge_state_updated_at"])
     first_result = scan_session_telemetry_gaps()
     assert first_result.created == 1
+    assert first_result.closed == 1
 
-    session.charge_state = ChargeSessionState.CHARGING
-    session.charge_state_updated_at = timezone.now()
-    session.save(update_fields=["charge_state", "charge_state_updated_at"])
     second_result = scan_session_telemetry_gaps()
 
     assert second_result.resolved == 1
@@ -196,7 +234,7 @@ def test_scan_session_telemetry_gaps_task_reports_counts(user, emplacements):
 
     result = scan_session_telemetry_gaps_task()
 
-    assert result == {"created": 1, "updated": 0, "resolved": 0}
+    assert result == {"created": 1, "updated": 0, "resolved": 0, "closed": 0}
     assert Alerte.objects.filter(type="session_without_telemetry").count() == 1
 
 

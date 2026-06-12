@@ -69,12 +69,14 @@ Comportement attendu côté ESP32 :
 
 * refuser la commande si une charge est déjà active sur l'emplacement ;
 * répondre rapidement par ACK avec ``status=unlocked`` ;
-* envoyer une impulsion d'ouverture de serrure ;
-* publier ensuite un statut ``waiting_plug``.
+* ouvrir la serrure ;
+* programmer un reverrouillage automatique au bout de ``15`` secondes si la
+  charge ne démarre pas ;
+* continuer à publier la télémétrie et les statuts pendant la fenêtre d'accès.
 
 Sur le prototype physique actuel, la serrure est pilotée par un relais actif-bas
-sur ``GPIO26``. L'impulsion d'ouverture dure ``5`` secondes, puis le relais
-revient au repos pour éviter d'alimenter la serrure en continu.
+sur ``GPIO26``. Le relais est remis au repos à l'expiration de la fenêtre
+d'accès, ou immédiatement lors du passage en ``charging``.
 
 Commande START
 --------------
@@ -170,14 +172,14 @@ Statuts acceptés :
      - Statuts confirmants
      - Statuts de refus
    * - ``START``
-      - ``accepted``, ``reserved``, ``ready``, ``charging``, ``charging_started``
-      - ``denied``, ``error``, ``failed``, ``fault``, ``rejected``
+     - ``accepted``, ``reserved``, ``ready``, ``charging``, ``charging_started``
+     - ``denied``, ``error``, ``failed``, ``fault``, ``rejected``
    * - ``UNLOCK``
-      - ``accepted``, ``unlocked``, ``waiting_plug``
-      - ``denied``, ``error``, ``failed``, ``fault``, ``rejected``
+     - ``accepted``, ``unlocked``, ``waiting_plug``
+     - ``denied``, ``error``, ``failed``, ``fault``, ``rejected``
    * - ``STOP``
-      - ``accepted``, ``stopped``, ``idle``
-      - ``denied``, ``error``, ``failed``, ``fault``, ``rejected``
+     - ``accepted``, ``stopped``, ``idle``
+     - ``denied``, ``error``, ``failed``, ``fault``, ``rejected``
 
 Le Raspberry ignore un ACK dont le ``command_id`` ou l'action ne correspond pas
 à la commande en cours.
@@ -286,11 +288,11 @@ Incidents attendus
      - couper le relais, publier ``alert`` et ``status``
      - alerte ``lock_unlocked``
    * - Surchauffe
-     - ``temperature >= 60``
+     - ``temperature >= 28``
      - couper le relais si la charge est active
      - alerte ``overheat``
    * - Surintensité
-     - ``current >= 3.0``
+     - ``current >= 6.0 A``
      - couper le relais si la charge est active
      - alerte ``overcurrent``
    * - État critique

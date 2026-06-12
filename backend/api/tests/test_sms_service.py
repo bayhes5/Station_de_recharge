@@ -1,4 +1,5 @@
 import pytest
+from django.core import mail
 from django.test import override_settings
 
 from api.services.sms import SmsDeliveryError, SmsResult, mask_phone_number, send_sms
@@ -18,6 +19,31 @@ def test_console_sms_backend_returns_delivery_result():
     assert isinstance(result, SmsResult)
     assert result.backend == "console"
     assert result.message_id.startswith("console-")
+
+
+@override_settings(SMS_BACKEND="email", DEFAULT_FROM_EMAIL="Station <no-reply@station.local>")
+def test_email_sms_backend_sends_message_to_mail_backend():
+    """Use the email backend to demonstrate SMS delivery through Mailpit."""
+    result = send_sms(
+        "+33600000000",
+        "Votre code SMS temporaire est A1B2C3D4.",
+        email_recipient="demo@example.com",
+    )
+
+    assert result.backend == "email"
+    assert result.message_id.startswith("email-")
+    assert len(mail.outbox) == 1
+    assert mail.outbox[0].to == ["demo@example.com"]
+    assert "A1B2C3D4" in mail.outbox[0].body
+
+
+@override_settings(SMS_BACKEND="email", SMS_EMAIL_FALLBACK_RECIPIENT="fallback@example.com")
+def test_email_sms_backend_can_use_fallback_recipient():
+    """Allow development SMS e-mails when the caller has no direct e-mail argument."""
+    result = send_sms("+33600000000", "Code fallback")
+
+    assert result.backend == "email"
+    assert mail.outbox[0].to == ["fallback@example.com"]
 
 
 @pytest.mark.parametrize("backend", ["twilio", "brevo"])

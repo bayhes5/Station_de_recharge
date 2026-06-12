@@ -57,6 +57,94 @@ chaîne pour recalculer la valeur attendue, et que ce choix évite un SHA-256 br
 avec hashlib qui serait trop rapide pour des mots de passe.
 ```
 
+## 0. Gestion de projet, agile léger et DevOps
+
+### Question possible
+
+Comment avez-vous géré votre projet ?
+
+### Réponse structurée
+
+Le projet a été géré par découpage en trois périmètres :
+
+```text
+Partie 1 : application web/backend, API, base, supervision, sécurité
+Partie 2 : Raspberry Pi, kiosque, RFID, interface tactile, mode local
+Partie 3 : ESP32, capteurs, serrure, télémétrie, alertes physiques
+```
+
+L'équipe a utilisé une méthode agile légère. Ce n'était pas un Scrum complet avec tous les rôles formalisés, mais une organisation par itérations :
+
+```text
+1. cadrer une fonctionnalité ou un scénario ;
+2. définir le contrat entre les parties ;
+3. implémenter chacun dans son périmètre ;
+4. tester en simulation ou avec le matériel disponible ;
+5. corriger selon les retours ;
+6. documenter ce qui a été stabilisé.
+```
+
+### Outils de coordination
+
+```text
+Teams
+  -> points de suivi, décisions plus formelles, organisation globale
+
+Discord
+  -> échanges rapides, captures d'erreurs, debug réseau, tests matériels en direct
+
+GitHub
+  -> dépôt central, commits, branches, pull requests, CI et historique
+
+Documentation
+  -> notices, contrats MQTT/API, procédures Raspberry/ESP32, scénarios de test
+```
+
+### Contrats d'interface
+
+Le point important est que les parties ne sont pas seulement juxtaposées. Elles communiquent par contrats :
+
+```text
+Frontend/PWA -> API REST Django
+Raspberry -> API terminal Django
+Raspberry/backend/ESP32 -> topics MQTT
+Backend/Grafana -> PostgreSQL/TimescaleDB
+```
+
+Ces contrats précisent les URL, méthodes HTTP, payloads JSON, topics MQTT, ACK, statuts et champs attendus. Cela évite que le Raspberry dépende directement des tables SQL ou que l'ESP32 dépende directement de Django.
+
+### DevOps : formulation prudente
+
+La formulation à utiliser en soutenance est :
+
+> Nous nous sommes inspirés d'une démarche DevOps, sans prétendre avoir mis en place une chaîne DevOps industrielle complète.
+
+Pratiques réellement mises en place :
+
+- GitHub comme dépôt central ;
+- branches, commits, pull requests et merge vers `main` ;
+- CI GitHub Actions ;
+- tests automatisés backend, frontend et Raspberry ;
+- Ruff pour la qualité Python ;
+- CodeQL pour l'analyse statique ;
+- SBOM/Grype pour l'inventaire et l'analyse de vulnérabilités ;
+- Docker Compose pour rendre l'environnement reproductible ;
+- documentation de déploiement Debian ;
+- scripts de sauvegarde/restauration ;
+- supervision Grafana et alertes.
+
+Limites à annoncer honnêtement :
+
+- pas encore de déploiement continu automatique vers un serveur de production ;
+- pas d'environnement staging complet ;
+- pas de gestionnaire de secrets avancé type Vault ;
+- pas de rollback automatisé ;
+- pas de tests E2E automatisés sur matériel réel.
+
+### Phrase de soutenance
+
+> Nous avons géré le projet avec une organisation agile légère : découpage par périmètres, points de coordination via Teams, échanges rapides via Discord, GitHub pour le code et la CI, et contrats d'interface pour relier les parties. Côté DevOps, nous avons appliqué plusieurs pratiques adaptées au cadre académique : tests automatisés, Docker Compose, CodeQL, SBOM et documentation de déploiement. Il manquerait encore une CD réelle, un staging et des tests E2E matériels pour parler d'une chaîne DevOps industrielle.
+
 ## 1. Mots de passe utilisateur
 
 ### Question possible
@@ -134,6 +222,72 @@ Un SHA-256 brut est trop rapide, n'intègre pas automatiquement de sel et n'est 
 ### Phrase de soutenance
 
 > Les mots de passe sont stockés avec le mécanisme natif de Django. J'appelle `set_password()` à la création et `check_password()` à la connexion. Django stocke une chaîne de type `algorithme$itérations$sel$hash`, ici PBKDF2-SHA256, ce qui évite un hash SHA-256 brut et bénéficie des protections du framework.
+
+### Réinitialisation par l'administrateur
+
+Question possible :
+
+```text
+Comment l'administrateur réinitialise-t-il un mot de passe maintenant qu'il y a Mailpit ?
+```
+
+Réponse technique :
+
+L'endpoint concerné est :
+
+```text
+POST /api/admin/users/<id>/reset-password/
+```
+
+Références :
+
+- `admin_reset_user_password()` dans [`backend/api/views.py`](backend/api/views.py)
+- `send_temporary_password_email()` dans [`backend/api/services/email_notifications.py`](backend/api/services/email_notifications.py)
+- `must_change_password` et `password_reset_at` dans [`backend/api/models.py`](backend/api/models.py)
+- migration [`backend/api/migrations/0030_user_forced_password_change.py`](backend/api/migrations/0030_user_forced_password_change.py)
+
+Le backend génère un mot de passe provisoire avec `secrets`, en forçant au moins :
+
+```text
+une minuscule
+une majuscule
+un chiffre
+un caractère spécial
+```
+
+Il valide ensuite ce mot de passe avec :
+
+```python
+validate_django_password(password, user=user)
+```
+
+Le mot de passe provisoire est enregistré avec :
+
+```python
+user.set_password(temporary_password)
+```
+
+Il n'est donc pas stocké en clair dans la base. Le compte est marqué :
+
+```python
+user.must_change_password = True
+user.password_reset_at = timezone.now()
+```
+
+Puis le mot de passe provisoire est envoyé par e-mail avec `EmailMultiAlternatives`.
+En développement, l'e-mail arrive dans Mailpit. La réponse API ne contient plus
+le mot de passe provisoire ; elle indique seulement que l'e-mail a été envoyé.
+
+Côté frontend :
+
+- `frontend/js/login.js` lit `user.must_change_password` après connexion ;
+- si la valeur est vraie, l'utilisateur est redirigé vers `profile.html?force_password_change=1` ;
+- `frontend/js/profile.js` affiche le message de changement obligatoire ;
+- `POST /api/me/change-password/` met `must_change_password` à `False` quand le nouveau mot de passe est accepté.
+
+Phrase de soutenance possible :
+
+> Quand l'admin réinitialise un compte, je ne renvoie plus le mot de passe provisoire dans l'interface admin. Le backend génère un mot de passe conforme, l'enregistre avec `set_password()`, marque le compte en changement obligatoire, puis l'envoie par e-mail via Mailpit. À la connexion, le frontend voit `must_change_password` et redirige l'utilisateur vers le formulaire de changement de mot de passe.
 
 ## 2. Règles de complexité des mots de passe
 
@@ -403,6 +557,45 @@ sms             -> 3/minute
 terminal        -> 120/minute
 mobile_session  -> 60/minute
 ```
+
+### Justification des paramètres chiffrés de la slide 22
+
+| Paramètre | Valeur | Justification |
+|---|---:|---|
+| Connexion | `10/min` | Suffisant pour un humain qui se trompe plusieurs fois, trop bas pour laisser tourner une attaque brute force rapide. |
+| Inscription | `5/h` | La création de compte est rare dans un usage normal. Cette limite réduit les comptes abusifs et les tests automatisés. |
+| Refresh JWT | `30/min` | Un refresh automatique peut arriver après des `401`, mais il ne doit pas devenir une boucle infinie de renouvellement. |
+| Moyens d'accès | `20/min` | QR, RFID, code SMS et association badge peuvent être retentés, mais doivent rester bornés contre les essais automatisés. |
+| SMS | `3/min` | Le SMS est coûteux et intrusif. La limite évite le spam d'envoi ou de renvoi de code. |
+| Terminal | `120/min` | La borne doit rester fluide : polling, validation, état session et synchronisation. Le seuil est donc plus haut qu'un login, mais pas illimité. |
+| Session mobile | `60/min` | Le téléphone peut interroger l'état de la session de borne, mais la fréquence reste bornée pour éviter l'abus. |
+| Code SMS | `8` caractères | Le clavier matriciel limite l'alphabet à `0-9/A-D`. La longueur compense cette contrainte matérielle. |
+| Alphabet SMS | `14` symboles | Correspond aux touches disponibles : dix chiffres plus `A-D`. |
+| Espace SMS | `14^8 = 1 475 789 056` | Rend le code difficile à deviner, surtout avec expiration, rate limiting et verrouillage. |
+| Essais SMS | `5 max` | Probabilité brute maximale ≈ `5 / 14^8`, soit environ `1 chance sur 295 millions` par code. |
+| Access token JWT | `60 min` par défaut | Compromis prototype : assez court pour limiter la durée d'un jeton volé, assez long pour éviter de gêner la démonstration. |
+| Refresh token JWT | `7 jours` par défaut | Permet de garder une session web pratique ; il est placé en cookie `HttpOnly`, donc non lisible par JavaScript. |
+| Secret terminal | minimum `24` caractères | Un secret court ou par défaut est refusé par les checks de déploiement. En production, la procédure recommande une valeur aléatoire longue, par exemple `openssl rand -hex 32`. |
+| `SECRET_KEY` Django | minimum `32` caractères | La clé signe et protège plusieurs mécanismes Django/JWT/HMAC. Une valeur faible ou par défaut bloque les checks production. |
+| HSTS production | `31536000` secondes | Un an : durée classique après validation HTTPS, pour forcer les navigateurs à utiliser HTTPS. |
+| HSTS sous-domaines | désactivé | Le prototype utilise une IP LAN et non un domaine public avec sous-domaines maîtrisés. Activer `includeSubDomains` serait artificiel. |
+| HSTS preload | désactivé | Le préchargement navigateur n'est pertinent que pour un domaine public stable. Sur une CA privée locale, il pourrait bloquer des essais si la configuration change. |
+| Certificat HTTPS | `30 jours` | Durée courte suffisante pour une démonstration, qui force à documenter le renouvellement et limite l'impact d'une fuite de clé. |
+
+Phrase de soutenance :
+
+> Les paramètres ne sont pas arbitraires. Les limites basses protègent les zones
+> sensibles comme connexion, inscription ou SMS. Les limites plus hautes, comme
+> le terminal, tiennent compte du fonctionnement réel de la borne. Pour le code
+> SMS, le clavier limite l'alphabet, donc la sécurité vient de la longueur, de
+> l'expiration, du nombre d'essais et du rate limiting.
+
+À l'oral, si on me demande pourquoi je n'active pas `includeSubDomains` et
+`preload`, la réponse est : ces options sont faites pour un domaine public
+stable. Ici, on travaille sur `https://192.168.10.10` avec une CA privée
+`Metropole Verte`. Le bon choix est donc d'activer HSTS pour forcer HTTPS sur
+l'origine utilisée, mais de ne pas inscrire une politique globale impossible à
+garantir sur des sous-domaines inexistants.
 
 ### Où c'est appliqué ?
 
@@ -752,7 +945,16 @@ station_nom
 borne_nom
 created_at
 expires_at
-authorized_reservation_id si autorisé
+reservation_id si autorisé
+session_id si consommé
+```
+
+Les statuts possibles sont :
+
+```text
+pending    -> QR de borne créé, aucune réservation choisie
+authorized -> réservation choisie depuis la PWA mobile
+consumed   -> autorisation consommée par le kiosque
 ```
 
 ### Flux exact
@@ -769,18 +971,144 @@ Téléphone
   -> GET /api/mobile-sessions/<token>/
   -> liste réservations compatibles
   -> POST /api/mobile-sessions/<token>/authorize/
+  -> affiche "Autorisation confirmée"
+  -> interroge GET /api/mobile-sessions/<token>/
+  -> affiche "Borne autorisée" quand status=consumed
 
 Raspberry
   -> interroge /terminal/mobile-sessions/status/
   -> consomme /terminal/mobile-sessions/consume/
   -> reçoit session + slot_id + mqtt_prefix
+  -> publie UNLOCK vers l'ESP32
+  -> affiche l'écran de branchement après ACK unlocked
 ```
+
+Si la page mobile est rafraîchie après autorisation, `mobile_session_detail()`
+renvoie aussi la réservation sélectionnée. La PWA peut donc reconstruire l'écran
+avec la bonne station, la bonne borne et le bon emplacement au lieu de perdre le
+contexte.
 
 Références :
 
 - [`frontend/js/mobile-session.js`](frontend/js/mobile-session.js)
 - [`raspberry/app/app.js`](raspberry/app/app.js)
 - vues mobile/terminal dans [`backend/api/views.py`](backend/api/views.py)
+
+## 11 bis. PWA et mode hors ligne mobile
+
+### Question possible
+
+```text
+Que se passe-t-il si le téléphone perd le réseau ?
+Est-ce que la PWA peut valider une réservation hors ligne ?
+```
+
+### Réponse technique
+
+Le mode hors ligne de la PWA est volontairement limité. Il ne remplace pas le
+backend et ne valide jamais une réservation sans serveur. Il sert uniquement à
+éviter une page blanche ou une erreur navigateur quand le téléphone ne peut plus
+joindre l'application.
+
+Références :
+
+- [`frontend/public/manifest.webmanifest`](frontend/public/manifest.webmanifest)
+- [`frontend/public/sw.js`](frontend/public/sw.js)
+- [`frontend/js/pwa.js`](frontend/js/pwa.js)
+- [`frontend/offline.html`](frontend/offline.html)
+
+### Mécanisme
+
+Le fichier `frontend/js/api.js` importe `frontend/js/pwa.js`. Ce script
+enregistre le service worker `frontend/public/sw.js` lorsque l'application n'est
+pas lancée en développement local.
+
+Le service worker installe un cache applicatif léger :
+
+```javascript
+const APP_SHELL = [
+  "/",
+  "/index.html",
+  "/login.html",
+  "/register.html",
+  "/offline.html",
+  "/manifest.webmanifest",
+  "/icons/pwa-icon.svg",
+  "/icons/pwa-icon-192.png",
+  "/icons/pwa-icon-512.png",
+  "/icons/pwa-maskable-512.png"
+];
+```
+
+Les appels API sont explicitement exclus :
+
+```javascript
+if (url.pathname.startsWith("/api/")) {
+  return;
+}
+```
+
+Cela signifie que les réservations, sessions, profils, moyens d'accès et
+autorisations borne restent toujours demandés au backend.
+
+### Pages privées
+
+Les pages privées ne sont pas servies depuis un ancien cache :
+
+```javascript
+const PRIVATE_NAVIGATION_PATHS = new Set([
+  "/admin-dashboard.html",
+  "/admin-form.html",
+  "/admin-station.html",
+  "/dashboard.html",
+  "/mobile-session.html",
+  "/profile.html",
+  "/reservation.html",
+  "/technician-dashboard.html"
+]);
+```
+
+Si le réseau tombe sur l'une de ces pages, le service worker renvoie
+`offline.html` au lieu d'afficher un écran de compte potentiellement obsolète.
+Ce choix évite de présenter de fausses informations après une déconnexion, une
+expiration de jeton ou une révocation côté serveur.
+
+### IP Wi-Fi et tests locaux
+
+Pendant les tests sur téléphone via l'adresse IP Wi-Fi du PC, `frontend/js/pwa.js`
+désactive le service worker sur les IP privées. Cela évite que le navigateur du
+téléphone conserve une ancienne version de l'application pendant les essais.
+
+### Différence avec le mode dégradé Raspberry
+
+La PWA hors ligne est un mécanisme d'ergonomie mobile. Elle affiche un écran
+propre quand le réseau tombe, mais ne prend aucune décision métier.
+
+Le mode dégradé Raspberry est un mécanisme terrain. Le Raspberry conserve un
+cache SQLite d'autorisations déjà synchronisées et peut valider localement
+certains accès si le backend central devient indisponible.
+
+Le cache n'est pas un historique des dernières réservations créées. Il contient
+les droits dont le créneau est proche. Par défaut, l'horizon est de 24 heures :
+le backend exporte les réservations confirmées ou actives comprises entre la
+tolérance de fin et les prochaines 24 heures. Une réservation créée deux jours
+avant peut donc être acceptée si son créneau est dans cette fenêtre ; une
+réservation passée ou prévue trop loin ne reste pas dans le cache.
+
+Phrase de soutenance possible :
+
+> Le mode dégradé n'est pas un mode autonome complet. Il permet au Raspberry de
+> continuer environ 24 heures avec les droits déjà synchronisés, sans créer de
+> nouvelles réservations ni de nouveaux secrets. C'est un compromis entre
+> continuité de service et limitation du risque local.
+
+Phrase de soutenance possible :
+
+> Le mode hors ligne de la PWA ne sert pas à autoriser une charge. Il sert à
+> afficher une page propre quand le téléphone n'a plus accès au serveur. Les
+> pages privées et les appels API ne sont pas servis depuis un ancien cache. La
+> vraie continuité de service terrain est portée par le Raspberry, qui dispose
+> d'un cache SQLite limité pour les accès déjà synchronisés.
 
 ## 12. Secret terminal Raspberry
 
@@ -813,6 +1141,19 @@ Référence :
 - `_terminal_secret_response()` dans [`backend/api/views.py`](backend/api/views.py)
 
 `compare_digest` évite une comparaison naïve caractère par caractère sensible au timing.
+
+Une comparaison classique peut théoriquement s'arrêter dès qu'un caractère est
+différent. Avec suffisamment d'essais et des mesures de temps très précises, un
+attaquant pourrait chercher à déduire combien de caractères initiaux sont
+corrects. `hmac.compare_digest` limite ce canal auxiliaire temporel : c'est le
+bon outil pour comparer des secrets.
+
+Phrase de soutenance possible :
+
+> Je n'utilise pas `==` pour comparer le secret terminal. J'utilise
+> `hmac.compare_digest`, car un secret doit être comparé sans fuite d'information
+> par le temps de comparaison. Cette protection s'ajoute au secret long, au HTTPS
+> et au rate limiting.
 
 ### Mécanisme Raspberry
 
@@ -915,6 +1256,12 @@ Référence :
 
 - `terminal_authenticate()` dans [`backend/api/views.py`](backend/api/views.py)
 
+Sur le kiosque, cette validation ne lance pas directement la charge électrique.
+Elle autorise l'ouverture du boîtier : le Raspberry publie `UNLOCK` vers l'ESP32.
+Quand l'ESP32 répond `status=unlocked`, le backend peut projeter la session en
+`waiting_plug`. L'utilisateur branche ensuite le câble ; quand la télémétrie
+remonte `cable=true`, le Raspberry publie automatiquement `START`.
+
 ### Machine d'état
 
 États :
@@ -937,6 +1284,7 @@ Fonctions importantes :
 
 - `ensure_session_can_be_started()`
 - `mark_access_validated()`
+- `mark_state_from_ack()` pour projeter `UNLOCK`, `START` et `STOP`
 - `mark_start_ack()`
 - `mark_stop_requested()`
 - `mark_stopped()`
@@ -1002,7 +1350,10 @@ Comment la borne démarre physiquement une charge ?
 
 ### Réponse technique
 
-Après validation backend, le Raspberry publie un ordre MQTT `START` à l'ESP32 de l'emplacement.
+Après validation backend, le Raspberry publie d'abord un ordre MQTT `UNLOCK` à
+l'ESP32 de l'emplacement. La charge électrique ne démarre pas à ce moment-là :
+le Raspberry attend que l'ESP32 remonte `cable=true`, puis publie `START`
+automatiquement.
 
 Référence :
 
@@ -1131,6 +1482,31 @@ L'ESP32 remonte :
 Référence :
 
 - `device_identity()` dans [`esp32/emplacement1/main.py`](esp32/emplacement1/main.py)
+
+### Serrure électromagnétique
+
+La serrure validée sur le prototype utilise un relais actif-bas sur `GPIO26`.
+
+```python
+LOCK_OUTPUT_ENABLED = True
+LOCK_PIN = 26
+LOCK_RELAY_ACTIVE_LOW = True
+LOCK_AUTO_RELOCK_SECONDS = 15
+```
+
+Concrètement :
+
+- `0` sur le GPIO active le relais et ouvre la serrure ;
+- `1` remet le relais au repos ;
+- l'ouverture lance une fenêtre d'accès de 15 secondes ;
+- si aucune charge ne démarre pendant cette fenêtre, l'ESP32 reverrouille
+  automatiquement l'emplacement.
+
+Sur `UNLOCK`, l'ESP32 renvoie un ACK `unlocked`, exécute l'impulsion de serrure
+et publie ensuite un état d'attente de branchement. `START` est séparé :
+il ne sert plus à ouvrir la serrure, mais à démarrer la charge après détection
+du câble et fermeture du boîtier quand les capteurs seront câblés. Le kiosque
+l'envoie automatiquement lorsque l'ESP32 remonte `cable=true`.
 
 ## 18. Capteurs ESP32 et calculs électriques
 
@@ -1436,6 +1812,15 @@ Le backend :
 - écrit `DeviceCommandLog` ;
 - fait évoluer la session via `mark_state_from_ack()`.
 
+Pour une validation RFID réussie, la supervision doit donc montrer au minimum :
+
+- `DeviceCommandLog.action = UNLOCK` ;
+- `DeviceCommandLog.status = unlocked` ;
+- `Device.last_command_action = UNLOCK` ;
+- `charging_session.charge_state = waiting_plug` après ACK ;
+- puis `START` et `charging` seulement quand le câble est détecté sur
+  l'emplacement autorisé.
+
 Modèle :
 
 - `DeviceCommandLog` dans [`backend/api/models.py`](backend/api/models.py)
@@ -1540,6 +1925,69 @@ Paramètre :
 TELEMETRY_RETENTION_DAYS=90
 ```
 
+## 24 bis. Performance applicative
+
+### Question possible
+
+Comment avez-vous pris en compte la performance ?
+
+### Réponse technique
+
+La performance est traitée par plusieurs couches, pas par un seul outil.
+
+Base de données :
+
+- index sur les fenêtres de réservation ;
+- index sur les sessions, timestamps de télémétrie, devices et alertes ;
+- contraintes en base pour éviter les incohérences ;
+- TimescaleDB disponible pour les séries temporelles ;
+- `pg_stat_statements` préparé côté production pour identifier les requêtes
+  coûteuses ;
+- rétention des mesures brutes pour éviter une croissance illimitée.
+
+Backend Django :
+
+- `select_related()` pour charger les relations simples en une seule requête ;
+- `prefetch_related()` pour les collections ;
+- pagination des listes d'administration ;
+- cache Redis du catalogue station/borne/emplacement ;
+- séparation des services métier pour éviter des vues trop lourdes.
+
+Asynchrone :
+
+- Celery traite l'ingestion MQTT, les alertes, les notifications et la rétention ;
+- le thread MQTT reste rapide et délègue les traitements lourds ;
+- Redis sert de broker Celery, cache et couche Channels.
+
+Frontend et Nginx :
+
+- frontend buildé en fichiers statiques ;
+- cache long sur `/assets/` et `/static/` ;
+- gzip activé ;
+- logs Nginx avec temps de réponse ;
+- rate limiting et limites de taille de requête.
+
+Preuves :
+
+- [`backend/api/tests/test_query_performance.py`](backend/api/tests/test_query_performance.py)
+- [`nginx/nginx.prod.conf`](nginx/nginx.prod.conf)
+- [`nginx/prod.conf.d/station.conf`](nginx/prod.conf.d/station.conf)
+
+Phrase de soutenance :
+
+> J'ai traité la performance à plusieurs niveaux : index SQL pour les recherches
+> critiques, optimisation ORM avec `select_related` et `prefetch_related`, cache
+> Redis pour les données fréquentes, Celery pour sortir l'ingestion MQTT du
+> chemin direct, et Nginx pour servir efficacement les assets. Les tests de
+> performance vérifient notamment que certaines vues gardent un nombre de
+> requêtes constant.
+
+Limite :
+
+> Le projet n'a pas encore subi de test de charge industriel. Si le nombre
+> d'ESP32 augmente fortement, il faudra aller plus loin avec hypertables,
+> compression TimescaleDB, tuning PostgreSQL et optimisation des requêtes Grafana.
+
 ## 25. Grafana
 
 ### Question possible
@@ -1560,6 +2008,27 @@ Références :
 
 - datasource [`grafana/provisioning/datasources/datasource.yml`](grafana/provisioning/datasources/datasource.yml)
 - dashboards [`grafana/dashboards/`](grafana/dashboards/)
+
+### Dashboards provisionnés
+
+Le projet sépare trois besoins de supervision :
+
+- `station-overview.json` : vue d'accueil avec les indicateurs globaux, les
+  sessions en cours et les alertes ouvertes.
+- `station-supervision.json` : vue technique filtrée par station, borne et
+  emplacement pour analyser l'état d'un ESP32 ou d'un emplacement.
+- `session-detail.json` : vue dédiée à une session de charge précise.
+
+Si on me demande si Grafana permet de suivre une session en cours, la réponse
+est donc oui : la variable `session` du dashboard `session-detail.json` liste les
+sessions ouvertes et les sessions récentes. Une fois la session sélectionnée, le
+dashboard affiche le contexte de la réservation, le courant, la tension, la
+puissance calculée, l'énergie, les commandes UNLOCK/START/STOP, les ACK ESP32
+et les alertes liées à cette session.
+
+Ce choix est important : la vue session ne filtre pas seulement par emplacement.
+Elle utilise `id_session` dans `session_telemetry`, ce qui évite de confondre les
+mesures de deux charges différentes réalisées sur le même emplacement.
 
 ### Tables utilisées
 
@@ -1620,11 +2089,12 @@ Dans le code :
 
 ```text
 temperature >= 60 °C -> overheat
-current >= 3.0 A -> overcurrent
+current >= 4.0 A -> overcurrent
 cable False en charging -> cable_removed
 door False en charging -> intrusion
 lock False en charging -> lock_unlocked
 energy_kwh >= SESSION_ENERGY_ALERT_KWH -> energy_over_limit
+waiting_plug trop long -> session_waiting_plug_too_long
 ```
 
 Références :
@@ -1635,6 +2105,10 @@ Références :
 ### Session sans télémétrie
 
 Une tâche périodique détecte les sessions actives sans mesure récente.
+L'état `waiting_plug` est exclu de cette règle, car l'utilisateur peut être en
+train de brancher le câble après ouverture du boîtier. Si cet état dure trop
+longtemps, le backend crée une alerte dédiée :
+`session_waiting_plug_too_long`.
 
 Référence :
 
@@ -1644,6 +2118,7 @@ Paramètre :
 
 ```text
 SESSION_TELEMETRY_STALE_MINUTES=2
+SESSION_WAITING_PLUG_STALE_MINUTES=5
 ```
 
 ## 27. Workflow technicien
@@ -1674,6 +2149,13 @@ is_active
 ```
 
 Le WebSocket technicien filtre les snapshots selon ces stations.
+
+Le dashboard technicien applique ensuite un filtre station côté interface. Les
+lignes de supervision exposent un `station_id` pour les contrôleurs ESP32, les
+alertes, les mesures et les commandes récentes. La page
+[`frontend/technician-dashboard.html`](frontend/technician-dashboard.html) permet
+donc à un technicien affecté à plusieurs stations de limiter immédiatement la
+vue à une seule station sans accéder aux autres périmètres.
 
 ### Alerte
 
@@ -1942,13 +2424,79 @@ Le projet applique plusieurs niveaux :
 - consentements historisés ;
 - export utilisateur ;
 - masquage téléphone ;
+- suppression de compte par anonymisation applicative ;
+- rétention automatisée des données techniques ;
 - anonymisation PostgreSQL optionnelle.
 
-### Anonymizer
+### Suppression de compte
+
+La suppression utilisateur ne fait plus un `user.delete()` direct. Elle appelle :
+
+```python
+anonymize_user_account(user, reason="account_self_delete")
+```
+
+Références :
+
+- `profile()` dans [`backend/api/views.py`](backend/api/views.py)
+- `anonymize_user_account()` dans [`backend/api/services/retention.py`](backend/api/services/retention.py)
+
+Effets :
+
+- le compte passe à `archive` et `is_active=False` ;
+- le mot de passe devient inutilisable ;
+- l'email est remplacé par `user-<uuid>@anonymized.invalid` ;
+- le nom et le téléphone du profil sont vidés ;
+- les moyens RFID, QR et SMS sont désactivés ;
+- les IP des journaux liés au compte sont remplacées par `0.0.0.0` ;
+- les réservations et sessions restent disponibles pour la traçabilité technique.
+
+Phrase de soutenance :
+
+> Je ne supprime pas brutalement les lignes liées aux sessions, parce qu'elles servent à la traçabilité opérationnelle. En revanche, je retire l'identité exploitable : email, téléphone, nom, mot de passe, secrets d'accès et IP liée au compte.
+
+### Rétention automatisée
+
+La tâche Celery `api.apply_privacy_retention` applique les durées configurées :
+
+| Donnée | Durée par défaut |
+|---|---:|
+| Mesures brutes capteurs | 90 jours |
+| Télémétrie de session | 365 jours |
+| Commandes et ACK ESP32 | 365 jours |
+| Journaux de sécurité | 365 jours |
+| Alertes résolues | 365 jours |
+| Secrets inactifs ou expirés | 90 jours |
+| Comptes archivés non anonymisés | 1095 jours |
+
+Commande manuelle :
+
+```bash
+python manage.py apply_privacy_retention
+```
+
+### Vues anonymisées et Anonymizer
 
 Migration :
 
 - [`backend/api/migrations/0027_optional_postgresql_anonymizer.py`](backend/api/migrations/0027_optional_postgresql_anonymizer.py)
+- [`backend/api/migrations/0033_timescale_timeseries_and_anonymized_views.py`](backend/api/migrations/0033_timescale_timeseries_and_anonymized_views.py)
+
+La production actuelle protège déjà les exports SQL avec des vues anonymisées :
+
+- `utilisateur_anonyme`
+- `technicien_anonyme`
+- `journal_securite_anonyme`
+- `supervision_session_anonyme`
+
+Ces vues ne renvoient pas les emails, noms, téléphones ou IP réelles. Elles
+renvoient des constantes ou des hashes, ce qui permet de produire des rapports
+ou de vérifier les données sans exposer les identités.
+
+PostgreSQL Anonymizer (`anon`) est une couche supplémentaire. Elle sert surtout
+au masquage dynamique côté PostgreSQL, par exemple lorsqu’on veut donner un rôle
+SQL restreint à un utilisateur ou générer un dump anonymisé directement depuis la
+base.
 
 Le code vérifie si l'extension `anon` est disponible :
 
@@ -1977,9 +2525,28 @@ Puis applique des `SECURITY LABEL` sur :
 - `technicien.email`
 - `technicien.telephone`
 
-### Limite
+### État production
 
-L'anonymisation dépend de la disponibilité de l'extension PostgreSQL Anonymizer dans l'image de base.
+Sur le serveur de production actuel, la base tourne avec l’image
+`timescale/timescaledb`, qui fournit PostgreSQL avec TimescaleDB mais pas
+l’extension système `anon`. Concrètement, `anon` n’apparaît pas dans
+`pg_available_extensions` et le fichier `anon.control` n’est pas présent dans le
+conteneur.
+
+Ce n’est pas bloquant pour le projet, car l’anonymisation applicative et les vues
+SQL anonymisées sont déjà actives. Installer `anon` proprement nécessiterait une
+image PostgreSQL personnalisée qui combine à la fois TimescaleDB et PostgreSQL
+Anonymizer. Il ne faut pas installer l’extension à la main dans un conteneur en
+cours, car ce serait perdu au prochain redéploiement.
+
+Phrase orale possible :
+
+> J’ai distingué deux niveaux. Le niveau déjà actif repose sur l’anonymisation
+> applicative et des vues SQL anonymisées. Le niveau PostgreSQL Anonymizer est
+> préparé par migration, mais il dépend de l’image serveur. Comme ma production
+> utilise une image TimescaleDB pour les séries temporelles, je n’active `anon`
+> que si l’image fournit réellement l’extension, sinon la migration passe sans
+> casser le déploiement.
 
 ## 34. CORS, hosts et IP Wi-Fi
 
@@ -2046,7 +2613,8 @@ Nginx :
 - redirige HTTP vers HTTPS ;
 - sert `/api/` vers Django ;
 - sert `/grafana/` vers Grafana ;
-- sert `/kiosk/` vers Raspberry ;
+- sert `/kiosk/` seulement en simulation locale ; en production réelle, le
+  kiosque tourne sur le Raspberry physique ;
 - route `/ws/` pour les WebSockets ;
 - ajoute des headers de sécurité.
 
@@ -2057,6 +2625,7 @@ X-Frame-Options
 X-Content-Type-Options
 Referrer-Policy
 Content-Security-Policy
+Strict-Transport-Security
 ```
 
 Django complète avec :
@@ -2072,6 +2641,48 @@ SECURE_PROXY_SSL_HEADER
 Référence :
 
 - [`backend/config/settings.py`](backend/config/settings.py)
+
+### TLS et CA locale
+
+Pour la mise en production académique, le projet utilise une autorité de
+certification locale Smallstep nommée `Metropole Verte`.
+
+Concrètement :
+
+- `step-ca` tourne sur le serveur Debian ;
+- le certificat HTTPS Nginx est signé par cette CA ;
+- le certificat contient les SAN `192.168.10.10`, `127.0.0.1`, `localhost` et
+  `SRV-Station` ;
+- la racine CA doit être installée sur les postes qui ouvrent l'application ;
+- Nginx termine TLS, puis relaie vers les services internes Docker.
+
+Pourquoi ne pas garder un certificat autosigné simple ?
+
+Un certificat autosigné chiffre bien le trafic, mais il ne donne pas une chaîne
+de confiance propre à plusieurs machines. Avec Smallstep, on obtient un modèle
+plus industriel : une racine de confiance, des certificats serveurs signés, des
+SAN contrôlés, et une procédure de renouvellement.
+
+Pourquoi HSTS ?
+
+HSTS force le navigateur à revenir en HTTPS après une première connexion
+sécurisée. Dans le projet, l'en-tête est :
+
+```text
+Strict-Transport-Security: max-age=31536000
+```
+
+Les options `includeSubDomains` et `preload` restent désactivées parce que
+l'application tourne sur une IP LAN avec une CA privée. Les activer serait
+pertinent uniquement avec un domaine public stable et tous ses sous-domaines
+servis en HTTPS.
+
+À expliquer simplement :
+
+> TLS chiffre la communication. Le certificat prouve que je parle au bon
+> serveur. HSTS empêche le navigateur de revenir en HTTP. Smallstep me permet de
+> gérer cette confiance en local sans acheter de certificat public pour un
+> prototype LAN.
 
 ## 36. Docker et production-ready
 

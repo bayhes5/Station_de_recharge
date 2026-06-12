@@ -6,6 +6,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const fields = {
         pseudo: form.pseudo,
         email: form.email,
+        telephone: form.telephone,
         password: form.password,
         passwordConfirm: form.passwordConfirm,
         cgu: form.cguAccepted,
@@ -16,6 +17,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const feedback = {
         pseudo: document.getElementById("pseudo-feedback"),
         email: document.getElementById("email-feedback"),
+        telephone: document.getElementById("telephone-feedback"),
         password: document.getElementById("password-feedback"),
         passwordConfirm: document.getElementById("password-confirm-feedback"),
         cgu: document.getElementById("cgu-feedback"),
@@ -175,8 +177,8 @@ document.addEventListener("DOMContentLoaded", () => {
             state[name] = available;
             setFieldState(name, available ? "valid" : "invalid", fieldResult?.message || (available ? "Disponible." : "Déjà utilisé."));
         } catch (_error) {
-            state[name] = false;
-            setFieldState(name, "invalid", "Vérification impossible pour le moment.");
+            state[name] = true;
+            setFieldState(name, "pending", "Vérification à l’envoi du formulaire.");
         } finally {
             updateSubmitState();
         }
@@ -217,6 +219,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const payload = {
             pseudo: fields.pseudo.value.trim(),
             email: fields.email.value.trim(),
+            telephone: fields.telephone.value.trim(),
             password: fields.password.value,
             cgu_accepted: fields.cgu.checked,
             privacy_policy_accepted: fields.privacy.checked,
@@ -244,6 +247,9 @@ document.addEventListener("DOMContentLoaded", () => {
             if (error.payload?.password) {
                 state.password = false;
                 setFieldState("password", "invalid", error.payload.password.join(" "));
+            }
+            if (error.payload?.telephone) {
+                setFieldState("telephone", "invalid", error.payload.telephone.join(" "));
             }
             if (error.payload?.cgu_accepted) {
                 state.cgu = false;

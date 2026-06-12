@@ -10,6 +10,7 @@ from urllib.request import Request, urlopen
 import uuid
 
 from django.conf import settings
+from django.core.mail import send_mail
 
 
 logger = logging.getLogger(__name__)
@@ -129,7 +130,27 @@ def _send_ovh_sms(phone_number, message):
     )
 
 
-def send_sms(phone_number, message):
+def _send_email_sms(phone_number, message, email_recipient=None):
+    """Send the SMS body by email for local demonstrations with Mailpit."""
+    recipient = (email_recipient or _setting("SMS_EMAIL_FALLBACK_RECIPIENT")).strip()
+    if not recipient:
+        raise SmsDeliveryError(
+            "Destinataire e-mail manquant pour SMS_BACKEND=email."
+        )
+
+    sent_count = send_mail(
+        "Code SMS temporaire Métropole Verte",
+        str(message or ""),
+        getattr(settings, "DEFAULT_FROM_EMAIL", "Station <no-reply@station.local>"),
+        [recipient],
+        fail_silently=False,
+    )
+    if sent_count <= 0:
+        raise SmsDeliveryError("Envoi e-mail du code SMS non confirmé.")
+    return SmsResult(backend="email", message_id=f"email-{uuid.uuid4()}")
+
+
+def send_sms(phone_number, message, *, email_recipient=None):
     """Send a SMS through the configured backend.
 
     The development backend logs the message locally. A production provider can
@@ -151,6 +172,8 @@ def send_sms(phone_number, message):
         )
         return SmsResult(backend=backend, message_id=message_id)
 
+    if backend == "email":
+        return _send_email_sms(phone_number, message, email_recipient=email_recipient)
     if backend == "twilio":
         return _send_twilio_sms(phone_number, message)
     if backend == "brevo":

@@ -100,7 +100,12 @@ const TERMINAL_BORNE_ID =
     || "";
 const RFID_POLL_INTERVAL_MS = 700;
 const SLOT_STATUS_POLL_INTERVAL_MS = 1500;
+const CURRENT_DETECTED_A = 0.3;
+const CURRENT_MAX_AGE_MS = 15000;
+const CURRENT_START_CONFIRMATION_COUNT = 2;
 const DEFAULT_IDLE_RETURN_SECONDS = 120;
+const POST_AUTH_RETURN_SECONDS = 30;
+const MOBILE_SESSION_RENEW_BEFORE_EXPIRY_SECONDS = 20;
 const idleTimeoutParam = Number(new URLSearchParams(window.location.search).get("idle_timeout"));
 const idleTimeoutStorage = Number(window.localStorage.getItem("terminalIdleTimeoutSeconds"));
 const IDLE_RETURN_MS = (
@@ -110,6 +115,7 @@ const IDLE_RETURN_MS = (
             ? idleTimeoutStorage
             : DEFAULT_IDLE_RETURN_SECONDS
 ) * 1000;
+const POST_AUTH_RETURN_MS = POST_AUTH_RETURN_SECONDS * 1000;
 
 const screens = [...document.querySelectorAll(".screen")];
 const routeButtons = [...document.querySelectorAll("[data-go]")];
@@ -161,6 +167,8 @@ let mobileSessionTimer = null;
 let currentCharge = null;
 let slotStatusTimer = null;
 let autoStartPending = false;
+let currentStartCandidateCount = 0;
+let lastCurrentStartTelemetryAt = "";
 
 function showScreen(name) {
     activeScreen = name;
@@ -626,6 +634,8 @@ async function closeTerminalSession(sessionId) {
 function resetToHome() {
     stopMobilePairing();
     stopSlotStatusPolling();
+    currentStartCandidateCount = 0;
+    lastCurrentStartTelemetryAt = "";
     window.clearTimeout(inactivityTimer);
     reservationCodeInput.value = "";
     authValueInput.value = "";
@@ -715,7 +725,25 @@ function chargePreparationMessage() {
 
 async function showChargeReadyAfterUnlock(result, details = "") {
     setStatus("Ouverture du boîtier.");
-    const unlockResult = await unlockSlotFromSession(result);
+    let unlockResult = null;
+    try {
+        unlockResult = await unlockSlotFromSession(result);
+    } catch (error) {
+        const slotStatus = await readSlotStatus(extractSession(result));
+        const state = slotState(slotStatus);
+        if (!["unlocked", "waiting_plug", "charging", "charging_started"].includes(state)) {
+            throw error;
+        }
+        unlockResult = {
+            mqtt: { ack_received: false },
+            charge_state: { state: state === "unlocked" ? "waiting_plug" : state },
+        };
+    }
+    if (["charging", "charging_started"].includes(unlockResult?.charge_state?.state)) {
+        currentCharge = { session: extractSession(result), details };
+        showCharging(unlockResult);
+        return;
+    }
     showChargeReady(
         result,
         chargePreparationMessage(),
@@ -725,6 +753,8 @@ async function showChargeReadyAfterUnlock(result, details = "") {
 
 function showChargeReady(result, message, details = "") {
     const session = extractSession(result);
+    currentStartCandidateCount = 0;
+    lastCurrentStartTelemetryAt = "";
     currentCharge = {
         session,
         message,
@@ -735,6 +765,7 @@ function showChargeReady(result, message, details = "") {
     readyDetails.textContent = details || sessionDetails(result) || "Emplacement attribué.";
     pushEvent("Accès autorisé.");
     showScreen("ready");
+    homeTimer = window.setTimeout(resetToHome, POST_AUTH_RETURN_MS);
     startCablePolling();
 }
 
@@ -782,6 +813,45 @@ function booleanFromPayloads(slotStatus, key) {
     return null;
 }
 
+function numericValue(value) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
+    }
+    const parsed = Number(String(value ?? "").replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isRecentTimestamp(value, maxAgeMs) {
+    const timestamp = Date.parse(String(value || ""));
+    if (!Number.isFinite(timestamp)) {
+        return false;
+    }
+    return Date.now() - timestamp <= maxAgeMs;
+}
+
+function currentDetectedFromPayloads(slotStatus) {
+    const telemetry = slotStatus?.telemetry || {};
+    if (!isRecentTimestamp(telemetry.received_at, CURRENT_MAX_AGE_MS)) {
+        return false;
+    }
+    const current = numericValue(telemetry.payload?.current);
+    return current !== null && current >= CURRENT_DETECTED_A;
+}
+
+function confirmCurrentBasedStart(slotStatus) {
+    const telemetryReceivedAt = String(slotStatus?.telemetry?.received_at || "");
+    if (!currentDetectedFromPayloads(slotStatus)) {
+        currentStartCandidateCount = 0;
+        lastCurrentStartTelemetryAt = "";
+        return false;
+    }
+    if (telemetryReceivedAt && telemetryReceivedAt !== lastCurrentStartTelemetryAt) {
+        currentStartCandidateCount += 1;
+        lastCurrentStartTelemetryAt = telemetryReceivedAt;
+    }
+    return currentStartCandidateCount >= CURRENT_START_CONFIRMATION_COUNT;
+}
+
 function slotState(slotStatus) {
     return String(slotStatus?.state || slotStatus?.latest?.state || slotStatus?.latest?.status || "").trim().toLowerCase();
 }
@@ -789,9 +859,12 @@ function slotState(slotStatus) {
 function waitingPlugDetails(slotStatus) {
     const cablePresent = booleanFromPayloads(slotStatus, "cable_present");
     const doorClosed = booleanFromPayloads(slotStatus, "door_closed");
+    const currentDetected = currentDetectedFromPayloads(slotStatus);
     const parts = [];
     if (cablePresent === true) {
         parts.push("Câble détecté.");
+    } else if (cablePresent !== false && currentDetected) {
+        parts.push("Branchement détecté.");
     } else if (cablePresent === false) {
         parts.push("En attente du câble.");
     } else {
@@ -827,15 +900,18 @@ async function pollCableAndAutoStart() {
         }
         const cablePresent = booleanFromPayloads(slotStatus, "cable_present");
         const doorClosed = booleanFromPayloads(slotStatus, "door_closed");
+        const currentDetected = currentDetectedFromPayloads(slotStatus);
+        const currentConfirmed = confirmCurrentBasedStart(slotStatus);
         if (readyDetails) {
             readyDetails.textContent = [
                 currentCharge?.details || "",
                 waitingPlugDetails(slotStatus),
             ].filter(Boolean).join(" | ");
         }
-        if (cablePresent === true && doorClosed !== false) {
+        const currentBasedStart = cablePresent !== false && currentDetected && currentConfirmed;
+        if ((cablePresent === true || currentBasedStart) && doorClosed !== false) {
             autoStartPending = true;
-            readyMessage.textContent = "Câble détecté. Démarrage automatique de la charge.";
+            readyMessage.textContent = "Branchement détecté. Démarrage automatique de la charge.";
             await startCurrentCharge();
         }
     } catch (error) {
@@ -859,6 +935,20 @@ async function startCurrentCharge() {
         const mqttResult = await startSlotFromSession({ session: currentCharge.session });
         showCharging(mqttResult);
     } catch (error) {
+        try {
+            const slotStatus = await readSlotStatus(currentCharge.session);
+            const state = slotState(slotStatus);
+            if (["charging", "charging_started"].includes(state)) {
+                pushEvent("Charge confirmée par télémétrie.");
+                showCharging({
+                    mqtt: { ack_received: false },
+                    charge_state: { state: "charging" },
+                });
+                return;
+            }
+        } catch (_statusError) {
+            // Keep the original command error visible.
+        }
         pushEvent(error.message, true);
         showResult(false, error.message, "La réservation est validée, mais l'équipement n'a pas validé le démarrage.");
     } finally {
@@ -931,6 +1021,11 @@ async function pollMobileSession() {
         const result = await readMobileSession(mobileSessionToken);
         const session = result.mobile_session || {};
         if (session.status === "pending") {
+            if (Number(session.expires_in || 0) <= MOBILE_SESSION_RENEW_BEFORE_EXPIRY_SECONDS) {
+                setMobileStatus("Renouvellement du QR de session.");
+                await startMobilePairing();
+                return;
+            }
             setMobileStatus(`Finalisez sur votre téléphone (${session.expires_in || 0}s).`);
             return;
         }
@@ -951,6 +1046,11 @@ async function pollMobileSession() {
         }
     } catch (error) {
         stopMobilePairing();
+        if (/session mobile invalide|expire/i.test(error.message || "")) {
+            setMobileStatus("Session expirée. Génération d'un nouveau QR.");
+            await startMobilePairing();
+            return;
+        }
         setMobileStatus(error.message, true);
         pushEvent(error.message, true);
     } finally {
