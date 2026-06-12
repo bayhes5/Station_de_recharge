@@ -109,6 +109,7 @@ class Command(BaseCommand):
         )
 
     def _reservations_to_clear(self, *, emplacements, now, keep_future):
+        """Select reservations that must be cancelled for the reset scope."""
         queryset = Reservation.objects.filter(
             emplacement__in=emplacements,
             statut__in=[
@@ -122,6 +123,7 @@ class Command(BaseCommand):
         return list(queryset.select_related("emplacement").order_by("date_debut"))
 
     def _print_summary(self, *, emplacements, open_sessions, reservations, apply, keep_future):
+        """Print the dry-run or apply summary before modifying data."""
         mode = "APPLY" if apply else "DRY-RUN"
         scope = ", ".join(f"{item.borne.nom}/emplacement {item.numero}" for item in emplacements)
         self.stdout.write(f"Mode: {mode}")
@@ -141,6 +143,7 @@ class Command(BaseCommand):
             )
 
     def _close_sessions(self, sessions, now):
+        """Close all open sessions selected for the demo reset."""
         closed = 0
         for session in sessions:
             session.end_time = max(now, session.start_time + timedelta(seconds=1))
@@ -154,6 +157,7 @@ class Command(BaseCommand):
         return closed
 
     def _cancel_reservations(self, reservations):
+        """Cancel reservations that are not already tied to a session."""
         cancelled = 0
         for reservation in reservations:
             if reservation.statut == ReservationStatus.COMPLETED:
@@ -166,6 +170,7 @@ class Command(BaseCommand):
         return cancelled
 
     def _reset_emplacements(self, emplacements):
+        """Restore selected slots and devices to an available demo state."""
         reset = 0
         for emplacement in emplacements:
             emplacement.statut = EmplacementStatus.AVAILABLE
@@ -180,6 +185,7 @@ class Command(BaseCommand):
         return reset
 
     def _resolve_session_alerts(self, sessions, now):
+        """Resolve alerts attached to sessions closed by the reset command."""
         session_ids = [session.id_session for session in sessions]
         if not session_ids:
             return 0

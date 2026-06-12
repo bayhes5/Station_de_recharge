@@ -98,6 +98,7 @@ class Command(BaseCommand):
         Utilisateur.objects.filter(pseudo__in=LEGACY_DEMO_USERS).delete()
 
     def _ensure_admin(self):
+        """Create or refresh the deterministic administrator account."""
         pseudo = os.environ.get("ADMIN_PSEUDO", "admin")
         email = os.environ.get("ADMIN_EMAIL", "admin@station.local")
         password = os.environ.get("ADMIN_PASSWORD", "Admin123!")
@@ -144,6 +145,7 @@ class Command(BaseCommand):
         return user
 
     def _ensure_infrastructure(self):
+        """Create or refresh the prototype station, cabinet and slots."""
         station_name = os.environ.get("DEMO_STATION_NAME", "Station Demo")
         location_text = os.environ.get("DEMO_STATION_LOCATION", "Centre-ville")
         latitude = float(os.environ.get("DEMO_STATION_LATITUDE", "48.8566"))
@@ -204,6 +206,7 @@ class Command(BaseCommand):
         return station, borne, emplacements
 
     def _ensure_device(self, emplacement, numero, firmware_version):
+        """Create or reset one ESP32 placeholder for a demo slot."""
         device, _created = Device.objects.get_or_create(
             emplacement=emplacement,
             defaults={
@@ -233,6 +236,7 @@ class Command(BaseCommand):
         return device
 
     def _ensure_technician(self, station):
+        """Create or refresh the demo technician and station assignment."""
         pseudo = os.environ.get("DEMO_TECH_PSEUDO", "tech")
         email = os.environ.get("DEMO_TECH_EMAIL", "tech@station.local")
         password = os.environ.get("DEMO_TECH_PASSWORD", "Tech123!")
@@ -286,6 +290,7 @@ class Command(BaseCommand):
         return technician
 
     def _ensure_maintenance(self, station, technician):
+        """Create or refresh a planned maintenance item for the demo station."""
         Maintenance.objects.update_or_create(
             station=station,
             technicien=technician,

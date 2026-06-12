@@ -9,6 +9,7 @@ from django.db.models import Q
 from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
+from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -71,6 +72,7 @@ EXPORT_DATASETS = {
 }
 
 
+@extend_schema(exclude=True)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated, IsStaffUser])
 def admin_operational_export(request):
@@ -153,6 +155,7 @@ def build_security_log_export_payload(filters=None):
 
 
 def _emplacement_queryset(filters):
+    """Return charging slots scoped by the selected station filter."""
     queryset = (
         Emplacement.objects.select_related("station", "borne", "device")
         .prefetch_related("sessions", "device__capteurs")
@@ -163,6 +166,7 @@ def _emplacement_queryset(filters):
 
 
 def _serialize_emplacement(emplacement, now, filters):
+    """Serialize one slot with current device, session and alert context."""
     device = getattr(emplacement, "device", None)
     active_session = (
         emplacement.sessions.filter(end_time__isnull=True)
@@ -192,6 +196,7 @@ def _serialize_emplacement(emplacement, now, filters):
 
 
 def _device_status(device, now):
+    """Return the user-facing online status for an ESP32 device."""
     if device is None:
         return ""
     if not device_is_online(device, now=now):
@@ -200,6 +205,7 @@ def _device_status(device, now):
 
 
 def _active_alert_count(emplacement):
+    """Count unresolved alerts linked to a slot through sessions or telemetry."""
     return (
         Alerte.objects.exclude(status__in=RESOLVED_ALERT_STATUSES)
         .filter(
@@ -211,6 +217,7 @@ def _active_alert_count(emplacement):
 
 
 def _parse_filters(request):
+    """Parse export filters from query parameters."""
     date_from, date_to = _parse_date_range(
         request.query_params.get("date_from"),
         request.query_params.get("date_to"),
@@ -229,6 +236,7 @@ def _parse_filters(request):
 
 
 def _parse_date_range(raw_from, raw_to):
+    """Convert optional date strings to aware datetime bounds."""
     date_from = parse_date(raw_from or "")
     date_to = parse_date(raw_to or "")
     start = timezone.make_aware(datetime.combine(date_from, time.min)) if date_from else None
@@ -237,6 +245,7 @@ def _parse_date_range(raw_from, raw_to):
 
 
 def _serialize_filters(filters):
+    """Serialize filters in a stable JSON-compatible shape."""
     return {
         "dataset": filters.get("dataset") or "operational",
         "station_id": filters.get("station_id") or "",
@@ -248,6 +257,7 @@ def _serialize_filters(filters):
 
 
 def _station_queryset(filters):
+    """Return stations scoped by the optional station identifier."""
     queryset = Station.objects.all()
     if filters.get("station_id"):
         queryset = queryset.filter(id_station=filters["station_id"])
@@ -255,6 +265,7 @@ def _station_queryset(filters):
 
 
 def _borne_queryset(filters):
+    """Return cabinets scoped by the optional station identifier."""
     queryset = Borne.objects.all()
     if filters.get("station_id"):
         queryset = queryset.filter(station_id=filters["station_id"])
@@ -262,6 +273,7 @@ def _borne_queryset(filters):
 
 
 def _scoped_reservations(filters):
+    """Return reservations overlapping the selected station and period."""
     queryset = Reservation.objects.all()
     if filters.get("station_id"):
         queryset = queryset.filter(emplacement__station_id=filters["station_id"])
@@ -273,6 +285,7 @@ def _scoped_reservations(filters):
 
 
 def _scoped_sessions(filters):
+    """Return sessions overlapping the selected station and period."""
     queryset = Session.objects.all()
     if filters.get("station_id"):
         queryset = queryset.filter(emplacement__station_id=filters["station_id"])
@@ -284,6 +297,7 @@ def _scoped_sessions(filters):
 
 
 def _scoped_alerts(filters):
+    """Return alerts scoped by station and timestamp filters."""
     queryset = Alerte.objects.all()
     if filters.get("station_id"):
         queryset = queryset.filter(
@@ -298,6 +312,7 @@ def _scoped_alerts(filters):
 
 
 def _security_log_queryset(filters):
+    """Return archived security logs matching export filters."""
     queryset = JournalSecurite.objects.select_related("utilisateur").order_by("-date_action")
     if filters.get("date_from"):
         queryset = queryset.filter(date_action__gte=filters["date_from"])
@@ -317,6 +332,7 @@ def _security_log_queryset(filters):
 
 
 def _serialize_security_log(log):
+    """Serialize one security log row for preview or CSV export."""
     user = log.utilisateur
     return {
         "date_action": log.date_action.isoformat() if log.date_action else "",
@@ -328,6 +344,7 @@ def _serialize_security_log(log):
 
 
 def _dataset_metadata(dataset):
+    """Return static metadata for an export dataset."""
     config = EXPORT_DATASETS[dataset]
     return {
         "dataset": dataset,
@@ -339,6 +356,7 @@ def _dataset_metadata(dataset):
 
 
 def _request_ip(request):
+    """Extract the client IP address used for audit logging."""
     forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
     if forwarded_for:
         return forwarded_for.split(",", 1)[0].strip()
@@ -346,6 +364,7 @@ def _request_ip(request):
 
 
 def _record_export_event(request, payload):
+    """Record a security log entry when an administrator downloads an export."""
     metadata = payload["metadata"]
     JournalSecurite.objects.create(
         utilisateur=request.user,
@@ -359,6 +378,7 @@ def _record_export_event(request, payload):
 
 
 def _csv_response(rows, columns, filename):
+    """Build a semicolon-separated CSV download response."""
     buffer = StringIO()
     writer = csv.DictWriter(buffer, fieldnames=columns, delimiter=";")
     writer.writeheader()
@@ -369,6 +389,7 @@ def _csv_response(rows, columns, filename):
 
 
 def _json_download_response(payload, filename):
+    """Build a JSON download response for filtered exports."""
     response = HttpResponse(
         json.dumps(payload, ensure_ascii=False, indent=2),
         content_type="application/json; charset=utf-8",

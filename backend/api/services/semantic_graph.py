@@ -279,6 +279,7 @@ def build_semantic_network():
 
 
 def _bind_prefixes(graph):
+    """Register namespace prefixes used by serialized RDF outputs."""
     graph.bind("station", STATION)
     graph.bind("res", RESOURCE)
     graph.bind("sosa", SOSA)
@@ -287,6 +288,7 @@ def _bind_prefixes(graph):
 
 
 def _declare_local_ontology(graph):
+    """Declare the minimal local ontology classes used by the export."""
     for class_name in (
         "ChargingStation",
         "ChargingCabinet",
@@ -300,6 +302,7 @@ def _declare_local_ontology(graph):
 
 
 def _latest_measure_by_sensor():
+    """Return the latest telemetry row indexed by sensor identifier."""
     latest = {}
     for measure in CapteurData.objects.select_related("capteur").order_by(
         "-timestamp", "capteur_id"
@@ -309,6 +312,7 @@ def _latest_measure_by_sensor():
 
 
 def _add_station(graph, station):
+    """Add one station resource and its public properties."""
     subject = _resource("station", station.id_station)
     graph.add((subject, RDF.type, STATION.ChargingStation))
     _literal(graph, subject, STATION.name, station.nom)
@@ -320,6 +324,7 @@ def _add_station(graph, station):
 
 
 def _add_borne(graph, borne):
+    """Add one physical cabinet and its station relation."""
     subject = _resource("borne", borne.id_borne)
     station = _resource("station", borne.station_id)
     graph.add((subject, RDF.type, STATION.ChargingCabinet))
@@ -332,6 +337,7 @@ def _add_borne(graph, borne):
 
 
 def _add_emplacement(graph, emplacement):
+    """Add one charging slot and its station/cabinet relations."""
     subject = _resource("emplacement", emplacement.id_emplacement)
     station = _resource("station", emplacement.station_id)
     borne = _resource("borne", emplacement.borne_id)
@@ -345,6 +351,7 @@ def _add_emplacement(graph, emplacement):
 
 
 def _add_device(graph, device):
+    """Add one ESP32 device and its firmware/network metadata."""
     subject = _resource("device", device.id_device)
     slot = _resource("emplacement", device.emplacement_id)
     graph.add((subject, RDF.type, STATION.EmbeddedDevice))
@@ -362,6 +369,7 @@ def _add_device(graph, device):
 
 
 def _add_sensor(graph, capteur, latest_measure):
+    """Add one sensor and optionally its latest observation."""
     subject = _resource("sensor", capteur.id_capteur)
     graph.add((subject, RDF.type, SOSA.Sensor))
     _literal(graph, subject, STATION.sensorType, capteur.type)
@@ -384,6 +392,7 @@ def _add_sensor(graph, capteur, latest_measure):
 
 
 def _add_session(graph, session):
+    """Add one active charging session using a pseudonymized identifier."""
     subject = _resource("session", _session_public_id(session.id_session))
     slot = _resource("emplacement", session.emplacement_id)
     graph.add((subject, RDF.type, STATION.ChargingSession))
@@ -395,6 +404,7 @@ def _add_session(graph, session):
 
 
 def _add_alert(graph, alerte):
+    """Add one unresolved operational alert and its slot/technician links."""
     subject = _resource("alert", alerte.id_alerte)
     graph.add((subject, RDF.type, STATION.OperationalAlert))
     _literal(graph, subject, STATION.alertType, alerte.type)
@@ -415,12 +425,14 @@ def _add_alert(graph, alerte):
 
 
 def _add_technician(graph, technicien):
+    """Add one technician without exposing private contact data."""
     subject = _resource("technician", technicien.id_technicien)
     graph.add((subject, RDF.type, STATION.Technician))
     _literal(graph, subject, STATION.name, technicien.nom)
 
 
 def _add_technician_assignment(graph, assignment):
+    """Link one technician to an assigned station and role."""
     station = _resource("station", assignment.station_id)
     technician = _resource("technician", assignment.technicien_id)
     graph.add((station, STATION.hasTechnician, technician))
@@ -429,6 +441,7 @@ def _add_technician_assignment(graph, assignment):
 
 
 def _alert_slot(alerte):
+    """Resolve the charging slot affected by an alert."""
     if alerte.session_id:
         return alerte.session.emplacement
     if alerte.data_id and alerte.data.capteur.device_id:
@@ -437,6 +450,7 @@ def _alert_slot(alerte):
 
 
 def _literal(graph, subject, predicate, value, datatype=None):
+    """Add a literal triple when the value is present."""
     if value is None or value == "":
         return
     if hasattr(value, "isoformat"):
@@ -447,10 +461,12 @@ def _literal(graph, subject, predicate, value, datatype=None):
 
 
 def _resource(kind, identifier):
+    """Build a stable resource URI for an internal identifier."""
     return URIRef(f"{RESOURCE}{kind}/{quote(str(identifier), safe='')}")
 
 
 def _session_public_id(session_id):
+    """Pseudonymize a session identifier with HMAC-SHA256."""
     digest = hmac.new(
         settings.SECRET_KEY.encode("utf-8"),
         str(session_id).encode("utf-8"),

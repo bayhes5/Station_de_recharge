@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.http import HttpResponse
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
@@ -26,6 +27,7 @@ READ_ONLY_FORBIDDEN_KEYWORDS = {
 }
 
 
+@extend_schema(exclude=True)
 @api_view(["GET"])
 @permission_classes([IsStaffUser])
 def semantic_graph(request):
@@ -48,6 +50,7 @@ def semantic_graph(request):
     return HttpResponse(payload, content_type=f"{content_type}; charset=utf-8")
 
 
+@extend_schema(exclude=True)
 @api_view(["POST"])
 @permission_classes([IsStaffUser])
 def semantic_sparql(request):
@@ -86,6 +89,7 @@ def semantic_sparql(request):
     return Response({"head": {"vars": variables}, "results": rows})
 
 
+@extend_schema(exclude=True)
 @api_view(["GET"])
 @permission_classes([IsStaffUser])
 def semantic_network(request):
@@ -97,11 +101,13 @@ def semantic_network(request):
 
 
 def _contains_forbidden_update_keyword(query):
+    """Detect SPARQL update keywords that are not allowed in dev queries."""
     normalized = query.upper()
     return any(f" {keyword} " in f" {normalized} " for keyword in READ_ONLY_FORBIDDEN_KEYWORDS)
 
 
 def _sparql_value(value):
+    """Serialize one SPARQL result value for the JSON response."""
     if value is None:
         return None
     return {
