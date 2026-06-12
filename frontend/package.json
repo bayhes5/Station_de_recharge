@@ -13,8 +13,8 @@
     "verify": "npm run check:js && npm run check:a11y && npm run build && npm run e2e"
   },
   "devDependencies": {
-    "@playwright/test": "^1.59.1",
-    "vite": "^7.3.2"
+    "@playwright/test": "^1.60.0",
+    "vite": "^8.0.16"
   },
   "dependencies": {
     "cytoscape": "^3.33.4",
