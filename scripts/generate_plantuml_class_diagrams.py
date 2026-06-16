@@ -2,196 +2,312 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DBML_PATH = ROOT / "docs" / "source" / "_static" / "dbdiagram" / "station_recharge.dbml"
+BACKEND_DIR = ROOT / "backend"
 OUTPUT_DIR = ROOT / "docs" / "source" / "_static" / "uml"
 
-TABLE_RE = re.compile(r"^Table\s+(\w+)\s+\{")
-FIELD_RE = re.compile(r"^\s*([A-Za-z_][\w]*)\s+([A-Za-z0-9_()]+)(?:\s+(\[.*\]))?")
+sys.path.insert(0, str(BACKEND_DIR))
+os.environ["DEBUG"] = "True"
+os.environ.setdefault("SECRET_KEY", "docs-local-secret-key-not-for-production")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+
+import django  # noqa: E402
+from django.db import models  # noqa: E402
 
 
-@dataclass(frozen=True)
-class Field:
-    name: str
-    type_: str
-    attrs: str
+django.setup()
 
-
-@dataclass(frozen=True)
-class Table:
-    name: str
-    fields: list[Field]
-
-
-@dataclass(frozen=True)
-class Relation:
-    source: str
-    source_multiplicity: str
-    target: str
-    target_multiplicity: str
-    label: str = ""
-    color: str = "#2563eb"
+from api.models import (  # noqa: E402
+    Alerte,
+    Authentification,
+    Borne,
+    Capteur,
+    CapteurData,
+    Consentement,
+    Device,
+    DeviceCommandLog,
+    Emplacement,
+    JournalSecurite,
+    Maintenance,
+    ProfilUtilisateur,
+    Reservation,
+    Role,
+    Session,
+    SessionTelemetry,
+    Station,
+    Technicien,
+    TechnicienStation,
+    TypeAuth,
+    Utilisateur,
+    UtilisateurRole,
+)
 
 
 @dataclass(frozen=True)
 class Diagram:
-    title: str
     file_stem: str
-    tables: list[str]
-    relations: list[Relation]
-    left_to_right: bool = True
+    title: str
+    models: list[type[models.Model]]
+    direction: str = "left to right direction"
 
 
 DIAGRAMS = [
     Diagram(
-        title="Identités et accès",
         file_stem="uml_identites_acces",
-        tables=[
-            "utilisateur",
-            "profil_utilisateur",
-            "role",
-            "utilisateur_role",
-            "consentement",
-            "journal_securite",
-            "type_auth",
-            "auth_method",
-        ],
-        relations=[
-            Relation("utilisateur", "1", "profil_utilisateur", "0..1", "profil", "#047857"),
-            Relation("utilisateur", "1", "utilisateur_role", "0..*", "rôles", "#047857"),
-            Relation("role", "1", "utilisateur_role", "0..*", "attribution", "#047857"),
-            Relation("utilisateur", "1", "consentement", "0..*", "consentements", "#047857"),
-            Relation("utilisateur", "1", "journal_securite", "0..*", "audit", "#047857"),
-            Relation("utilisateur", "1", "auth_method", "0..*", "moyens d'accès", "#047857"),
-            Relation("type_auth", "1", "auth_method", "0..*", "classement", "#047857"),
+        title="Identités et accès",
+        models=[
+            Utilisateur,
+            ProfilUtilisateur,
+            Role,
+            UtilisateurRole,
+            Consentement,
+            JournalSecurite,
+            TypeAuth,
+            Authentification,
         ],
     ),
     Diagram(
-        title="Infrastructure, réservation et supervision",
         file_stem="uml_infrastructure_charge",
-        tables=[
-            "station",
-            "borne",
-            "emplacement",
-            "device",
-            "capteur",
-            "capteur_data",
-            "device_command_log",
-            "reservation",
-            "charging_session",
-            "session_telemetry",
-            "alerte",
-        ],
-        relations=[
-            Relation("station", "1", "borne", "0..*", "contient", "#1d4ed8"),
-            Relation("borne", "1", "emplacement", "0..*", "contient", "#1d4ed8"),
-            Relation("emplacement", "1", "device", "0..1", "piloté par", "#1d4ed8"),
-            Relation("device", "1", "capteur", "0..*", "expose", "#1d4ed8"),
-            Relation("capteur", "1", "capteur_data", "0..*", "mesure", "#1d4ed8"),
-            Relation("device", "1", "device_command_log", "0..*", "ACK MQTT", "#1d4ed8"),
-            Relation("emplacement", "1", "reservation", "0..*", "réservé", "#b45309"),
-            Relation("reservation", "1", "charging_session", "0..1", "ouvre", "#b45309"),
-            Relation("emplacement", "1", "charging_session", "0..*", "utilisé", "#b45309"),
-            Relation("charging_session", "1", "session_telemetry", "0..*", "télémétrie", "#b45309"),
-            Relation("charging_session", "0..1", "alerte", "0..*", "incident", "#b45309"),
-            Relation("capteur_data", "0..1", "alerte", "0..*", "déclenche", "#b45309"),
+        title="Infrastructure, réservation et supervision",
+        models=[
+            Station,
+            Borne,
+            Emplacement,
+            Reservation,
+            Session,
+            SessionTelemetry,
+            Device,
+            DeviceCommandLog,
+            Capteur,
+            CapteurData,
+            Alerte,
         ],
     ),
     Diagram(
-        title="Maintenance et exploitation",
         file_stem="uml_maintenance_exploitation",
-        tables=[
-            "utilisateur",
-            "technicien",
-            "station",
-            "technicien_station",
-            "maintenance",
-            "alerte",
-        ],
-        relations=[
-            Relation("utilisateur", "0..1", "technicien", "0..1", "compte", "#7c3aed"),
-            Relation("technicien", "1", "technicien_station", "0..*", "périmètre", "#7c3aed"),
-            Relation("station", "1", "technicien_station", "0..*", "affectation", "#7c3aed"),
-            Relation("technicien", "1", "maintenance", "0..*", "réalise", "#7c3aed"),
-            Relation("station", "1", "maintenance", "0..*", "intervention", "#7c3aed"),
-            Relation("technicien", "0..1", "alerte", "0..*", "prise en charge", "#b45309"),
+        title="Maintenance et exploitation",
+        models=[
+            Utilisateur,
+            Technicien,
+            Station,
+            TechnicienStation,
+            Maintenance,
+            Alerte,
         ],
     ),
 ]
 
+CHOICE_TYPES = {
+    ("Utilisateur", "statut"): "UserStatus",
+    ("Consentement", "type"): "ConsentType",
+    ("Consentement", "statut"): "ConsentStatus",
+    ("JournalSecurite", "statut"): "SecurityLogStatus",
+    ("Station", "statut"): "StationStatus",
+    ("Borne", "statut"): "BorneStatus",
+    ("Emplacement", "statut"): "EmplacementStatus",
+    ("Emplacement", "lock_state"): "LockState",
+    ("Reservation", "auth_choice"): "ReservationAuthChoice",
+    ("Reservation", "statut"): "ReservationStatus",
+    ("Session", "charge_state"): "ChargeSessionState",
+    ("Device", "type_device"): "DeviceType",
+    ("Device", "status"): "DeviceStatus",
+    ("Device", "firmware_update_status"): "FirmwareUpdateStatus",
+    ("Alerte", "niveau_severite"): "AlertSeverity",
+    ("Alerte", "status"): "AlertStatus",
+    ("TechnicienStation", "role"): "TechnicianStationRole",
+    ("Maintenance", "status"): "MaintenanceStatus",
+}
 
-def parse_dbml(path: Path) -> dict[str, Table]:
-    tables: dict[str, Table] = {}
-    current_name: str | None = None
-    current_fields: list[Field] = []
-    in_indexes = False
+COMPOSITIONS = {
+    ("Utilisateur", "ProfilUtilisateur", "utilisateur"),
+    ("Station", "Borne", "station"),
+    ("Borne", "Emplacement", "borne"),
+    ("Emplacement", "Device", "emplacement"),
+    ("Device", "Capteur", "device"),
+    ("Capteur", "CapteurData", "capteur"),
+    ("Reservation", "Session", "reservation"),
+    ("Session", "SessionTelemetry", "session"),
+}
 
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.rstrip()
-        match = TABLE_RE.match(line)
-        if match:
-            current_name = match.group(1)
-            current_fields = []
-            in_indexes = False
-            continue
-        if current_name is None:
-            continue
-        stripped = line.strip()
-        if stripped == "}":
-            if in_indexes:
-                in_indexes = False
-                continue
-            tables[current_name] = Table(current_name, current_fields)
-            current_name = None
-            continue
-        if stripped.startswith("indexes"):
-            in_indexes = True
-            continue
-        if in_indexes or not stripped:
-            continue
-        field = FIELD_RE.match(line)
-        if field:
-            current_fields.append(Field(field.group(1), field.group(2), field.group(3) or ""))
+DISPLAY_FIELDS = {
+    "Utilisateur": [
+        "id_user",
+        "pseudo",
+        "email",
+        "password",
+        "statut",
+        "failed_attempts",
+        "must_change_password",
+        "password_reset_at",
+        "is_active",
+        "is_staff",
+        "date_joined",
+    ],
+    "ProfilUtilisateur": ["id_profil", "nom", "telephone", "telephone_verifie"],
+    "Role": ["id_role", "nom", "description"],
+    "UtilisateurRole": ["assigned_at"],
+    "Consentement": ["id_consentement", "type", "statut", "date_consentement"],
+    "JournalSecurite": ["id_log", "action", "ip", "statut", "date_action"],
+    "TypeAuth": ["id_type", "libelle", "factor_level"],
+    "Authentification": [
+        "id_auth",
+        "hash_valeur",
+        "display_value",
+        "metadata",
+        "expiration",
+        "is_active",
+        "created_at",
+    ],
+    "Station": ["id_station", "nom", "localisation_text", "latitude", "longitude", "statut"],
+    "Borne": ["id_borne", "numero", "nom", "terminal_code", "mqtt_prefix", "statut"],
+    "Emplacement": ["id_emplacement", "numero", "statut", "lock_state"],
+    "Reservation": [
+        "id_reservation",
+        "reference_code",
+        "auth_choice",
+        "date_debut",
+        "date_fin",
+        "statut",
+    ],
+    "Session": [
+        "id_session",
+        "start_time",
+        "end_time",
+        "charge_state",
+        "charge_state_updated_at",
+    ],
+    "SessionTelemetry": ["id_telemetry", "courant", "tension", "energie_kwh", "timestamp"],
+    "Device": [
+        "id_device",
+        "type_device",
+        "firmware_version",
+        "expected_firmware_version",
+        "firmware_update_status",
+        "ip_address",
+        "slot_id",
+        "hardware_mac",
+        "last_seen",
+        "status",
+    ],
+    "DeviceCommandLog": [
+        "id_command",
+        "command_id",
+        "action",
+        "status",
+        "message",
+        "source",
+        "timestamp",
+    ],
+    "Capteur": ["id_capteur", "type", "unite"],
+    "CapteurData": ["id_data", "valeur", "timestamp"],
+    "Alerte": [
+        "id_alerte",
+        "type",
+        "message",
+        "niveau_severite",
+        "status",
+        "timestamp",
+        "first_seen",
+        "last_seen",
+        "notification_count",
+        "acknowledged_at",
+        "resolved_at",
+    ],
+    "Technicien": ["id_technicien", "nom", "email", "telephone"],
+    "TechnicienStation": ["id_assignment", "role", "is_active", "assigned_at"],
+    "Maintenance": ["id_maintenance", "type", "description", "status", "date_planifiee", "date_realisee"],
+}
 
-    return tables
+FIELD_TYPE_MAP = {
+    models.UUIDField: "UUID",
+    models.CharField: "String",
+    models.EmailField: "Email",
+    models.TextField: "Text",
+    models.DateTimeField: "DateTime",
+    models.BooleanField: "Boolean",
+    models.PositiveIntegerField: "Integer",
+    models.PositiveSmallIntegerField: "Integer",
+    models.IntegerField: "Integer",
+    models.FloatField: "Float",
+    models.JSONField: "JSON",
+    models.GenericIPAddressField: "IPAddress",
+    models.URLField: "URL",
+}
 
 
-def field_marker(field: Field) -> str:
-    if "pk" in field.attrs:
-        return "<<PK>>"
-    if "ref:" in field.attrs:
-        return "<<FK>>"
-    return ""
+def model_name(model: type[models.Model]) -> str:
+    return model.__name__
 
 
-def class_block(table: Table) -> list[str]:
-    lines = [f"class {table.name} {{"]
-    pk_fields = [field for field in table.fields if "pk" in field.attrs]
-    fk_fields = [field for field in table.fields if "ref:" in field.attrs and "pk" not in field.attrs]
-    other_fields = [field for field in table.fields if field not in pk_fields and field not in fk_fields]
+def field_type(model: type[models.Model], field: models.Field) -> str:
+    choice_type = CHOICE_TYPES.get((model_name(model), field.name))
+    if choice_type:
+        return choice_type
+    for django_type, uml_type in FIELD_TYPE_MAP.items():
+        if isinstance(field, django_type):
+            return uml_type
+    return field.__class__.__name__.removesuffix("Field")
 
-    for group_index, group in enumerate((pk_fields, fk_fields, other_fields)):
-        if group_index and group:
-            lines.append("  --")
-        for field in group:
-            marker = field_marker(field)
-            suffix = f" {marker}" if marker else ""
-            lines.append(f"  {field.name} : {field.type_}{suffix}")
+
+def scalar_fields(model: type[models.Model]) -> list[models.Field]:
+    wanted = DISPLAY_FIELDS.get(model_name(model))
+    fields = [
+        field
+        for field in model._meta.fields
+        if not isinstance(field, (models.ForeignKey, models.OneToOneField))
+    ]
+    if wanted is None:
+        return fields
+    by_name = {field.name: field for field in fields}
+    return [by_name[name] for name in wanted if name in by_name]
+
+
+def relation_fields(model: type[models.Model]) -> list[models.Field]:
+    return [
+        field
+        for field in model._meta.fields
+        if isinstance(field, (models.ForeignKey, models.OneToOneField))
+    ]
+
+
+def class_block(model: type[models.Model]) -> list[str]:
+    lines = [f"class {model_name(model)} <<Django model>> {{"]
+    for field in scalar_fields(model):
+        nullable = "?" if getattr(field, "null", False) or getattr(field, "blank", False) else ""
+        lines.append(f"  +{field.name} : {field_type(model, field)}{nullable}")
     lines.append("}")
     return lines
 
 
-def puml_for(diagram: Diagram, tables: dict[str, Table]) -> str:
+def relation_line(
+    target: type[models.Model],
+    source: type[models.Model],
+    field: models.Field,
+) -> str:
+    target_name = model_name(target)
+    source_name = model_name(source)
+    source_multiplicity = "0..1" if isinstance(field, models.OneToOneField) else "0..*"
+    target_multiplicity = "0..1" if getattr(field, "null", False) else "1"
+    operator = "*--" if (target_name, source_name, field.name) in COMPOSITIONS else "--"
+    label = field.remote_field.related_name or field.name
+    return (
+        f'{target_name} "{target_multiplicity}" '
+        f'{operator} "{source_multiplicity}" {source_name} : {label}'
+    )
+
+
+def puml_for(diagram: Diagram) -> str:
+    included = {model_name(model): model for model in diagram.models}
     lines = [
         "@startuml",
-        "' Generated from docs/source/_static/dbdiagram/station_recharge.dbml",
+        "' Generated from backend/api/models.py",
         "!pragma layout smetana",
         "skinparam backgroundColor #F8FAFC",
         "skinparam dpi 160",
@@ -207,36 +323,37 @@ def puml_for(diagram: Diagram, tables: dict[str, Table]) -> str:
         "  HeaderFontColor #FFFFFF",
         "}",
         "hide circle",
-        "hide methods",
+        diagram.direction,
+        "",
+        f"' {diagram.title}",
+        "",
     ]
-    if diagram.left_to_right:
-        lines.append("left to right direction")
-    lines.extend(["", f"' {diagram.title}", ""])
 
-    for table_name in diagram.tables:
-        table = tables.get(table_name)
-        if not table:
-            continue
-        lines.extend(class_block(table))
+    for model in diagram.models:
+        lines.extend(class_block(model))
         lines.append("")
 
-    for relation in diagram.relations:
-        label = f" : {relation.label}" if relation.label else ""
-        lines.append(
-            f"{relation.source} \"{relation.source_multiplicity}\" "
-            f"-[{relation.color}]- \"{relation.target_multiplicity}\" {relation.target}{label}"
-        )
+    rendered_relations: set[str] = set()
+    for source in diagram.models:
+        for field in relation_fields(source):
+            target = field.remote_field.model
+            if not isinstance(target, type) or target.__name__ not in included:
+                continue
+            line = relation_line(target, source, field)
+            if line not in rendered_relations:
+                lines.append(line)
+                rendered_relations.add(line)
 
     lines.append("@enduml")
     return "\n".join(lines) + "\n"
 
 
-def write_puml_files(tables: dict[str, Table]) -> list[Path]:
+def write_puml_files() -> list[Path]:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     generated: list[Path] = []
     for diagram in DIAGRAMS:
         path = OUTPUT_DIR / f"{diagram.file_stem}.puml"
-        path.write_text(puml_for(diagram, tables), encoding="utf-8")
+        path.write_text(puml_for(diagram), encoding="utf-8")
         generated.append(path)
         print(f"Generated {path}")
     return generated
@@ -266,12 +383,11 @@ def render_png(puml_files: list[Path], runner: list[str] | None) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate PlantUML class diagrams from the DBML schema.")
+    parser = argparse.ArgumentParser(description="Generate PlantUML class diagrams from Django models.")
     parser.add_argument("--plantuml-jar", help="Path to plantuml.jar. Overrides PLANTUML_JAR.")
     args = parser.parse_args()
 
-    tables = parse_dbml(DBML_PATH)
-    puml_files = write_puml_files(tables)
+    puml_files = write_puml_files()
     render_png(puml_files, resolve_plantuml_runner(args.plantuml_jar))
 
 

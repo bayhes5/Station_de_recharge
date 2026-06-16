@@ -1,5 +1,5 @@
 @startuml
-' Generated from docs/source/_static/dbdiagram/station_recharge.dbml
+' Generated from backend/api/models.py
 !pragma layout smetana
 skinparam backgroundColor #F8FAFC
 skinparam dpi 160
@@ -15,101 +15,77 @@ skinparam class {
   HeaderFontColor #FFFFFF
 }
 hide circle
-hide methods
 left to right direction
 
 ' Identités et accès
 
-class utilisateur {
-  id_user : uuid <<PK>>
-  --
-  pseudo : varchar(100)
-  email : varchar(254)
-  password : varchar(128)
-  statut : varchar(50)
-  created_at : timestamp
-  last_login : timestamp
-  failed_attempts : integer
-  must_change_password : boolean
-  password_reset_at : timestamp
-  is_active : boolean
-  is_staff : boolean
-  is_superuser : boolean
-  date_joined : timestamp
+class Utilisateur <<Django model>> {
+  +id_user : UUID
+  +pseudo : String
+  +email : String
+  +password : String
+  +statut : UserStatus
+  +failed_attempts : Integer
+  +must_change_password : Boolean
+  +password_reset_at : DateTime?
+  +is_active : Boolean
+  +is_staff : Boolean
+  +date_joined : DateTime
 }
 
-class profil_utilisateur {
-  id_profil : uuid <<PK>>
-  --
-  id_user : uuid <<FK>>
-  --
-  nom : varchar(100)
-  telephone : varchar(20)
-  telephone_verifie : boolean
+class ProfilUtilisateur <<Django model>> {
+  +id_profil : UUID
+  +nom : String?
+  +telephone : String?
+  +telephone_verifie : Boolean
 }
 
-class role {
-  id_role : uuid <<PK>>
-  --
-  nom : varchar(50)
-  description : text
+class Role <<Django model>> {
+  +id_role : UUID
+  +nom : String
+  +description : Text?
 }
 
-class utilisateur_role {
-  --
-  id_user : uuid <<FK>>
-  id_role : uuid <<FK>>
-  --
-  assigned_at : timestamp
+class UtilisateurRole <<Django model>> {
+  +assigned_at : DateTime
 }
 
-class consentement {
-  id_consentement : uuid <<PK>>
-  --
-  id_user : uuid <<FK>>
-  --
-  type : varchar(100)
-  statut : varchar(50)
-  date_consentement : timestamp
+class Consentement <<Django model>> {
+  +id_consentement : UUID
+  +type : ConsentType
+  +statut : ConsentStatus
+  +date_consentement : DateTime
 }
 
-class journal_securite {
-  id_log : uuid <<PK>>
-  --
-  id_user : uuid <<FK>>
-  --
-  action : varchar(255)
-  ip : inet
-  statut : varchar(50)
-  date_action : timestamp
+class JournalSecurite <<Django model>> {
+  +id_log : UUID
+  +action : String
+  +ip : IPAddress
+  +statut : SecurityLogStatus
+  +date_action : DateTime
 }
 
-class type_auth {
-  id_type : uuid <<PK>>
-  --
-  libelle : varchar(50)
-  factor_level : smallint
+class TypeAuth <<Django model>> {
+  +id_type : UUID
+  +libelle : String
+  +factor_level : Integer
 }
 
-class auth_method {
-  id_auth : uuid <<PK>>
-  --
-  id_user : uuid <<FK>>
-  id_type : uuid <<FK>>
-  --
-  secret_hash : text
-  display_value : varchar(255)
-  metadata : jsonb
-  expiration : timestamp
-  is_active : boolean
-  created_at : timestamp
+class Authentification <<Django model>> {
+  +id_auth : UUID
+  +hash_valeur : Text
+  +display_value : String?
+  +metadata : JSON?
+  +expiration : DateTime?
+  +is_active : Boolean
+  +created_at : DateTime
 }
 
-utilisateur "1" -[#047857]- "0..1" profil_utilisateur : profil
-utilisateur "1" -[#047857]- "0..*" utilisateur_role : rôles
-role "1" -[#047857]- "0..*" utilisateur_role : attribution
-utilisateur "1" -[#047857]- "0..*" consentement : consentements
-utilisateur "1" -[#047857]- "0..*" journal_securite : audit
-utilisateur "1" -[#047857]- "0..*" auth_method : moyens d'accès
-type_auth "1" -[#047857]- "0..*" auth_method : classement
+Utilisateur "1" *-- "0..1" ProfilUtilisateur : profil
+Utilisateur "1" -- "0..*" UtilisateurRole : utilisateur
+Role "1" -- "0..*" UtilisateurRole : role
+Utilisateur "1" -- "0..*" Consentement : consentements
+Utilisateur "0..1" -- "0..*" JournalSecurite : journaux_securite
+Utilisateur "1" -- "0..*" Authentification : authentifications
+TypeAuth "1" -- "0..*" Authentification : authentifications
 @enduml

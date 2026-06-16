@@ -6,11 +6,11 @@ orientée objet. Les diagrammes de classes UML ne remplacent pas le MCD complet 
 ils servent à présenter les grands blocs fonctionnels du modèle sans surcharger
 une seule image.
 
-Les classes sont issues du fichier DBML utilisé par la page :doc:`database_mcd`.
+Les classes sont issues des modèles Django définis dans ``backend/api/models.py``.
 Les diagrammes sont décrits avec PlantUML afin de garder une source textuelle
-standard, relisible et versionnée. Les champs marqués ``PK`` représentent les
-identifiants principaux et les champs marqués ``FK`` les références vers
-d'autres classes.
+standard, relisible et versionnée. Les relations Django ``ForeignKey`` et
+``OneToOneField`` sont représentées comme des associations UML avec
+multiplicités, et non comme des champs techniques dans les classes.
 
 Régénération des diagrammes
 ---------------------------
