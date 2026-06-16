@@ -20,10 +20,9 @@ left to right direction
 ' Identités et accès
 
 class Utilisateur <<Django model>> {
-  +id_user : UUID
   +pseudo : String
   +email : String
-  +password : String
+  +password_hash : String
   +statut : UserStatus
   +failed_attempts : Integer
   +must_change_password : Boolean
@@ -31,34 +30,38 @@ class Utilisateur <<Django model>> {
   +is_active : Boolean
   +is_staff : Boolean
   +date_joined : DateTime
+  --
+  +__str__() : String
 }
 
 class ProfilUtilisateur <<Django model>> {
-  +id_profil : UUID
   +nom : String?
   +telephone : String?
   +telephone_verifie : Boolean
+  --
+  +__str__() : String
 }
 
 class Role <<Django model>> {
-  +id_role : UUID
   +nom : String
   +description : Text?
+  --
+  +__str__() : String
 }
 
 class UtilisateurRole <<Django model>> {
   +assigned_at : DateTime
+  --
+  +__str__() : String
 }
 
 class Consentement <<Django model>> {
-  +id_consentement : UUID
   +type : ConsentType
   +statut : ConsentStatus
   +date_consentement : DateTime
 }
 
 class JournalSecurite <<Django model>> {
-  +id_log : UUID
   +action : String
   +ip : IPAddress
   +statut : SecurityLogStatus
@@ -66,19 +69,39 @@ class JournalSecurite <<Django model>> {
 }
 
 class TypeAuth <<Django model>> {
-  +id_type : UUID
   +libelle : String
   +factor_level : Integer
 }
 
 class Authentification <<Django model>> {
-  +id_auth : UUID
   +hash_valeur : Text
   +display_value : String?
   +metadata : JSON?
   +expiration : DateTime?
   +is_active : Boolean
   +created_at : DateTime
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum ConsentType {
+  CGU
+  PRIVACY
+  NOTIFICATIONS
+}
+
+enum ConsentStatus {
+  ACCEPTED
+  REFUSED
+}
+
+enum SecurityLogStatus {
+  SUCCESS
+  FAILURE
 }
 
 Utilisateur "1" *-- "0..1" ProfilUtilisateur : profil

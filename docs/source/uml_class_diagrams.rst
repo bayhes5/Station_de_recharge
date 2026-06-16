@@ -12,6 +12,10 @@ standard, relisible et versionnée. Les relations Django ``ForeignKey`` et
 ``OneToOneField`` sont représentées comme des associations UML avec
 multiplicités, et non comme des champs techniques dans les classes.
 
+Contrairement au MCD, ces diagrammes masquent volontairement les identifiants
+techniques de persistance. L'objectif est de représenter les classes métier
+Django, leurs attributs utiles, leurs énumérations d'état et leurs relations.
+
 Régénération des diagrammes
 ---------------------------
 

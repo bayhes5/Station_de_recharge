@@ -26,27 +26,45 @@ django.setup()
 
 from api.models import (  # noqa: E402
     Alerte,
+    AlertSeverity,
+    AlertStatus,
     Authentification,
     Borne,
+    BorneStatus,
     Capteur,
     CapteurData,
+    ChargeSessionState,
     Consentement,
+    ConsentStatus,
+    ConsentType,
     Device,
     DeviceCommandLog,
+    DeviceStatus,
+    DeviceType,
     Emplacement,
+    EmplacementStatus,
+    FirmwareUpdateStatus,
     JournalSecurite,
+    LockState,
     Maintenance,
+    MaintenanceStatus,
     ProfilUtilisateur,
     Reservation,
+    ReservationAuthChoice,
+    ReservationStatus,
     Role,
+    SecurityLogStatus,
     Session,
     SessionTelemetry,
     Station,
+    StationStatus,
     Technicien,
     TechnicienStation,
+    TechnicianStationRole,
     TypeAuth,
     Utilisateur,
     UtilisateurRole,
+    UserStatus,
 )
 
 
@@ -55,6 +73,7 @@ class Diagram:
     file_stem: str
     title: str
     models: list[type[models.Model]]
+    enums: list[type[models.TextChoices]]
     direction: str = "left to right direction"
 
 
@@ -72,6 +91,7 @@ DIAGRAMS = [
             TypeAuth,
             Authentification,
         ],
+        enums=[UserStatus, ConsentType, ConsentStatus, SecurityLogStatus],
     ),
     Diagram(
         file_stem="uml_infrastructure_charge",
@@ -89,6 +109,20 @@ DIAGRAMS = [
             CapteurData,
             Alerte,
         ],
+        enums=[
+            StationStatus,
+            BorneStatus,
+            EmplacementStatus,
+            LockState,
+            ReservationAuthChoice,
+            ReservationStatus,
+            ChargeSessionState,
+            DeviceType,
+            DeviceStatus,
+            FirmwareUpdateStatus,
+            AlertSeverity,
+            AlertStatus,
+        ],
     ),
     Diagram(
         file_stem="uml_maintenance_exploitation",
@@ -100,6 +134,14 @@ DIAGRAMS = [
             TechnicienStation,
             Maintenance,
             Alerte,
+        ],
+        enums=[
+            UserStatus,
+            StationStatus,
+            TechnicianStationRole,
+            MaintenanceStatus,
+            AlertSeverity,
+            AlertStatus,
         ],
     ),
 ]
@@ -138,7 +180,6 @@ COMPOSITIONS = {
 
 DISPLAY_FIELDS = {
     "Utilisateur": [
-        "id_user",
         "pseudo",
         "email",
         "password",
@@ -150,14 +191,13 @@ DISPLAY_FIELDS = {
         "is_staff",
         "date_joined",
     ],
-    "ProfilUtilisateur": ["id_profil", "nom", "telephone", "telephone_verifie"],
-    "Role": ["id_role", "nom", "description"],
+    "ProfilUtilisateur": ["nom", "telephone", "telephone_verifie"],
+    "Role": ["nom", "description"],
     "UtilisateurRole": ["assigned_at"],
-    "Consentement": ["id_consentement", "type", "statut", "date_consentement"],
-    "JournalSecurite": ["id_log", "action", "ip", "statut", "date_action"],
-    "TypeAuth": ["id_type", "libelle", "factor_level"],
+    "Consentement": ["type", "statut", "date_consentement"],
+    "JournalSecurite": ["action", "ip", "statut", "date_action"],
+    "TypeAuth": ["libelle", "factor_level"],
     "Authentification": [
-        "id_auth",
         "hash_valeur",
         "display_value",
         "metadata",
@@ -165,11 +205,10 @@ DISPLAY_FIELDS = {
         "is_active",
         "created_at",
     ],
-    "Station": ["id_station", "nom", "localisation_text", "latitude", "longitude", "statut"],
-    "Borne": ["id_borne", "numero", "nom", "terminal_code", "mqtt_prefix", "statut"],
-    "Emplacement": ["id_emplacement", "numero", "statut", "lock_state"],
+    "Station": ["nom", "localisation_text", "latitude", "longitude", "statut"],
+    "Borne": ["numero", "nom", "terminal_code", "mqtt_prefix", "statut"],
+    "Emplacement": ["numero", "statut", "lock_state"],
     "Reservation": [
-        "id_reservation",
         "reference_code",
         "auth_choice",
         "date_debut",
@@ -177,15 +216,13 @@ DISPLAY_FIELDS = {
         "statut",
     ],
     "Session": [
-        "id_session",
         "start_time",
         "end_time",
         "charge_state",
         "charge_state_updated_at",
     ],
-    "SessionTelemetry": ["id_telemetry", "courant", "tension", "energie_kwh", "timestamp"],
+    "SessionTelemetry": ["courant", "tension", "energie_kwh", "timestamp"],
     "Device": [
-        "id_device",
         "type_device",
         "firmware_version",
         "expected_firmware_version",
@@ -197,7 +234,6 @@ DISPLAY_FIELDS = {
         "status",
     ],
     "DeviceCommandLog": [
-        "id_command",
         "command_id",
         "action",
         "status",
@@ -205,10 +241,9 @@ DISPLAY_FIELDS = {
         "source",
         "timestamp",
     ],
-    "Capteur": ["id_capteur", "type", "unite"],
-    "CapteurData": ["id_data", "valeur", "timestamp"],
+    "Capteur": ["type", "unite"],
+    "CapteurData": ["valeur", "timestamp"],
     "Alerte": [
-        "id_alerte",
         "type",
         "message",
         "niveau_severite",
@@ -220,9 +255,31 @@ DISPLAY_FIELDS = {
         "acknowledged_at",
         "resolved_at",
     ],
-    "Technicien": ["id_technicien", "nom", "email", "telephone"],
-    "TechnicienStation": ["id_assignment", "role", "is_active", "assigned_at"],
-    "Maintenance": ["id_maintenance", "type", "description", "status", "date_planifiee", "date_realisee"],
+    "Technicien": ["nom", "email", "telephone"],
+    "TechnicienStation": ["role", "is_active", "assigned_at"],
+    "Maintenance": ["type", "description", "status", "date_planifiee", "date_realisee"],
+}
+
+MODEL_OPERATIONS = {
+    "Utilisateur": ["+__str__() : String"],
+    "UtilisateurManager": [
+        "+create_user(pseudo, email, password) : Utilisateur",
+        "+create_superuser(pseudo, email, password) : Utilisateur",
+    ],
+    "ProfilUtilisateur": ["+__str__() : String"],
+    "Role": ["+__str__() : String"],
+    "UtilisateurRole": ["+__str__() : String"],
+    "Station": ["+__str__() : String"],
+    "Borne": [
+        "+__str__() : String",
+        "+{static} default_for_station(station) : Borne",
+    ],
+    "Emplacement": [
+        "+__str__() : String",
+        "+save() : void",
+    ],
+    "Technicien": ["+__str__() : String"],
+    "TechnicienStation": ["+__str__() : String"],
 }
 
 FIELD_TYPE_MAP = {
@@ -262,6 +319,8 @@ def scalar_fields(model: type[models.Model]) -> list[models.Field]:
         field
         for field in model._meta.fields
         if not isinstance(field, (models.ForeignKey, models.OneToOneField))
+        and not field.primary_key
+        and not field.name.startswith("id_")
     ]
     if wanted is None:
         return fields
@@ -281,7 +340,20 @@ def class_block(model: type[models.Model]) -> list[str]:
     lines = [f"class {model_name(model)} <<Django model>> {{"]
     for field in scalar_fields(model):
         nullable = "?" if getattr(field, "null", False) or getattr(field, "blank", False) else ""
-        lines.append(f"  +{field.name} : {field_type(model, field)}{nullable}")
+        name = "password_hash" if field.name == "password" else field.name
+        lines.append(f"  +{name} : {field_type(model, field)}{nullable}")
+    operations = MODEL_OPERATIONS.get(model_name(model), [])
+    if operations:
+        lines.append("  --")
+        lines.extend(f"  {operation}" for operation in operations)
+    lines.append("}")
+    return lines
+
+
+def enum_block(enum_cls: type[models.TextChoices]) -> list[str]:
+    lines = [f"enum {enum_cls.__name__} {{"]
+    for member_name in enum_cls.__members__:
+        lines.append(f"  {member_name}")
     lines.append("}")
     return lines
 
@@ -331,6 +403,10 @@ def puml_for(diagram: Diagram) -> str:
 
     for model in diagram.models:
         lines.extend(class_block(model))
+        lines.append("")
+
+    for enum_cls in diagram.enums:
+        lines.extend(enum_block(enum_cls))
         lines.append("")
 
     rendered_relations: set[str] = set()

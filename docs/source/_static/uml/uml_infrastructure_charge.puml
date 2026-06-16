@@ -20,32 +20,36 @@ left to right direction
 ' Infrastructure, réservation et supervision
 
 class Station <<Django model>> {
-  +id_station : UUID
   +nom : String
   +localisation_text : String
   +latitude : Float?
   +longitude : Float?
   +statut : StationStatus
+  --
+  +__str__() : String
 }
 
 class Borne <<Django model>> {
-  +id_borne : UUID
   +numero : Integer
   +nom : String
   +terminal_code : String?
   +mqtt_prefix : String?
   +statut : BorneStatus
+  --
+  +__str__() : String
+  +{static} default_for_station(station) : Borne
 }
 
 class Emplacement <<Django model>> {
-  +id_emplacement : UUID
   +numero : Integer
   +statut : EmplacementStatus
   +lock_state : LockState
+  --
+  +__str__() : String
+  +save() : void
 }
 
 class Reservation <<Django model>> {
-  +id_reservation : UUID
   +reference_code : String?
   +auth_choice : ReservationAuthChoice
   +date_debut : DateTime
@@ -54,7 +58,6 @@ class Reservation <<Django model>> {
 }
 
 class Session <<Django model>> {
-  +id_session : UUID
   +start_time : DateTime
   +end_time : DateTime?
   +charge_state : ChargeSessionState
@@ -62,7 +65,6 @@ class Session <<Django model>> {
 }
 
 class SessionTelemetry <<Django model>> {
-  +id_telemetry : UUID
   +courant : Float
   +tension : Float
   +energie_kwh : Float
@@ -70,7 +72,6 @@ class SessionTelemetry <<Django model>> {
 }
 
 class Device <<Django model>> {
-  +id_device : UUID
   +type_device : DeviceType
   +firmware_version : String
   +expected_firmware_version : String?
@@ -83,7 +84,6 @@ class Device <<Django model>> {
 }
 
 class DeviceCommandLog <<Django model>> {
-  +id_command : UUID
   +command_id : String?
   +action : String?
   +status : String?
@@ -93,19 +93,16 @@ class DeviceCommandLog <<Django model>> {
 }
 
 class Capteur <<Django model>> {
-  +id_capteur : UUID
   +type : String
   +unite : String
 }
 
 class CapteurData <<Django model>> {
-  +id_data : UUID
   +valeur : Float
   +timestamp : DateTime
 }
 
 class Alerte <<Django model>> {
-  +id_alerte : UUID
   +type : String
   +message : Text
   +niveau_severite : AlertSeverity
@@ -116,6 +113,94 @@ class Alerte <<Django model>> {
   +notification_count : Integer
   +acknowledged_at : DateTime?
   +resolved_at : DateTime?
+}
+
+enum StationStatus {
+  ACTIVE
+  MAINTENANCE
+  INACTIVE
+}
+
+enum BorneStatus {
+  ACTIVE
+  MAINTENANCE
+  INACTIVE
+}
+
+enum EmplacementStatus {
+  AVAILABLE
+  RESERVED
+  OCCUPIED
+  MAINTENANCE
+}
+
+enum LockState {
+  LOCKED
+  UNLOCKED
+  BLOCKED
+}
+
+enum ReservationAuthChoice {
+  RFID
+  QR
+  CODE
+}
+
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  ACTIVE
+  CANCELLED
+  COMPLETED
+}
+
+enum ChargeSessionState {
+  RESERVED
+  ACCESS_VALIDATED
+  WAITING_PLUG
+  CHARGING
+  STOPPING
+  STOPPED
+  ERROR
+}
+
+enum DeviceType {
+  ESP32
+}
+
+enum DeviceStatus {
+  PROVISIONED
+  ONLINE
+  IDLE
+  OFFLINE
+  CHARGING
+  ERROR
+}
+
+enum FirmwareUpdateStatus {
+  UNKNOWN
+  UP_TO_DATE
+  UPDATE_REQUIRED
+  UPDATE_SCHEDULED
+  UPDATING
+  FAILED
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+  CRITIQUE
+}
+
+enum AlertStatus {
+  NEW
+  ACTIVE
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  FERMEE
 }
 
 Station "1" *-- "0..*" Borne : bornes
