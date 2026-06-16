@@ -12,6 +12,8 @@ Table utilisateur {
   created_at timestamp [not null]
   last_login timestamp
   failed_attempts integer [not null, default: 0]
+  must_change_password boolean [not null, default: false]
+  password_reset_at timestamp
   is_active boolean [not null, default: true]
   is_staff boolean [not null, default: false]
   is_superuser boolean [not null, default: false]
@@ -23,6 +25,7 @@ Table profil_utilisateur {
   id_user uuid [not null, unique, ref: > utilisateur.id_user]
   nom varchar(100) [not null, default: ""]
   telephone varchar(20) [not null, default: ""]
+  telephone_verifie boolean [not null, default: false]
 }
 
 Table role {
@@ -91,7 +94,8 @@ Table borne {
   id_station uuid [not null, ref: > station.id_station]
   numero integer [not null]
   nom varchar(100) [not null]
-  mqtt_prefix varchar(100) [not null]
+  terminal_code varchar(120) [not null, default: ""]
+  mqtt_prefix varchar(120) [not null, default: ""]
   statut varchar(50) [not null]
   created_at timestamp [not null]
 
@@ -118,6 +122,13 @@ Table device {
   id_emplacement uuid [not null, unique, ref: > emplacement.id_emplacement]
   type_device varchar(50) [not null]
   firmware_version varchar(50) [not null]
+  expected_firmware_version varchar(50) [not null, default: ""]
+  firmware_update_status varchar(50) [not null, default: "unknown"]
+  ota_update_url varchar(200) [not null, default: ""]
+  ota_target_version varchar(50) [not null, default: ""]
+  ota_requested_at timestamp
+  ota_completed_at timestamp
+  ota_last_error varchar(255) [not null, default: ""]
   ip_address inet
   slot_id varchar(50) [not null, default: ""]
   hardware_mac varchar(50) [not null, default: ""]

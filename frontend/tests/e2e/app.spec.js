@@ -655,7 +655,7 @@ test("admin archived reservations are read-only", async ({ page }) => {
   await expect(archivedPanel.getByText("ARCHQR1")).toBeVisible();
   await expect(archivedPanel.getByText(/Archiv/)).toBeVisible();
   await expect(archivedPanel.getByText("Actions")).toHaveCount(0);
-  await expect(archivedPanel.getByRole("button", { name: /Annuler|RÃ©gÃ©nÃ©rer|RÃ©voquer/ })).toHaveCount(0);
+  await expect(archivedPanel.getByRole("button", { name: /Annuler|Régénérer|Révoquer/ })).toHaveCount(0);
 });
 
 test("technician supervision can be filtered by station", async ({ page }) => {

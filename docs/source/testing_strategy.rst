@@ -4,6 +4,9 @@ Stratégie de tests
 Cette page décrit les tests à lancer pendant le développement, les tests
 automatisés existants et les scénarios manuels de recette.
 
+Le plan de tests complet sous forme de tableau est disponible dans
+:doc:`test_plan_table`.
+
 Objectifs
 ---------
 

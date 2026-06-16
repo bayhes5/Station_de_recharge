@@ -25,6 +25,7 @@ https://bayhes5.github.io/Station_de_recharge/
    operations_runbook
    debian_production_deployment
    testing_strategy
+   test_plan_table
    git_github_workflow
    technical_choices
    api_openapi

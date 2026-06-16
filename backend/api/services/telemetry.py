@@ -510,13 +510,13 @@ def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp, 
         elif state not in CHARGING_STATES or session is not None:
             _resolve_alerts_for_device(device, "charge_without_session", timestamp)
     if payload.get("door") is False and state == "charging":
-        triggered_alerts.append(("intrusion", "Boitier ouvert pendant une charge active.", "critique", "door"))
+        triggered_alerts.append(("intrusion", "Boîtier ouvert pendant une charge active.", "critique", "door"))
     if payload.get("intrusion") is True and state == "charging":
-        triggered_alerts.append(("intrusion", "Intrusion detectee pendant une charge active.", "critique", "intrusion"))
+        triggered_alerts.append(("intrusion", "Intrusion détectée pendant une charge active.", "critique", "intrusion"))
     if payload.get("cable") is False and state == "charging":
         triggered_alerts.append(("cable_removed", "Câble retiré pendant une charge active.", "haute", "cable"))
     if payload.get("lock") is False and state == "charging":
-        triggered_alerts.append(("lock_unlocked", "Serrure deverrouillee pendant une charge active.", "critique", "lock"))
+        triggered_alerts.append(("lock_unlocked", "Serrure déverrouillée pendant une charge active.", "critique", "lock"))
 
     temperature = _as_float(payload.get("temperature"))
     overheat_limit = _setting_float("OVERHEAT_ALERT_TEMPERATURE_C", 28.0)
@@ -524,7 +524,7 @@ def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp, 
         triggered_alerts.append(
             (
                 "overheat",
-                f"Température élevée: {temperature:.1f} C, seuil {overheat_limit:.1f} C.",
+                f"Température élevée : {temperature:.1f} C, seuil {overheat_limit:.1f} C.",
                 "haute",
                 "temperature",
             )
@@ -554,7 +554,7 @@ def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp, 
         triggered_alerts.append(
             (
                 "energy_without_session",
-                f"Energie active sans session backend sur {_device_slot_id(device)}: {energy:.3f} kWh.",
+                f"Énergie active sans session backend sur {_device_slot_id(device)} : {energy:.3f} kWh.",
                 "critique",
                 "energy_kwh",
             )
@@ -571,7 +571,7 @@ def _create_alert_if_needed(device: Device, payload: dict[str, Any], timestamp, 
         triggered_alerts.append(
             (
                 "energy_over_limit",
-                f"Energie de session elevee: {energy:.3f} kWh, seuil {session_energy_limit:.3f} kWh.",
+                f"Énergie de session élevée : {energy:.3f} kWh, seuil {session_energy_limit:.3f} kWh.",
                 "haute",
                 "energy_kwh",
             )

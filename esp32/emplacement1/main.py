@@ -1015,7 +1015,7 @@ def safety_check(client, power_sample, environment):
         publish_alert(client, "overcurrent", "Courant trop élevé.")
         accept_stop(client, {"action": "STOP", "command_id": "local-overcurrent"}, "overcurrent")
     elif temperature is not None and temperature > MAX_TEMPERATURE_C:
-        publish_alert(client, "overheat", "Temperature trop elevee.")
+        publish_alert(client, "overheat", "Température trop élevée.")
         accept_stop(client, {"action": "STOP", "command_id": "local-overheat"}, "overheat")
 
 
