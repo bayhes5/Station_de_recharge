@@ -18,7 +18,6 @@ https://bayhes5.github.io/Station_de_recharge/
    raspberry_esp32_contract
    esp32_firmware
    database_mcd
-   uml_class_diagrams
    data_model
    requirements_traceability
    station_supervision
