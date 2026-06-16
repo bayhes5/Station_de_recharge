@@ -48,9 +48,21 @@ Le schéma relationnel est maintenu sous deux formes :
 * une source DBML importable dans dbdiagram.io :
   :download:`station_recharge.dbml <_static/dbdiagram/station_recharge.dbml>`.
 
-Le fichier DBML permet de générer un diagramme visuel propre depuis dbdiagram.io,
-puis d'exporter l'image en SVG ou PNG si une version graphique doit être intégrée
-à la documentation ou au rapport. Les relations principales sont les suivantes :
+Le fichier DBML sert aussi de source au diagramme entités-relations généré pour
+la documentation :
+
+.. image:: _static/dbdiagram/station_recharge_er.png
+   :alt: Diagramme entités-relations de la station de recharge intelligente
+   :align: center
+   :width: 100%
+
+Le rendu PNG peut être régénéré avec :
+
+.. code-block:: powershell
+
+   .\.venv\Scripts\python.exe scripts\generate_er_diagram.py
+
+Les relations principales sont les suivantes :
 
 .. list-table::
    :header-rows: 1
