@@ -1,0 +1,115 @@
+@startuml
+' Generated from docs/source/_static/dbdiagram/station_recharge.dbml
+!pragma layout smetana
+skinparam backgroundColor #F8FAFC
+skinparam dpi 160
+skinparam shadowing false
+skinparam roundcorner 10
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #FFFFFF
+  BorderColor #CBD5E1
+  FontColor #0F172A
+  HeaderBackgroundColor #0F766E
+  HeaderFontColor #FFFFFF
+}
+hide circle
+hide methods
+left to right direction
+
+' Identités et accès
+
+class utilisateur {
+  id_user : uuid <<PK>>
+  --
+  pseudo : varchar(100)
+  email : varchar(254)
+  password : varchar(128)
+  statut : varchar(50)
+  created_at : timestamp
+  last_login : timestamp
+  failed_attempts : integer
+  must_change_password : boolean
+  password_reset_at : timestamp
+  is_active : boolean
+  is_staff : boolean
+  is_superuser : boolean
+  date_joined : timestamp
+}
+
+class profil_utilisateur {
+  id_profil : uuid <<PK>>
+  --
+  id_user : uuid <<FK>>
+  --
+  nom : varchar(100)
+  telephone : varchar(20)
+  telephone_verifie : boolean
+}
+
+class role {
+  id_role : uuid <<PK>>
+  --
+  nom : varchar(50)
+  description : text
+}
+
+class utilisateur_role {
+  --
+  id_user : uuid <<FK>>
+  id_role : uuid <<FK>>
+  --
+  assigned_at : timestamp
+}
+
+class consentement {
+  id_consentement : uuid <<PK>>
+  --
+  id_user : uuid <<FK>>
+  --
+  type : varchar(100)
+  statut : varchar(50)
+  date_consentement : timestamp
+}
+
+class journal_securite {
+  id_log : uuid <<PK>>
+  --
+  id_user : uuid <<FK>>
+  --
+  action : varchar(255)
+  ip : inet
+  statut : varchar(50)
+  date_action : timestamp
+}
+
+class type_auth {
+  id_type : uuid <<PK>>
+  --
+  libelle : varchar(50)
+  factor_level : smallint
+}
+
+class auth_method {
+  id_auth : uuid <<PK>>
+  --
+  id_user : uuid <<FK>>
+  id_type : uuid <<FK>>
+  --
+  secret_hash : text
+  display_value : varchar(255)
+  metadata : jsonb
+  expiration : timestamp
+  is_active : boolean
+  created_at : timestamp
+}
+
+utilisateur "1" -[#047857]- "0..1" profil_utilisateur : profil
+utilisateur "1" -[#047857]- "0..*" utilisateur_role : rôles
+role "1" -[#047857]- "0..*" utilisateur_role : attribution
+utilisateur "1" -[#047857]- "0..*" consentement : consentements
+utilisateur "1" -[#047857]- "0..*" journal_securite : audit
+utilisateur "1" -[#047857]- "0..*" auth_method : moyens d'accès
+type_auth "1" -[#047857]- "0..*" auth_method : classement
+@enduml

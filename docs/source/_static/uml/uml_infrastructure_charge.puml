@@ -1,0 +1,190 @@
+@startuml
+' Generated from docs/source/_static/dbdiagram/station_recharge.dbml
+!pragma layout smetana
+skinparam backgroundColor #F8FAFC
+skinparam dpi 160
+skinparam shadowing false
+skinparam roundcorner 10
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #FFFFFF
+  BorderColor #CBD5E1
+  FontColor #0F172A
+  HeaderBackgroundColor #0F766E
+  HeaderFontColor #FFFFFF
+}
+hide circle
+hide methods
+left to right direction
+
+' Infrastructure, réservation et supervision
+
+class station {
+  id_station : uuid <<PK>>
+  --
+  nom : varchar(100)
+  localisation : varchar(255)
+  latitude : double
+  longitude : double
+  statut : varchar(50)
+  created_at : timestamp
+}
+
+class borne {
+  id_borne : uuid <<PK>>
+  --
+  id_station : uuid <<FK>>
+  --
+  numero : integer
+  nom : varchar(100)
+  terminal_code : varchar(120)
+  mqtt_prefix : varchar(120)
+  statut : varchar(50)
+  created_at : timestamp
+}
+
+class emplacement {
+  id_emplacement : uuid <<PK>>
+  --
+  id_borne : uuid <<FK>>
+  id_station : uuid <<FK>>
+  --
+  numero : integer
+  etat : varchar(50)
+  statut_cadenas : varchar(50)
+}
+
+class device {
+  id_device : uuid <<PK>>
+  --
+  id_emplacement : uuid <<FK>>
+  --
+  type_device : varchar(50)
+  firmware_version : varchar(50)
+  expected_firmware_version : varchar(50)
+  firmware_update_status : varchar(50)
+  ota_update_url : varchar(200)
+  ota_target_version : varchar(50)
+  ota_requested_at : timestamp
+  ota_completed_at : timestamp
+  ota_last_error : varchar(255)
+  ip_address : inet
+  slot_id : varchar(50)
+  hardware_mac : varchar(50)
+  mac_address : varchar(50)
+  last_seen : timestamp
+  status : varchar(50)
+  last_command_id : varchar(100)
+  last_command_action : varchar(20)
+  last_command_status : varchar(50)
+  last_command_message : varchar(255)
+  last_command_at : timestamp
+}
+
+class capteur {
+  id_capteur : uuid <<PK>>
+  --
+  id_device : uuid <<FK>>
+  --
+  type : varchar(50)
+  unite : varchar(20)
+}
+
+class capteur_data {
+  id_data : uuid <<PK>>
+  --
+  id_capteur : uuid <<FK>>
+  --
+  valeur : double
+  timestamp : timestamp
+}
+
+class device_command_log {
+  id_command : uuid <<PK>>
+  --
+  id_device : uuid <<FK>>
+  id_session : uuid <<FK>>
+  --
+  command_id : varchar(100)
+  action : varchar(20)
+  status : varchar(50)
+  message : varchar(255)
+  source : varchar(50)
+  payload : jsonb
+  timestamp : timestamp
+}
+
+class reservation {
+  id_reservation : uuid <<PK>>
+  --
+  id_user : uuid <<FK>>
+  id_emplacement : uuid <<FK>>
+  id_auth : uuid <<FK>>
+  --
+  reference_code : varchar(12)
+  auth_choice : varchar(20)
+  date_debut : timestamp
+  date_fin : timestamp
+  statut : varchar(50)
+}
+
+class charging_session {
+  id_session : uuid <<PK>>
+  --
+  id_reservation : uuid <<FK>>
+  id_emplacement : uuid <<FK>>
+  --
+  start_time : timestamp
+  end_time : timestamp
+  charge_state : varchar(50)
+  charge_state_updated_at : timestamp
+}
+
+class session_telemetry {
+  id_telemetry : uuid <<PK>>
+  --
+  id_session : uuid <<FK>>
+  --
+  courant : double
+  tension : double
+  energie_kwh : double
+  timestamp : timestamp
+}
+
+class alerte {
+  id_alerte : uuid <<PK>>
+  --
+  id_data : uuid <<FK>>
+  id_session : uuid <<FK>>
+  assigned_technician_id : uuid <<FK>>
+  acknowledged_by_id : uuid <<FK>>
+  resolved_by_id : uuid <<FK>>
+  --
+  type : varchar(50)
+  message : text
+  niveau_severite : varchar(50)
+  status : varchar(50)
+  date : timestamp
+  first_seen : timestamp
+  last_seen : timestamp
+  notified_at : timestamp
+  notification_count : int
+  acknowledged_at : timestamp
+  resolved_at : timestamp
+  resolution_note : text
+}
+
+station "1" -[#1d4ed8]- "0..*" borne : contient
+borne "1" -[#1d4ed8]- "0..*" emplacement : contient
+emplacement "1" -[#1d4ed8]- "0..1" device : piloté par
+device "1" -[#1d4ed8]- "0..*" capteur : expose
+capteur "1" -[#1d4ed8]- "0..*" capteur_data : mesure
+device "1" -[#1d4ed8]- "0..*" device_command_log : ACK MQTT
+emplacement "1" -[#b45309]- "0..*" reservation : réservé
+reservation "1" -[#b45309]- "0..1" charging_session : ouvre
+emplacement "1" -[#b45309]- "0..*" charging_session : utilisé
+charging_session "1" -[#b45309]- "0..*" session_telemetry : télémétrie
+charging_session "0..1" -[#b45309]- "0..*" alerte : incident
+capteur_data "0..1" -[#b45309]- "0..*" alerte : déclenche
+@enduml
