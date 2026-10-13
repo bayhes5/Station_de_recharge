@@ -48,7 +48,7 @@ jobs:
         run: ./scripts/summarize-vulnerabilities.ps1
 
       - name: Upload supply chain artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: backend-supply-chain-reports
